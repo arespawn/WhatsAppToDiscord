@@ -38,19 +38,16 @@ const connectToWhatsApp = async (retry = 1) => {
                 await actions.start(true);
                 return;
             }
-            if (retry <= 3) {
-                await controlChannel.send(`WhatsApp connection failed! Trying to reconnect! Retry #${retry}`);
-                await connectToWhatsApp(retry + 1);
-            } else if (retry <= 5) {
-                const delay = (retry - 3) * 10;
-                await controlChannel.send(`WhatsApp connection failed! Waiting ${delay} seconds before trying to reconnect! Retry #${retry}.`);
-                await new Promise((resolve) => { setTimeout(resolve, delay * 1000); });
-                await connectToWhatsApp(retry + 1);
+
+            const delay = Math.min(2 ** (retry - 1) * 5, 300);
+            if (statusCode === 503) {
+                state.logger.warn('WhatsApp servers are unavailable (503).');
+                await controlChannel.send(`WhatsApp servers appear to be down (503). Retrying in ${delay} seconds. Retry #${retry}.`);
             } else {
-                await controlChannel.send('Connection failed 5 times. Please rescan the QR code.');
-                await utils.whatsapp.deleteSession();
-                await actions.start(true);
+                await controlChannel.send(`WhatsApp connection failed${statusCode ? ` with status code ${statusCode}` : ''}. Retrying in ${delay} seconds. Retry #${retry}.`);
             }
+            await new Promise((resolve) => { setTimeout(resolve, delay * 1000); });
+            await connectToWhatsApp(retry + 1);
         } else if (connection === 'open') {
             state.waClient = client;
             // eslint-disable-next-line no-param-reassign

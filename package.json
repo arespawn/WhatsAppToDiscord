@@ -28,7 +28,7 @@
 		"discord.js": "^13.17.1",
 		"jimp": "^1.6.0",
 		"link-preview-js": "^3.2.0",
-		"pino": "^8.21.0",
+		"pino": "^10.3.1",
 		"pino-pretty": "^13.1.2",
 		"qrcode": "^1.5.3",
 		"undici": "^6.23.0"

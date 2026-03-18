@@ -200,6 +200,16 @@ const NEWSLETTER_MEDIA_STANZA_DEBUG_ENABLED =
 	process.env.WA2DC_NEWSLETTER_MEDIA_DEBUG !== "0";
 const NEWSLETTER_IMAGE_NORMALIZATION_MAX_BYTES = 25 * 1024 * 1024;
 const NEWSLETTER_IMAGE_JPEG_MIME_TYPES = new Set(["image/jpeg", "image/jpg"]);
+const WHATSAPP_SAFE_IMAGE_MIME_TYPES = new Set([
+	"image/jpeg",
+	"image/jpg",
+	"image/png",
+]);
+const WHATSAPP_ALPHA_IMAGE_MIME_TYPES = new Set([
+	"image/png",
+	"image/webp",
+	"image/gif",
+]);
 const newsletterLiveUpdatesExpiresAt = new Map();
 const newsletterMediaStanzaDebug = new Map();
 let newsletterImageJimpPromise = null;
@@ -764,6 +774,101 @@ const normalizeNewsletterImageSendContent = async ({
 				sourceMime: normalizedSourceMime || null,
 			},
 			"Failed to normalize newsletter image attachment",
+		);
+		return content;
+	}
+};
+
+const chooseNormalizedImageMimeType = (sourceMime = "") =>
+	WHATSAPP_ALPHA_IMAGE_MIME_TYPES.has(sourceMime)
+		? "image/png"
+		: "image/jpeg";
+
+const normalizeRegularImageSendContentForWhatsApp = async ({
+	attachment,
+	content,
+	jid,
+	discordMessageId,
+} = {}) => {
+	if (isNewsletterJid(jid) || !content?.image) {
+		return content;
+	}
+	const normalizedSourceMime = normalizeMimeType(content?.mimetype);
+	if (
+		!normalizedSourceMime.startsWith("image/") ||
+		WHATSAPP_SAFE_IMAGE_MIME_TYPES.has(normalizedSourceMime)
+	) {
+		return content;
+	}
+	try {
+		const sourceBuffer = await loadNewsletterImageBuffer(content?.image);
+		if (!sourceBuffer?.length) {
+			return content;
+		}
+		const jimp = await getNewsletterImageJimp();
+		if (!jimp) {
+			return {
+				document: sourceBuffer,
+				mimetype: normalizedSourceMime || "application/octet-stream",
+				fileName: attachment?.name || "attachment",
+			};
+		}
+
+		try {
+			const image = await jimp.Jimp.read(sourceBuffer);
+			const outboundMime = chooseNormalizedImageMimeType(normalizedSourceMime);
+			const outboundBuffer =
+				outboundMime === "image/jpeg"
+					? await image.getBuffer("image/jpeg", { quality: 82 })
+					: await image.getBuffer("image/png");
+			const width = toIntegerOrNull(image?.bitmap?.width);
+			const height = toIntegerOrNull(image?.bitmap?.height);
+			const normalizedContent = {
+				...content,
+				image: outboundBuffer,
+				mimetype: outboundMime,
+			};
+			if (width) normalizedContent.width = width;
+			if (height) normalizedContent.height = height;
+			state.logger?.debug?.(
+				{
+					jid,
+					discordMessageId: normalizeBridgeMessageId(discordMessageId),
+					sourceMime: normalizedSourceMime || null,
+					sourceBytes: sourceBuffer.length,
+					outboundBytes: outboundBuffer.length,
+					outboundMime,
+					width,
+					height,
+				},
+				"Normalized Discord image attachment before WhatsApp send",
+			);
+			return normalizedContent;
+		} catch (err) {
+			state.logger?.debug?.(
+				{
+					err,
+					jid,
+					discordMessageId: normalizeBridgeMessageId(discordMessageId),
+					sourceMime: normalizedSourceMime || null,
+				},
+				"Falling back to document send for unsupported Discord image attachment",
+			);
+			return {
+				document: sourceBuffer,
+				mimetype: normalizedSourceMime || "application/octet-stream",
+				fileName: attachment?.name || "attachment",
+			};
+		}
+	} catch (err) {
+		state.logger?.debug?.(
+			{
+				err,
+				jid,
+				discordMessageId: normalizeBridgeMessageId(discordMessageId),
+				sourceMime: normalizedSourceMime || null,
+			},
+			"Failed to pre-normalize Discord image attachment",
 		);
 		return content;
 	}
@@ -3609,6 +3714,12 @@ const connectToWhatsApp = async (retry = 1) => {
 				let doc = utils.whatsapp.createDocumentContent(preparedFile);
 				if (!doc) continue;
 				doc = await normalizeAudioSendContentForWhatsApp({
+					attachment: preparedFile,
+					content: doc,
+					jid: targetJid,
+					discordMessageId: message?.id,
+				});
+				doc = await normalizeRegularImageSendContentForWhatsApp({
 					attachment: preparedFile,
 					content: doc,
 					jid: targetJid,

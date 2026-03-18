@@ -1587,6 +1587,60 @@ test("Regular Discord audio attachments are not forced into ptt mode", async () 
 	}
 });
 
+test("Unsupported Discord image attachments fall back to WhatsApp document sends", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	try {
+		utils.whatsapp.createDocumentContent = (attachment) => ({
+			image: { url: attachment.url },
+			mimetype: attachment.contentType,
+		});
+
+		const unsupportedImageUrl =
+			"data:image/avif;base64,AAECAwQFBgcICQoLDA0ODw==";
+
+		harness.fakeClient.ev.emit("discordMessage", {
+			jid: "120363123456789@s.whatsapp.net",
+			forwardContext: null,
+			message: {
+				id: "dc-unsupported-image",
+				content: "",
+				cleanContent: "",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				attachments: new Map([
+					[
+						"attachment-1",
+						{
+							id: "attachment-1",
+							url: unsupportedImageUrl,
+							name: "upload.avif",
+							contentType: "image/avif",
+						},
+					],
+				]),
+				stickers: new Map(),
+				embeds: [],
+				mentions: { users: new Map(), members: new Map(), roles: new Map() },
+			},
+		});
+
+		const sent = await waitFor(() => harness.fakeClient.sendCalls.length === 1, {
+			timeoutMs: 1500,
+		});
+
+		assert.equal(sent, true);
+		const sentContent = harness.fakeClient.sendCalls[0]?.content || {};
+		assert.ok(Buffer.isBuffer(sentContent.document));
+		assert.equal(sentContent.mimetype, "image/avif");
+		assert.equal(sentContent.fileName, "upload.avif");
+		assert.equal(sentContent.image, undefined);
+	} finally {
+		harness.cleanup();
+	}
+});
+
 test("Discord replies warn with interpolated message storage size when quoted message is missing", async () => {
 	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
 	const originalLimit = state.settings.lastMessageStorage;

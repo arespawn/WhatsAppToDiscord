@@ -32,6 +32,9 @@ WA2DC can mirror Discord voice-style attachments to WhatsApp voice notes (`ptt`)
 - If `ffmpeg` is not installed, WA2DC still attempts a raw audio send, but some voice uploads may fail on WhatsApp clients.
 - `audio-decode` remains optional and is only needed for waveform generation.
 
+## Why did a Discord image arrive on WhatsApp as a file?
+WA2DC now tries to normalize unsupported Discord image formats before sending them to WhatsApp. If the source format still cannot be decoded safely, the bridge falls back to sending the upload as a regular document so the message is not dropped outright.
+
 ## Can I bridge WhatsApp calls to Discord?
 No. The WhatsApp Web protocol used by the bot does not expose the real-time audio or video streams of a call. Incoming and missed calls are only sent as notifications to Discord, so the bot cannot relay or receive live WhatsApp calls.
 

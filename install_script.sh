@@ -268,10 +268,23 @@ clone_or_update_repo() {
 
 install_dependencies() {
 	log "Installing dependencies with npm ci"
-	(
-		cd "${INSTALL_DIR}"
-		npm ci
-	)
+	local previous_dir
+	previous_dir="$(pwd)"
+	cd "${INSTALL_DIR}"
+	set +e
+	trap - ERR
+	npm ci
+	local status=$?
+	trap 'on_error "$LINENO"' ERR
+	set -e
+	cd "${previous_dir}"
+	if [[ "${status}" -eq 0 ]]; then
+		return
+	fi
+	if [[ "${status}" -eq 137 ]]; then
+		die "npm ci was killed by the OS, usually because the system ran out of memory. Free RAM/add swap and rerun the installer."
+	fi
+	die "npm ci failed with exit code ${status}."
 }
 
 start_app_if_requested() {

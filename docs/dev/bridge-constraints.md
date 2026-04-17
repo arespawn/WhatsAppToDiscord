@@ -64,3 +64,5 @@ Routing may be restricted by deployment settings. Message-flow changes must pres
   optional send-side hardening (ack-aware retry paths and quote fallback behavior) can be enabled with `WA2DC_NEWSLETTER_SPECIAL_FLOW=1`.
   Poll sends to newsletters should still try interactive payload first, then fall back to text on send or ack rejection (commonly ack error `479`).
   Mirror incoming WhatsApp newsletter reactions via `newsletter.reaction` and/or raw `live_updates` notifications, keyed by `server_id`.
+
+When Discord links target forum threads instead of plain channels, resolve routing through the thread target ID while preserving the parent webhook host channel ID for webhook operations and recovery.

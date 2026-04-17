@@ -2,6 +2,11 @@ import fs from "node:fs";
 import * as baileys from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
 import { createDiscordClient } from "./clientFactories.js";
+import {
+	getChatHostChannelId,
+	getChatTargetChannelId,
+	isThreadChatLink,
+} from "./chatLinks.js";
 import groupMetadataCache from "./groupMetadataCache.js";
 import messageStore from "./messageStore.js";
 import {
@@ -50,12 +55,20 @@ const TextBridgeChannelTypes = [
 	"GUILD_TEXT",
 	"GUILD_NEWS",
 ];
+const ThreadBridgeChannelTypes = [
+	ChannelType.PublicThread,
+	ChannelType.AnnouncementThread,
+	"PUBLIC_THREAD",
+	"ANNOUNCEMENT_THREAD",
+];
+const ForumChannelTypes = [ChannelType.GuildForum, "GUILD_FORUM"];
 const ApplicationCommandOptionTypes = {
 	STRING: ApplicationCommandOptionType.String,
 	INTEGER: ApplicationCommandOptionType.Integer,
 	NUMBER: ApplicationCommandOptionType.Number,
 	BOOLEAN: ApplicationCommandOptionType.Boolean,
 	CHANNEL: ApplicationCommandOptionType.Channel,
+	ROLE: ApplicationCommandOptionType.Role,
 	USER: ApplicationCommandOptionType.User,
 };
 
@@ -133,11 +146,81 @@ const resolveDiscordMessageIdForWhatsAppId = (whatsAppMessageId) => {
 const resolveChannelIdForJid = (jid) => {
 	const normalizedJid = utils.whatsapp.formatJid(jid);
 	return (
-		state.chats?.[normalizedJid]?.channelId ||
-		state.chats?.[jid]?.channelId ||
+		getChatTargetChannelId(state.chats?.[normalizedJid]) ||
+		getChatTargetChannelId(state.chats?.[jid]) ||
 		null
 	);
 };
+
+const getDiscordTargetMentionForJid = (jid) => {
+	const targetChannelId =
+		utils.discord.getChatTargetChannelId?.(jid) || resolveChannelIdForJid(jid);
+	return targetChannelId ? `<#${targetChannelId}>` : null;
+};
+
+const getChatModeLabel = (chatLink = {}) =>
+	isThreadChatLink(chatLink) ? "Thread" : "Channel";
+
+const resolveManualLinkTarget = async (channel) => {
+	if (!channel) {
+		return {
+			ok: false,
+			error:
+				"Please choose a regular text/news channel or a forum thread from the configured Discord server.",
+		};
+	}
+
+	if (TextBridgeChannelTypes.includes(channel.type)) {
+		return {
+			ok: true,
+			hostChannel: channel,
+			targetChannel: channel,
+			targetChannelId: channel.id,
+			threadId: null,
+		};
+	}
+
+	if (!ThreadBridgeChannelTypes.includes(channel.type)) {
+		return {
+			ok: false,
+			error:
+				"Only text/news channels or forum threads can be linked to WhatsApp chats.",
+		};
+	}
+
+	const parentId = channel.parentId || channel.parent?.id;
+	const parentChannel =
+		channel.parent || (parentId ? await utils.discord.getChannel(parentId) : null);
+	if (!parentChannel || !ForumChannelTypes.includes(parentChannel.type)) {
+		return {
+			ok: false,
+			error:
+				"WA2DC only supports linking WhatsApp threads to forum threads, not raw text-channel threads.",
+		};
+	}
+
+	return {
+		ok: true,
+		hostChannel: parentChannel,
+		targetChannel: channel,
+		targetChannelId: channel.id,
+		threadId: channel.id,
+	};
+};
+
+const buildChatLinkFromWebhook = (webhook, { threadId = null } = {}) => ({
+	id: webhook.id,
+	type: webhook.type,
+	token: webhook.token,
+	channelId: webhook.channelId,
+	...(threadId ? { threadId } : {}),
+});
+
+const isWebhookSharedAcrossChats = (webhookId, exceptJid = null) =>
+	Object.entries(state.chats || {}).some(
+		([jid, chatLink]) =>
+			jid !== exceptJid && String(chatLink?.id || "") === String(webhookId || ""),
+	);
 
 const requestSafeRestart = async (
 	ctx,
@@ -609,7 +692,7 @@ const resolveForwardSourceChannelId = async (sourceJid) => {
 	if (!sourceJid) return null;
 	const candidates = await collectSourceJidCandidates(sourceJid);
 	for (const candidate of candidates) {
-		const channelId = state.chats?.[candidate]?.channelId;
+		const channelId = getChatTargetChannelId(state.chats?.[candidate]);
 		if (channelId) return channelId;
 	}
 	return null;
@@ -691,7 +774,7 @@ const resolveForwardSourceFromQuote = async (message) => {
 	pushChannelId(sourceChannelId);
 	pushChannelId(cachedByQuotedWaId?.channelId || null);
 	for (const channelId of Object.values(state.chats || {})
-		.map((chat) => chat?.channelId)
+		.map((chat) => getChatTargetChannelId(chat))
 		.filter(Boolean)) {
 		pushChannelId(channelId);
 	}
@@ -861,6 +944,10 @@ class CommandContext {
 		return this.interaction?.options?.getChannel(name);
 	}
 
+	getRoleOption(name) {
+		return this.interaction?.options?.getRole(name);
+	}
+
 	getUserOption(name) {
 		return this.interaction?.options?.getUser(name);
 	}
@@ -875,7 +962,14 @@ const sendWhatsappMessage = async (
 	const files = [];
 	const largeFiles = [];
 	let components = [];
+	const normalizedChannelJid =
+		utils.whatsapp.formatJid(message.channelJid) || message.channelJid;
 	const webhook = await utils.discord.getOrCreateChannel(message.channelJid);
+	const linkedTargetChannelId =
+		getChatTargetChannelId(state.chats?.[normalizedChannelJid]) ||
+		webhook?.wa2dcTargetChannelId ||
+		webhook?.channelId ||
+		null;
 	const avatarURL = message.profilePic || DEFAULT_AVATAR_URL;
 	const mentionIdsRaw = Array.isArray(message?.discordMentions)
 		? message.discordMentions
@@ -1035,7 +1129,7 @@ const sendWhatsappMessage = async (
 			},
 			message.channelJid,
 		);
-		cacheDiscordMessageLocation(dcMessage, webhook.channelId);
+		cacheDiscordMessageLocation(dcMessage, linkedTargetChannelId);
 		if (message.id != null) {
 			state.lastMessages[dcMessage.id] = message.id;
 		}
@@ -1093,7 +1187,7 @@ const sendWhatsappMessage = async (
 				sendArgs,
 				message.channelJid,
 			);
-			cacheDiscordMessageLocation(lastDcMessage, webhook.channelId);
+			cacheDiscordMessageLocation(lastDcMessage, linkedTargetChannelId);
 			const lastDiscordMessageId = normalizeBridgeMessageId(lastDcMessage?.id);
 			if (!lastDiscordMessageId) {
 				state.logger?.warn?.(
@@ -1117,7 +1211,7 @@ const sendWhatsappMessage = async (
 				cacheQuotedWhatsAppMessageLocation({
 					whatsAppMessageId: waId,
 					discordMessageId: lastDiscordMessageId,
-					fallbackChannelId: webhook.channelId,
+					fallbackChannelId: linkedTargetChannelId,
 				});
 			}
 			if (i === 0) {
@@ -1206,17 +1300,28 @@ client.on("ready", async () => {
 	await registerSlashCommands();
 });
 
+const removeDeletedLinkedChannel = (channel) => {
+	const targetJids = utils.discord.channelIdToJids?.(channel?.id) || [];
+	const hostJids = utils.discord.hostChannelIdToJids?.(channel?.id) || [];
+	for (const jid of [...new Set([...targetJids, ...hostJids])]) {
+		delete state.chats[jid];
+		delete state.goccRuns[jid];
+	}
+};
+
 client.on("channelDelete", async (channel) => {
 	if (channel.id === state.settings.ControlChannelID) {
 		controlChannel = await utils.discord.getControlChannel();
 	} else {
-		const jid = utils.discord.channelIdToJid(channel.id);
-		delete state.chats[jid];
-		delete state.goccRuns[jid];
+		removeDeletedLinkedChannel(channel);
 		state.settings.Categories = state.settings.Categories.filter(
 			(id) => channel.id !== id,
 		);
 	}
+});
+
+client.on("threadDelete", (thread) => {
+	removeDeletedLinkedChannel(thread);
 });
 
 const WA_TYPING_IDLE_MS = 12_000;
@@ -1465,7 +1570,7 @@ client.on("whatsappRead", async ({ id, jid }) => {
 	if (!allowsWhatsAppToDiscord() || !state.settings.ReadReceipts) {
 		return;
 	}
-	const channelId = state.chats[jid]?.channelId;
+	const channelId = getChatTargetChannelId(state.chats[jid]);
 	const messageId = state.lastMessages[id];
 	if (!channelId || !messageId || deliveredMessages.has(messageId)) {
 		return;
@@ -1627,7 +1732,7 @@ client.on("whatsappPin", async ({ jid, key, pinned }) => {
 	if (!allowsWhatsAppToDiscord()) {
 		return;
 	}
-	const channelId = state.chats[jid]?.channelId;
+	const channelId = getChatTargetChannelId(state.chats[jid]);
 	const dcMessageId = state.lastMessages[key.id];
 	if (!channelId || !dcMessageId) {
 		return;
@@ -2092,6 +2197,9 @@ const commandHandlers = {
 
 			const name = utils.whatsapp.jidToName(jid);
 			const displayJid = utils.whatsapp.formatJidForDisplay(jid) || jid;
+			const chatLink = state.chats?.[jid] || {};
+			const targetMention = getDiscordTargetMentionForJid(jid);
+			const mode = getChatModeLabel(chatLink);
 			const type =
 				jid === "status@broadcast"
 					? "Status"
@@ -2101,9 +2209,17 @@ const commandHandlers = {
 							? "Newsletter"
 							: "DM";
 
-			await ctx.reply(
-				`Linked chat: **${name}**\nJID: \`${displayJid}\`\nType: ${type}`,
-			);
+			const lines = [
+				`Linked chat: **${name}**`,
+				`JID: \`${displayJid}\``,
+				`Type: ${type}`,
+				`Discord target: ${targetMention || "Unknown"}`,
+				`Link mode: ${mode}`,
+			];
+			if (isThreadChatLink(chatLink)) {
+				lines.push(`Host forum: <#${getChatHostChannelId(chatLink)}>`);
+			}
+			await ctx.reply(lines.join("\n"));
 		},
 	},
 	pairwithcode: {
@@ -2165,9 +2281,13 @@ const commandHandlers = {
 				}
 			}
 
-			const channelMention = webhook.channelId
-				? `<#${webhook.channelId}>`
-				: "the linked channel";
+			const channelMention =
+				getDiscordTargetMentionForJid(utils.whatsapp.formatJid(jid) || jid) ||
+				(webhook?.wa2dcTargetChannelId
+					? `<#${webhook.wa2dcTargetChannelId}>`
+					: webhook?.channelId
+						? `<#${webhook.channelId}>`
+						: "the linked channel");
 			await ctx.reply(`Started a conversation in ${channelMention}.`);
 		},
 	},
@@ -2253,9 +2373,13 @@ const commandHandlers = {
 				state.settings.Whitelist.push(newsletterJid);
 			}
 
-			const channelMention = webhook.channelId
-				? `<#${webhook.channelId}>`
-				: "the linked channel";
+			const channelMention =
+				getDiscordTargetMentionForJid(newsletterJid) ||
+				(webhook?.wa2dcTargetChannelId
+					? `<#${webhook.wa2dcTargetChannelId}>`
+					: webhook?.channelId
+						? `<#${webhook.channelId}>`
+						: "the linked channel");
 			await ctx.reply(
 				`Created newsletter \`${formatNewsletterJidForReply(newsletterJid)}\` and linked it to ${channelMention}.`,
 			);
@@ -2939,7 +3063,7 @@ const commandHandlers = {
 				state.lastMessages,
 			);
 			const linkedChannelId = targetJid
-				? state.chats?.[targetJid]?.channelId || null
+				? getChatTargetChannelId(state.chats?.[targetJid]) || null
 				: null;
 			const pendingByDiscordId = getPendingNewsletterSend({
 				jid: targetJid || null,
@@ -3576,6 +3700,145 @@ const commandHandlers = {
 			await ctx.reply(`Default pin duration set to ${choice}.`);
 		},
 	},
+	defaultchat: {
+		description: "Choose whether new WhatsApp chats are created as channels or threads.",
+		options: [
+			{
+				name: "mode",
+				description: "Default Discord target type for new WhatsApp chats.",
+				type: ApplicationCommandOptionTypes.STRING,
+				required: true,
+				choices: [
+					{ name: "Channel", value: "channel" },
+					{ name: "Thread", value: "thread" },
+				],
+			},
+		],
+		async execute(ctx) {
+			const mode = ctx.getStringOption("mode");
+			if (!["channel", "thread"].includes(mode || "")) {
+				await ctx.reply("Choose either `channel` or `thread`.");
+				return;
+			}
+			state.settings.DefaultChatType = mode;
+			await storage.saveSettings().catch(() => {});
+			await ctx.reply(
+				mode === "thread"
+					? "Default chat mode set to `thread`. New WhatsApp chats will be created as forum threads under managed `whatsapp-threads` channels."
+					: "Default chat mode set to `channel`. New WhatsApp chats will keep using regular Discord channels.",
+			);
+		},
+	},
+	threadnotifications: {
+		description: "Toggle the one-time notification post when WA2DC creates a new WhatsApp thread.",
+		options: [
+			{
+				name: "enabled",
+				description: "Whether new WA-created threads should ping configured users/roles.",
+				type: ApplicationCommandOptionTypes.BOOLEAN,
+				required: true,
+			},
+		],
+		async execute(ctx) {
+			const enabled = Boolean(ctx.getBooleanOption("enabled"));
+			state.settings.ThreadNotificationsEnabled = enabled;
+			await storage.saveSettings().catch(() => {});
+			await ctx.reply(
+				`Thread creation notifications are ${enabled ? "enabled" : "disabled"}.`,
+			);
+		},
+	},
+	threadtargets: {
+		description:
+			"Manage which Discord users/roles are pinged when WA2DC creates a new WhatsApp thread.",
+		options: [
+			{
+				name: "action",
+				description: "Add, remove, or list configured thread-notification targets.",
+				type: ApplicationCommandOptionTypes.STRING,
+				required: true,
+				choices: [
+					{ name: "Add", value: "add" },
+					{ name: "Remove", value: "remove" },
+					{ name: "List", value: "list" },
+				],
+			},
+			{
+				name: "user",
+				description: "Discord user to notify on new thread creation.",
+				type: ApplicationCommandOptionTypes.USER,
+				required: false,
+			},
+			{
+				name: "role",
+				description: "Discord role to notify on new thread creation.",
+				type: ApplicationCommandOptionTypes.ROLE,
+				required: false,
+			},
+		],
+		async execute(ctx) {
+			const action = ctx.getStringOption("action");
+			const user = ctx.getUserOption("user");
+			const role = ctx.getRoleOption("role");
+
+			if (action === "list") {
+				const roleTargets = [...new Set(state.settings.ThreadNotificationRoles || [])];
+				const userTargets = [...new Set(state.settings.ThreadNotificationUsers || [])];
+				await ctx.reply(
+					[
+						`Thread notifications: ${state.settings.ThreadNotificationsEnabled ? "enabled" : "disabled"}`,
+						`Roles: ${roleTargets.length ? roleTargets.map((id) => `<@&${id}>`).join(", ") : "(none)"}`,
+						`Users: ${userTargets.length ? userTargets.map((id) => `<@${id}>`).join(", ") : "(none)"}`,
+					].join("\n"),
+				);
+				return;
+			}
+
+			if (!["add", "remove"].includes(action || "")) {
+				await ctx.reply("Choose `add`, `remove`, or `list`.");
+				return;
+			}
+			if (Boolean(user) === Boolean(role)) {
+				await ctx.reply(
+					"Choose exactly one target: either `user` or `role`.",
+				);
+				return;
+			}
+
+			const isRoleTarget = Boolean(role);
+			const targetId = String(role?.id || user?.id || "");
+			const targetLabel = isRoleTarget ? `<@&${targetId}>` : `<@${targetId}>`;
+			const list = isRoleTarget
+				? (state.settings.ThreadNotificationRoles ??= [])
+				: (state.settings.ThreadNotificationUsers ??= []);
+			const alreadyConfigured = list.includes(targetId);
+
+			if (action === "add") {
+				if (alreadyConfigured) {
+					await ctx.reply(`${targetLabel} is already configured.`);
+					return;
+				}
+				list.push(targetId);
+				await storage.saveSettings().catch(() => {});
+				await ctx.reply(`Added ${targetLabel} to thread notifications.`);
+				return;
+			}
+
+			if (!alreadyConfigured) {
+				await ctx.reply(`${targetLabel} is not configured.`);
+				return;
+			}
+			if (isRoleTarget) {
+				state.settings.ThreadNotificationRoles =
+					state.settings.ThreadNotificationRoles.filter((id) => id !== targetId);
+			} else {
+				state.settings.ThreadNotificationUsers =
+					state.settings.ThreadNotificationUsers.filter((id) => id !== targetId);
+			}
+			await storage.saveSettings().catch(() => {});
+			await ctx.reply(`Removed ${targetLabel} from thread notifications.`);
+		},
+	},
 	link: {
 		description: "Link a WhatsApp chat to an existing channel.",
 		options: [
@@ -3623,11 +3886,9 @@ const commandHandlers = {
 				);
 				return;
 			}
-
-			if (!TextBridgeChannelTypes.includes(channel.type)) {
-				await ctx.reply(
-					"Only text channels can be linked. Please choose a text channel.",
-				);
+			const targetInfo = await resolveManualLinkTarget(channel);
+			if (!targetInfo.ok) {
+				await ctx.reply(targetInfo.error);
 				return;
 			}
 
@@ -3638,7 +3899,9 @@ const commandHandlers = {
 				return;
 			}
 
-			const existingJid = utils.discord.channelIdToJid(channel.id);
+			const existingJid = utils.discord.channelIdToJid(
+				targetInfo.targetChannelId,
+			);
 			const forcedTakeover = Boolean(
 				existingJid && existingJid !== normalizedJid && force,
 			);
@@ -3659,13 +3922,9 @@ const commandHandlers = {
 
 			let webhook;
 			try {
-				const webhooks = await channel.fetchWebhooks();
-				webhook = webhooks.find(
-					(hook) => hook.token && hook.owner?.id === client.user.id,
+				webhook = await utils.discord.getOrCreateOwnedWebhook(
+					targetInfo.hostChannel,
 				);
-				if (!webhook) {
-					webhook = await channel.createWebhook({ name: "WA2DC" });
-				}
 			} catch (err) {
 				state.logger?.error(err);
 				await ctx.reply(
@@ -3675,18 +3934,14 @@ const commandHandlers = {
 			}
 
 			const previousChat = state.chats[normalizedJid];
-			const previousChannelId = previousChat?.channelId;
+			const previousHostChannelId = getChatHostChannelId(previousChat);
 			const previousRun = state.goccRuns[normalizedJid];
-			state.chats[normalizedJid] = {
-				id: webhook.id,
-				type: webhook.type,
-				token: webhook.token,
-				channelId: webhook.channelId,
-			};
+			state.chats[normalizedJid] = buildChatLinkFromWebhook(webhook, {
+				threadId: targetInfo.threadId,
+			});
 			delete state.goccRuns[normalizedJid];
 
 			try {
-				await utils.discord.getOrCreateChannel(normalizedJid);
 				await storage.save();
 			} catch (err) {
 				state.logger?.error(err);
@@ -3715,13 +3970,14 @@ const commandHandlers = {
 			}
 
 			if (
-				previousChannelId &&
-				previousChannelId !== channel.id &&
-				previousChat?.id
+				previousHostChannelId &&
+				previousHostChannelId !== webhook.channelId &&
+				previousChat?.id &&
+				!isWebhookSharedAcrossChats(previousChat.id, normalizedJid)
 			) {
 				try {
 					const previousChannel =
-						await utils.discord.getChannel(previousChannelId);
+						await utils.discord.getChannel(previousHostChannelId);
 					const previousWebhooks = await previousChannel?.fetchWebhooks();
 					const previousWebhook =
 						previousWebhooks?.get(previousChat.id) ||
@@ -3736,7 +3992,7 @@ const commandHandlers = {
 				? ` (overrode the previous link to \`${utils.whatsapp.jidToName(existingJid)}\`).`
 				: ".";
 			await ctx.reply(
-				`Linked ${channel} with \`${utils.whatsapp.jidToName(normalizedJid)}\`${forcedSuffix}`,
+				`Linked <#${targetInfo.targetChannelId}> with \`${utils.whatsapp.jidToName(normalizedJid)}\`${forcedSuffix}`,
 			);
 		},
 	},
@@ -3801,10 +4057,9 @@ const commandHandlers = {
 				return;
 			}
 
-			if (!TextBridgeChannelTypes.includes(target.type)) {
-				await ctx.reply(
-					"Only text or announcement channels can be targets. Please choose a different channel.",
-				);
+			const targetInfo = await resolveManualLinkTarget(target);
+			if (!targetInfo.ok) {
+				await ctx.reply(targetInfo.error);
 				return;
 			}
 
@@ -3817,7 +4072,9 @@ const commandHandlers = {
 				return;
 			}
 
-			const existingTargetJid = utils.discord.channelIdToJid(target.id);
+			const existingTargetJid = utils.discord.channelIdToJid(
+				targetInfo.targetChannelId,
+			);
 			const forcedTakeover = Boolean(
 				existingTargetJid && existingTargetJid !== normalizedJid && force,
 			);
@@ -3838,13 +4095,9 @@ const commandHandlers = {
 
 			let webhook;
 			try {
-				const webhooks = await target.fetchWebhooks();
-				webhook = webhooks.find(
-					(hook) => hook.token && hook.owner?.id === client.user.id,
+				webhook = await utils.discord.getOrCreateOwnedWebhook(
+					targetInfo.hostChannel,
 				);
-				if (!webhook) {
-					webhook = await target.createWebhook({ name: "WA2DC" });
-				}
 			} catch (err) {
 				state.logger?.error(err);
 				if (forcedTakeover) {
@@ -3862,17 +4115,14 @@ const commandHandlers = {
 			}
 
 			const previousChat = state.chats[normalizedJid];
+			const previousHostChannelId = getChatHostChannelId(previousChat);
 			const previousRun = state.goccRuns[normalizedJid];
-			state.chats[normalizedJid] = {
-				id: webhook.id,
-				type: webhook.type,
-				token: webhook.token,
-				channelId: webhook.channelId,
-			};
+			state.chats[normalizedJid] = buildChatLinkFromWebhook(webhook, {
+				threadId: targetInfo.threadId,
+			});
 			delete state.goccRuns[normalizedJid];
 
 			try {
-				await utils.discord.getOrCreateChannel(normalizedJid);
 				await storage.save();
 			} catch (err) {
 				state.logger?.error(err);
@@ -3901,13 +4151,14 @@ const commandHandlers = {
 			}
 
 			if (
-				previousChat?.channelId &&
-				previousChat.channelId !== webhook.channelId &&
-				previousChat.id
+				previousHostChannelId &&
+				previousHostChannelId !== webhook.channelId &&
+				previousChat?.id &&
+				!isWebhookSharedAcrossChats(previousChat.id, normalizedJid)
 			) {
 				try {
 					const previousChannel = await utils.discord.getChannel(
-						previousChat.channelId,
+						previousHostChannelId,
 					);
 					const previousWebhooks = await previousChannel?.fetchWebhooks();
 					const previousWebhook =
@@ -3923,7 +4174,7 @@ const commandHandlers = {
 				? ` (overrode the previous link to \`${utils.whatsapp.jidToName(existingTargetJid)}\`).`
 				: ".";
 			await ctx.reply(
-				`Moved \`${utils.whatsapp.jidToName(normalizedJid)}\` from ${source} to ${target}${forcedSuffix}`,
+				`Moved \`${utils.whatsapp.jidToName(normalizedJid)}\` from <#${source.id}> to <#${targetInfo.targetChannelId}>${forcedSuffix}`,
 			);
 		},
 	},

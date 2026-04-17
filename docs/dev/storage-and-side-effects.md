@@ -14,6 +14,10 @@ Startup automatically migrates legacy files (`storage/settings`, `storage/chats`
 Settings defaults come from `src/state.js`, while persisted values are loaded/merged by `src/storage.js`.
 Optional encryption-at-rest is enabled by `WA2DC_DB_PASSPHRASE`; passphrase handling is implemented in `src/persistence/sqliteStore.js`.
 
+Chat-link records in persisted `chats` state now store the webhook host `channelId` plus an optional `threadId` for thread-mode links.
+Legacy channel-only records must continue to load without migration steps.
+Thread-mode settings such as `DefaultChatType`, `ThreadNotificationsEnabled`, `ThreadNotificationRoles`, and `ThreadNotificationUsers` are regular persisted settings and must keep backward-compatible defaults.
+
 ## Runtime artifacts
 
 The app creates/uses these files in the working directory:

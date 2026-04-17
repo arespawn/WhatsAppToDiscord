@@ -5,6 +5,7 @@ import readline from "node:readline";
 import { BufferJSON } from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
 import { createDiscordClient } from "./clientFactories.js";
+import { normalizeChatLinks } from "./chatLinks.js";
 import sqliteStore from "./persistence/sqliteStore.js";
 import state from "./state.js";
 
@@ -53,6 +54,17 @@ const existsAs = async (targetPath, type) => {
 	} catch {
 		return false;
 	}
+};
+
+const normalizeDiscordIdArray = (value) => {
+	if (!Array.isArray(value)) return [];
+	return [...new Set(value.map(sanitizeDiscordId).filter(Boolean))];
+};
+
+const sanitizeDiscordId = (value) => {
+	if (value == null) return null;
+	const trimmed = String(value).trim();
+	return /^\d+$/.test(trimmed) ? trimmed : null;
 };
 
 const movePath = async (from, to) => {
@@ -308,6 +320,21 @@ const storage = {
 				}
 			}
 
+			if (parsed.DefaultChatType !== "thread") {
+				parsed.DefaultChatType = "channel";
+			}
+			if (Object.hasOwn(parsed, "ThreadNotificationsEnabled")) {
+				parsed.ThreadNotificationsEnabled = Boolean(
+					parsed.ThreadNotificationsEnabled,
+				);
+			}
+			parsed.ThreadNotificationRoles = normalizeDiscordIdArray(
+				parsed.ThreadNotificationRoles,
+			);
+			parsed.ThreadNotificationUsers = normalizeDiscordIdArray(
+				parsed.ThreadNotificationUsers,
+			);
+
 			const settings = Object.assign(state.settings, parsed);
 			if (settings.Token === "") return setup.firstRun();
 			return settings;
@@ -319,7 +346,7 @@ const storage = {
 	async parseChats() {
 		await this.ensureInitialized();
 		const result = sqliteStore.getAppState(this._chatsName);
-		return result ? JSON.parse(result) : {};
+		return result ? normalizeChatLinks(JSON.parse(result)) : {};
 	},
 
 	async parseContacts() {

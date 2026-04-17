@@ -73,7 +73,11 @@ test("one-time migration imports legacy JSON + Baileys files into SQLite and cre
 		const lastMessages = await storage.parseLastMessages();
 
 		assert.equal(settings.Token, "TOK");
-		assert.deepEqual(chats, { "123@s.whatsapp.net": "chan-1" });
+		assert.deepEqual(chats, {
+			"123@s.whatsapp.net": {
+				channelId: "chan-1",
+			},
+		});
 		assert.deepEqual(contacts, { "123@s.whatsapp.net": "Alice" });
 		assert.equal(startTime, 1712345678);
 		assert.equal(lastMessages.dc1, "wa1");

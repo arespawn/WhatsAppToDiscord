@@ -11,20 +11,34 @@ Request a pairing code for a specific phone number.
 Usage: `/pairwithcode number:<E.164 phone number>`
 
 ### `/chatinfo`
-Show which WhatsApp chat the current channel is linked to (JID + type).  
+Show which WhatsApp chat the current channel/thread is linked to (JID + type), plus the Discord target mode.  
 Usage: `/chatinfo`
 
 ### `/start`
-Create a brand-new WhatsApp conversation and channel link.  
+Create a brand-new WhatsApp conversation and link it using the current default chat mode (`channel` or `thread`).  
 Usage: `/start contact:<phone number or saved contact name>`
 
+### `/defaultchat`
+Choose whether new WhatsApp chats are created as regular Discord channels or as forum threads under managed `whatsapp-threads` channels.  
+Usage: `/defaultchat mode:<channel|thread>`
+
+### `/threadnotifications`
+Toggle the one-time notification post WA2DC sends when it creates a new WhatsApp thread.  
+Usage: `/threadnotifications enabled:<true|false>`
+
+### `/threadtargets`
+Manage which Discord roles/users are pinged when WA2DC creates a new WhatsApp thread. This is the single add/remove/list command for thread notification targets.  
+Usage: `/threadtargets action:<add|remove|list> user:<optional @user> role:<optional @role>`  
+Pick exactly one of `user` or `role` when using `add` or `remove`.
+
 ### `/link`
-Link an existing Discord text/news channel to an existing WhatsApp chat without creating anything new.  
+Link an existing Discord text/news channel or forum thread to an existing WhatsApp chat without creating anything new.  
 Usage: `/link contact:<name or number> channel:<#channel> force:<true|false>`  
-Enable `force` to override a channel that is already linked to another chat.
+Enable `force` to override a channel/thread that is already linked to another chat.  
+Note: thread targets must be forum threads; WA2DC does not support linking raw text-channel threads.
 
 ### `/move`
-Move an existing WhatsApp link (and webhook) from one channel to another.  
+Move an existing WhatsApp link (and webhook) from one Discord target to another.  
 Usage: `/move from:<#current-channel> to:<#new-channel> force:<true|false>`
 
 ### `/list`
@@ -39,6 +53,13 @@ Notes: Poll messages and live vote updates are mirrored to Discord, voting can o
 ### `/setpinduration`
 Set the default expiration time (24h, 7d, or 30d) for WhatsApp pins created from Discord.  
 Usage: `/setpinduration duration:<24h|7d|30d>`
+
+Thread mode notes:
+
+- `channel` remains the default for backward compatibility.
+- In `thread` mode, WA2DC creates forum threads under auto-managed forum channels named `whatsapp-threads`, `whatsapp-threads-2`, and so on.
+- Existing channel links continue working unchanged after you switch the default.
+- Thread notification pings are sent only once when the thread is first created, never on every mirrored message.
 
 ### Newsletters
 

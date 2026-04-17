@@ -13,6 +13,7 @@ import {
 	getKeyAuthor,
 } from "@whiskeysockets/baileys/lib/Utils/generics.js";
 import { decryptPollVote } from "@whiskeysockets/baileys/lib/Utils/process-message.js";
+import { getChatTargetChannelId } from "./chatLinks.js";
 import useSQLiteAuthState from "./auth/sqliteAuthState.js";
 import { createWhatsAppClient, getBaileysVersion } from "./clientFactories.js";
 import groupMetadataCache from "./groupMetadataCache.js";
@@ -1955,7 +1956,7 @@ const cloneNewsletterSendContentWithReplyFallback = (
 };
 
 const notifyLinkedDiscordChannel = async (jid, text) => {
-	const channelId = state.chats[jid]?.channelId;
+	const channelId = getChatTargetChannelId(state.chats[jid]);
 	if (!channelId || !text) return;
 	const channel = await utils.discord.getChannel(channelId).catch(() => null);
 	await channel?.send?.(text).catch(() => {});

@@ -1,4 +1,5 @@
 import {
+	Browsers,
 	DisconnectReason,
 	generateWAMessageFromContent,
 	getAggregateVotesInPollMessage,
@@ -2914,7 +2915,7 @@ const connectToWhatsApp = async (retry = 1) => {
 
 			return stored.message || stored;
 		},
-		browser: ["Firefox (Linux)", "", ""],
+		browser: Browsers.android('13'),
 	});
 	client.contacts = state.contacts;
 	patchSendMessageForLinkPreviews(client);

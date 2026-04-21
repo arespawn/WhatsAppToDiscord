@@ -1,5 +1,5 @@
-import esbuild from "esbuild";
 import fs from "node:fs";
+import esbuild from "esbuild";
 
 const BUNDLE_EXTERNALS = ["sharp"];
 const ESM_REQUIRE_BANNER =

@@ -1,6 +1,6 @@
 {
 	"name": "wa2dc",
-	"version": "2.3.2",
+	"version": "2.4.0-alpha.0",
 	"description": "WhatsAppToDiscord is a Discord bot that uses WhatsApp Web as a bridge between Discord and WhatsApp",
 	"type": "module",
 	"main": "src/runner.js",
@@ -8,7 +8,7 @@
 		"start": "node src/runner.js",
 		"docs": "npx -y docsify-cli@4.4.4 serve docs",
 		"bundle": "esbuild src/runner.js --bundle --platform=node --format=esm --external:sharp --external:qrcode-terminal --external:link-preview-js --target=node24 --banner:js=\"import { createRequire as __esbuildCreateRequire } from 'module'; const require = __esbuildCreateRequire(import.meta.url);\" --outfile=out.js",
-		"bundle:pkg": "esbuild src/runner.js --bundle --platform=node --format=cjs --external:sharp --external:qrcode-terminal --external:link-preview-js --target=node24 --outfile=out.cjs",
+		"bundle:pkg": "node scripts/buildPkgBundle.js",
 		"build:bin": "node scripts/buildBinary.js",
 		"build:bin:smoke": "node scripts/buildBinary.js --smoke",
 		"test": "node --test",

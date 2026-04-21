@@ -21,10 +21,10 @@ CI executes the following on `ubuntu-latest`, `macos-latest`, and `windows-lates
 
 ## Packaging model
 
-Release pipeline builds packaged binaries from a pkg-safe CJS bundle:
+Release pipeline builds packaged binaries from an ESM runtime bundle plus a pkg-safe CJS bootstrap:
 
 - esbuild bundles `src/runner.js` to `out.js` (ESM) for Node smoke checks
-- esbuild bundles `src/runner.js` to `out.cjs` (CJS) for pkg
+- esbuild also bundles `src/runner.js` to `out.js` (ESM) for pkg, then writes `out.cjs` as a tiny bootstrap that dynamically imports `out.js`
 - `pkg` produces platform binaries from `out.cjs` with `--no-bytecode`
 - packaged builds also stage `build/runtime/` as a sidecar for runtime-only media dependencies (`sharp`, `canvas`, `jsdom`, `lottie-web`) so native image normalization and Discord sticker rendering remain available in packaged runtimes
 - release builds publish a signed `${binary}.runtime.tar.gz` archive for each packaged binary so `/update` can refresh the sidecar automatically
@@ -36,6 +36,7 @@ Release pipeline builds packaged binaries from a pkg-safe CJS bundle:
 When adding/changing dependencies, verify:
 
 - esbuild can bundle the runtime entry successfully
+- ESM-only dependencies, including packages that use top-level `await`, stay on the ESM side of the pkg boundary (`out.js`) instead of being forced into a bundled CJS entry
 - pkg can resolve/load any runtime assets
 - dynamic fs/native addon behavior is explicitly handled when required
 - packaged releases keep the executable and `runtime/` sidecar together; moving the binary without its sidecar can disable native modules such as `sharp` or the Discord sticker renderer stack

@@ -49,11 +49,14 @@ This repository currently pins the published npm package `@whiskeysockets/bailey
 
 - Local Identifiers (LIDs) are now preferred over PN-based JIDs. The bot listens for `lid-mapping.update` events, migrates stored chats/whitelists as WhatsApp reveals PN↔LID pairs, and always talks to the chat using the identifier WhatsApp considers canonical.
 - WA2DC applies a small postinstall patch for upstream PR 2201 so `Browsers.android('13')` remains available while running rc10.
+- When WA2DC sees registered WhatsApp auth without a matching saved browser-profile marker, it clears only the WhatsApp auth state and asks you to pair again. This prevents older web-profile sessions from being reused blindly under the Android browser profile.
+- WA2DC also keeps rc10 reconnects on the initial-sync wait path instead of immediately flushing buffered events when `accountSyncCounter > 0`; this avoids a packaged-startup heap spike seen after switching existing sessions to the Android browser profile.
 - The Signal auth store seeds the newly required `lid-mapping`, `tctoken`, `device-list`, and `device-index` namespaces so rc10 can write those blobs safely.
 
 **Common issues & workarounds**
 
 - **Duplicate Discord channels after the LID migration** – If a conversation suddenly starts flowing into a brand-new Discord channel, re-link it back to the original room via the control channel (`link --force <contact> #old-channel`) rather than editing files on disk. The bot will create a webhook inside the existing channel, clean up the stray webhook, and update its saved metadata. If you prefer to move the webhook that already exists in the duplicate channel, run `move #duplicate-channel #old-channel --force` so the bot reuses that webhook and deletes the redundant channel mapping for you.
+- **`restartRequired (515)` after QR/pairing** – WhatsApp can request a socket restart immediately after pairing. WA2DC saves the current Baileys creds and reconnects with a short status message instead of treating this as a generic failed connection. Disconnect logging is bounded so large Baileys protocol payloads do not inflate `terminal.log`.
 - **Repeated "Connection was lost" logs** – WhatsApp occasionally drops the socket with timeout errors. The bot now keeps retrying with exponential backoff instead of deleting the session, so expect control-channel status messages while it reconnects. If the retries never succeed, rescan the QR code to refresh the session.
 - **Startup fails with encrypted DB/passphrase errors** – If you enabled `WA2DC_DB_PASSPHRASE`, keep using the same passphrase for that `storage/wa2dc.sqlite`. If you lose it, restore from backup and migrate again.
 - **Startup fails during migration** – Check file ownership/permissions under `storage/` and available disk space, then restart. Migration is transactional and won’t partially apply broken auth key writes.

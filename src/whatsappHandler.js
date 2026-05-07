@@ -43,6 +43,7 @@ import {
 } from "./oneWay.js";
 import { getPollEncKey, getPollOptions } from "./pollUtils.js";
 import state from "./state.js";
+import storage from "./storage.js";
 import utils from "./utils.js";
 
 let authState;
@@ -58,6 +59,26 @@ const formatDisconnectReason = (statusCode) => {
 	const label = DisconnectReason[statusCode];
 	return label ? `${label} (${statusCode})` : `code ${statusCode}`;
 };
+const summarizeDisconnectError = (error) => {
+	if (!error) {
+		return { message: "unknown" };
+	}
+	return {
+		message: String(error.message || error),
+		name: typeof error.name === "string" ? error.name : undefined,
+		statusCode:
+			typeof error.output?.statusCode === "number"
+				? error.output.statusCode
+				: typeof error.statusCode === "number"
+					? error.statusCode
+					: undefined,
+		code: error.code,
+		stack:
+			typeof error.stack === "string"
+				? error.stack.split("\n").slice(0, 6).join("\n")
+				: undefined,
+	};
+};
 const getReconnectDelayMs = (retry) => {
 	if (retry <= 3) {
 		return 0;
@@ -66,6 +87,52 @@ const getReconnectDelayMs = (retry) => {
 	const baseDelay = 5000;
 	const maxDelay = 60000;
 	return Math.min(baseDelay * 2 ** (slowAttempt - 1), maxDelay);
+};
+const WHATSAPP_BROWSER_PROFILE_STORAGE_KEY = "whatsapp-browser-profile";
+const CURRENT_WHATSAPP_BROWSER = Browsers.android("13");
+
+export const serializeWhatsAppBrowserProfile = (browser = []) =>
+	Array.isArray(browser) ? browser.map((part) => String(part ?? "")) : [];
+
+export const shouldResetWhatsAppAuthForBrowserProfile = ({
+	creds,
+	storedProfile,
+	currentProfile,
+} = {}) => {
+	if (!creds?.registered) {
+		return false;
+	}
+	if (!Array.isArray(currentProfile) || currentProfile.length === 0) {
+		return false;
+	}
+	if (!Array.isArray(storedProfile) || storedProfile.length === 0) {
+		return true;
+	}
+	return JSON.stringify(storedProfile) !== JSON.stringify(currentProfile);
+};
+
+const readStoredWhatsAppBrowserProfile = async () => {
+	const raw = await storage.get(WHATSAPP_BROWSER_PROFILE_STORAGE_KEY);
+	if (!raw) {
+		return [];
+	}
+	try {
+		const parsed = JSON.parse(raw.toString("utf8"));
+		return serializeWhatsAppBrowserProfile(parsed);
+	} catch (err) {
+		state.logger?.warn(
+			{ err },
+			"Failed to parse stored WhatsApp browser profile.",
+		);
+		return [];
+	}
+};
+
+const saveWhatsAppBrowserProfile = async (browser) => {
+	await storage.upsert(
+		WHATSAPP_BROWSER_PROFILE_STORAGE_KEY,
+		JSON.stringify(serializeWhatsAppBrowserProfile(browser)),
+	);
 };
 
 const getPollCreation = (message = {}) =>
@@ -2950,7 +3017,7 @@ const connectToWhatsApp = async (retry = 1) => {
 
 			return stored.message || stored;
 		},
-		browser: Browsers.android("13"),
+		browser: CURRENT_WHATSAPP_BROWSER,
 	});
 	client.contacts = state.contacts;
 	patchSendMessageForLinkPreviews(client);
@@ -2959,6 +3026,8 @@ const connectToWhatsApp = async (retry = 1) => {
 	const groupRefreshScheduler = createGroupRefreshScheduler({
 		refreshFn: (jid) => refreshGroupMetadata(client, jid),
 	});
+	const credsListener = typeof saveState === "function" ? saveState : () => {};
+	client.ev.on("creds.update", credsListener);
 
 	client.ev.on("connection.update", async (update) => {
 		try {
@@ -2971,10 +3040,15 @@ const connectToWhatsApp = async (retry = 1) => {
 				utils.whatsapp.sendQR(qr);
 			}
 			if (connection === "close") {
-				state.logger.error(lastDisconnect?.error);
 				groupRefreshScheduler.clearAll();
 				groupMetadataCache.clear();
 				const statusCode = lastDisconnect?.error?.output?.statusCode;
+				state.logger.warn(
+					{
+						disconnect: summarizeDisconnectError(lastDisconnect?.error),
+					},
+					"WhatsApp connection closed.",
+				);
 				if (
 					statusCode === DisconnectReason.loggedOut ||
 					statusCode === DisconnectReason.badSession
@@ -2984,6 +3058,21 @@ const connectToWhatsApp = async (retry = 1) => {
 					);
 					await utils.whatsapp.deleteSession();
 					await actions.start(true);
+					return;
+				}
+				if (statusCode === DisconnectReason.restartRequired) {
+					await Promise.resolve(saveState?.()).catch((err) => {
+						state.logger?.warn(
+							{ err },
+							"Failed to save WhatsApp creds before restartRequired reconnect.",
+						);
+					});
+					await sendControlMessage(
+						"WhatsApp pairing restart requested. Reconnecting with the saved session...",
+					);
+					if (!state.shutdownRequested) {
+						await connectToWhatsApp(1);
+					}
 					return;
 				}
 				const delayMs = getReconnectDelayMs(retry);
@@ -3007,6 +3096,14 @@ const connectToWhatsApp = async (retry = 1) => {
 				state.waClient = client;
 
 				retry = 1;
+				await saveWhatsAppBrowserProfile(CURRENT_WHATSAPP_BROWSER).catch(
+					(err) => {
+						state.logger?.warn(
+							{ err },
+							"Failed to persist WhatsApp browser profile.",
+						);
+					},
+				);
 				await sendControlMessage("WhatsApp connection successfully opened!");
 
 				try {
@@ -3028,8 +3125,6 @@ const connectToWhatsApp = async (retry = 1) => {
 			);
 		}
 	});
-	const credsListener = typeof saveState === "function" ? saveState : () => {};
-	client.ev.on("creds.update", credsListener);
 	const contactUpdater = utils.whatsapp.updateContacts.bind(utils.whatsapp);
 	[
 		"chats.set",
@@ -5129,7 +5224,41 @@ const connectToWhatsApp = async (retry = 1) => {
 
 const actions = {
 	async start() {
-		const baileyState = await useSQLiteAuthState();
+		let baileyState = await useSQLiteAuthState();
+		const currentBrowserProfile = serializeWhatsAppBrowserProfile(
+			CURRENT_WHATSAPP_BROWSER,
+		);
+		const storedBrowserProfile = await readStoredWhatsAppBrowserProfile();
+		if (
+			shouldResetWhatsAppAuthForBrowserProfile({
+				creds: baileyState.state?.creds,
+				storedProfile: storedBrowserProfile,
+				currentProfile: currentBrowserProfile,
+			})
+		) {
+			state.logger?.warn(
+				{
+					storedBrowserProfile,
+					currentBrowserProfile,
+				},
+				"WhatsApp browser profile changed; clearing WhatsApp auth state for a fresh pairing.",
+			);
+			await utils.whatsapp.deleteSession();
+			await utils.discord
+				.getControlChannel()
+				.then((channel) =>
+					channel?.send?.(
+						"WhatsApp browser profile changed in this update, so the saved WhatsApp session was reset. Please scan the new QR code or use `/pairwithcode` to pair again.",
+					),
+				)
+				.catch((err) => {
+					state.logger?.debug?.(
+						{ err },
+						"Failed to send WhatsApp browser profile reset notice.",
+					);
+				});
+			baileyState = await useSQLiteAuthState();
+		}
 		await ensureSignalStoreSupport(baileyState.state?.keys);
 		authState = baileyState.state;
 		saveState = baileyState.saveCreds;

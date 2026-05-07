@@ -1047,7 +1047,7 @@ const sendWhatsappMessage = async (
 				msgContent +=
 					"WA2DC Attention: Received a file, but it's over Discord's upload limit. Check WhatsApp on your phone or enable local downloads.";
 			} else {
-				files.push(message.quote.file);
+				files.push(utils.discord.ensureSpoilerFileName(message.quote.file));
 			}
 		}
 	} else {
@@ -1061,7 +1061,7 @@ const sendWhatsappMessage = async (
 			msgContent +=
 				"WA2DC Attention: Received a file, but it's over Discord's upload limit. Check WhatsApp on your phone or enable local downloads.";
 		} else if (file !== -1) {
-			files.push(file);
+			files.push(utils.discord.ensureSpoilerFileName(file));
 		}
 	}
 

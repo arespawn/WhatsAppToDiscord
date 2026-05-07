@@ -9,7 +9,7 @@ All bot controls now run exclusively through Discord slash commands. Type `/` in
 ### `/pairwithcode`
 Request a pairing code for a specific phone number.  
 Usage: `/pairwithcode phone:<E.164 phone number>`  
-Note: `phone` can include a leading `+`, spaces, dashes, dots, or parentheses; WA2DC normalizes it before requesting the pairing code.
+Note: `phone` can include a leading `+`, spaces, dashes, dots, or parentheses; WA2DC normalizes it before requesting the pairing code. Run this while WhatsApp is showing a QR/pairing prompt; pairing codes are only valid before the WhatsApp socket is fully connected.
 
 ### `/chatinfo`
 Show which WhatsApp chat the current channel/thread is linked to (JID + type), plus the Discord target mode.  
@@ -242,6 +242,7 @@ Defaults (out of the box):
 - Local downloads are disabled (`/localdownloads enabled:true` to turn on).
 - Download directory is `./downloads` and pruning is disabled (`/setdownloadlimit`, `/setdownloadmaxage`, `/setdownloadminfree` all default to `0` = off).
 - Local download server is disabled; when enabled it defaults to local-only (`127.0.0.1` bind, `localhost` URLs, port `8080`).
+- Discord spoiler media attachments are sent to WhatsApp as view-once media when WhatsApp supports that media type. WhatsApp view-once media is mirrored to Discord as spoiler attachments.
 
 ### `/setwamediaburstsize`
 Set how many WhatsApp attachments WA2DC uploads to Discord per batch when mirroring media bursts.  

@@ -2225,6 +2225,64 @@ const normalizePairingPhoneNumber = (value) => {
 	return /^[1-9]\d{6,14}$/.test(digits) ? digits : null;
 };
 
+const PAIRING_READY_WAIT_MS = 15_000;
+const isWhatsAppPairingReady = () => {
+	const waConnection = state.waConnection || {};
+	return (
+		waConnection.connection === "connecting" || waConnection.hasQr === true
+	);
+};
+const waitForWhatsAppPairingReady = async (client) => {
+	if (!client?.ev || typeof client.ev.on !== "function") {
+		return { ok: false, reason: "unavailable" };
+	}
+	if (state.waConnection?.connection === "open") {
+		return { ok: false, reason: "connected" };
+	}
+	if (isWhatsAppPairingReady()) {
+		return { ok: true };
+	}
+
+	return new Promise((resolve) => {
+		let settled = false;
+		let timer = null;
+		const cleanup = () => {
+			if (timer) clearTimeout(timer);
+			if (typeof client.ev.off === "function") {
+				client.ev.off("connection.update", onUpdate);
+			} else if (typeof client.ev.removeListener === "function") {
+				client.ev.removeListener("connection.update", onUpdate);
+			}
+		};
+		const finish = (result) => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			resolve(result);
+		};
+		const onUpdate = (update = {}) => {
+			if (update.connection === "open") {
+				finish({ ok: false, reason: "connected" });
+				return;
+			}
+			if (update.connection === "close") {
+				finish({ ok: false, reason: "closed" });
+				return;
+			}
+			if (update.connection === "connecting" || update.qr) {
+				finish({ ok: true });
+			}
+		};
+
+		client.ev.on("connection.update", onUpdate);
+		timer = setTimeout(
+			() => finish({ ok: false, reason: "timeout" }),
+			PAIRING_READY_WAIT_MS,
+		);
+		timer?.unref?.();
+	});
+};
+
 const commandHandlers = {
 	ping: {
 		description: "Check the bot latency.",
@@ -2287,6 +2345,23 @@ const commandHandlers = {
 				await ctx.reply(
 					"Please enter a phone number with country code, such as `+12025550123` or `12025550123`.",
 				);
+				return;
+			}
+
+			if (typeof state.waClient?.requestPairingCode !== "function") {
+				await ctx.reply(
+					"WhatsApp is not ready yet. Wait for the QR/pairing prompt, then run `/pairwithcode` again.",
+				);
+				return;
+			}
+
+			const ready = await waitForWhatsAppPairingReady(state.waClient);
+			if (!ready.ok) {
+				const message =
+					ready.reason === "connected"
+						? "WhatsApp is already connected. To pair a different account, remove the existing WhatsApp linked device/session first, then restart pairing."
+						: "WhatsApp is not ready for pairing yet. Wait for the QR/pairing prompt, then run `/pairwithcode` again.";
+				await ctx.reply(message);
 				return;
 			}
 

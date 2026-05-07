@@ -7,7 +7,6 @@ import {
 	isThreadChatLink,
 } from "./chatLinks.js";
 import { createDiscordClient } from "./clientFactories.js";
-import groupMetadataCache from "./groupMetadataCache.js";
 import messageStore from "./messageStore.js";
 import {
 	getNewsletterAckError,
@@ -29,6 +28,7 @@ import { resolveRestartFlagPath } from "./runnerLogic.js";
 import state from "./state.js";
 import storage from "./storage.js";
 import utils from "./utils.js";
+import { resyncWhatsAppContactsAndGroups } from "./whatsappResync.js";
 
 const {
 	ActionRowBuilder,
@@ -4851,16 +4851,8 @@ const commandHandlers = {
 		],
 		async execute(ctx) {
 			await ctx.defer();
-			await state.waClient.authState.keys.set({
-				"app-state-sync-version": { critical_unblock_low: null },
-			});
-			await state.waClient.resyncAppState(["critical_unblock_low"]);
-			const participatingGroups =
-				await state.waClient.groupFetchAllParticipating();
-			groupMetadataCache.prime(participatingGroups);
-			for (const [jid, attributes] of Object.entries(participatingGroups)) {
-				state.waClient.contacts[jid] = attributes.subject;
-			}
+			const { contactCount, groupCount } =
+				await resyncWhatsAppContactsAndGroups(state.waClient);
 			const shouldRename = Boolean(ctx.getBooleanOption("rename"));
 			if (shouldRename) {
 				try {
@@ -4869,7 +4861,9 @@ const commandHandlers = {
 					state.logger?.error(err);
 				}
 			}
-			await ctx.reply("Re-synced!");
+			await ctx.reply(
+				`Re-synced ${contactCount} WhatsApp contacts/groups (${groupCount} participating groups refreshed).`,
+			);
 		},
 	},
 	localdownloads: {

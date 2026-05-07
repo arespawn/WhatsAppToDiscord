@@ -382,7 +382,7 @@ Safely save state and restart the bot (requires running via the watchdog runner)
 Usage: `/restart` (control channel only)
 
 ### `/resync`
-Re-sync WhatsApp contacts/groups. Set `rename:true` to rename Discord channels to match WhatsApp subjects.
+Re-sync WhatsApp contacts/groups. Set `rename:true` to rename Discord channels to match WhatsApp subjects. The group refresh uses a lightweight group list query and does not download every group participant roster.
 
 ### `/autosaveinterval`
 Change how often the bot persists state (seconds).  

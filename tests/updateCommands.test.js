@@ -1104,6 +1104,7 @@ test("/pairwithcode accepts E.164 input and sends digits to Baileys", async () =
 	};
 	const originalDcClient = state.dcClient;
 	const originalWaClient = state.waClient;
+	const originalWaConnection = state.waConnection;
 
 	try {
 		state.settings.Token = "TEST_TOKEN";
@@ -1117,10 +1118,16 @@ test("/pairwithcode accepts E.164 input and sends digits to Baileys", async () =
 
 		const pairingRequests = [];
 		state.waClient = {
+			ev: new EventEmitter(),
 			async requestPairingCode(phoneNumber) {
 				pairingRequests.push(phoneNumber);
 				return "ABCD-1234";
 			},
+		};
+		state.waConnection = {
+			connection: "connecting",
+			hasQr: false,
+			updatedAt: Date.now(),
 		};
 
 		const fakeClient = new FakeDiscordClient();
@@ -1155,6 +1162,7 @@ test("/pairwithcode accepts E.164 input and sends digits to Baileys", async () =
 
 		state.dcClient = originalDcClient;
 		state.waClient = originalWaClient;
+		state.waConnection = originalWaConnection;
 		resetClientFactoryOverrides();
 	}
 });
@@ -1171,6 +1179,7 @@ test("/pairwithcode still accepts legacy number option interactions", async () =
 	};
 	const originalDcClient = state.dcClient;
 	const originalWaClient = state.waClient;
+	const originalWaConnection = state.waConnection;
 
 	try {
 		state.settings.Token = "TEST_TOKEN";
@@ -1184,10 +1193,16 @@ test("/pairwithcode still accepts legacy number option interactions", async () =
 
 		const pairingRequests = [];
 		state.waClient = {
+			ev: new EventEmitter(),
 			async requestPairingCode(phoneNumber) {
 				pairingRequests.push(phoneNumber);
 				return "WXYZ-9876";
 			},
+		};
+		state.waConnection = {
+			connection: "connecting",
+			hasQr: false,
+			updatedAt: Date.now(),
 		};
 
 		const fakeClient = new FakeDiscordClient();
@@ -1222,6 +1237,84 @@ test("/pairwithcode still accepts legacy number option interactions", async () =
 
 		state.dcClient = originalDcClient;
 		state.waClient = originalWaClient;
+		state.waConnection = originalWaConnection;
+		resetClientFactoryOverrides();
+	}
+});
+
+test("/pairwithcode refuses to request codes after WhatsApp is connected", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+	};
+	const originalDcClient = state.dcClient;
+	const originalWaClient = state.waClient;
+	const originalWaConnection = state.waConnection;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+
+		const pairingRequests = [];
+		state.waClient = {
+			ev: new EventEmitter(),
+			async requestPairingCode(phoneNumber) {
+				pairingRequests.push(phoneNumber);
+				return "ABCD-1234";
+			},
+		};
+		state.waConnection = {
+			connection: "open",
+			hasQr: false,
+			updatedAt: Date.now(),
+		};
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler("pairwithcode-connected");
+		state.dcClient = await discordHandler.start();
+		await delay(0);
+
+		const interaction = createInteraction({
+			channelId: "control",
+			commandName: "pairwithcode",
+			stringOptions: {
+				phone: "+1 202 555 0123",
+			},
+		});
+		fakeClient.emit("interactionCreate", interaction);
+
+		assert.equal(
+			await waitFor(() => interaction.records.editReply.length === 1),
+			true,
+		);
+		assert.deepEqual(pairingRequests, []);
+		assert.match(
+			interaction.records.editReply[0]?.content,
+			/WhatsApp is already connected/,
+		);
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+
+		state.dcClient = originalDcClient;
+		state.waClient = originalWaClient;
+		state.waConnection = originalWaConnection;
 		resetClientFactoryOverrides();
 	}
 });
@@ -1235,8 +1328,7 @@ test("/setwamediaburstsize updates WhatsApp to Discord media burst size", async 
 		Token: state.settings.Token,
 		GuildID: state.settings.GuildID,
 		ControlChannelID: state.settings.ControlChannelID,
-		WhatsAppDiscordMediaBurstSize:
-			state.settings.WhatsAppDiscordMediaBurstSize,
+		WhatsAppDiscordMediaBurstSize: state.settings.WhatsAppDiscordMediaBurstSize,
 	};
 	const originalDcClient = state.dcClient;
 
@@ -1253,7 +1345,9 @@ test("/setwamediaburstsize updates WhatsApp to Discord media burst size", async 
 
 		const fakeClient = new FakeDiscordClient();
 		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
-		const discordHandler = await importDiscordHandler("set-wa-media-burst-size");
+		const discordHandler = await importDiscordHandler(
+			"set-wa-media-burst-size",
+		);
 		state.dcClient = await discordHandler.start();
 		await delay(0);
 

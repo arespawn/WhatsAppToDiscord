@@ -59,6 +59,11 @@ const state = {
 	},
 	dcClient: null,
 	waClient: null,
+	waConnection: {
+		connection: null,
+		hasQr: false,
+		updatedAt: 0,
+	},
 	chats: {},
 	contacts: {},
 	startTime: 0,

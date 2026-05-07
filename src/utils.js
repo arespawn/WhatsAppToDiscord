@@ -736,6 +736,19 @@ const sanitizeFileName = (name = "", fallback = "file") => {
 		.slice(0, 64);
 	return normalized || fallback;
 };
+const DISCORD_SPOILER_PREFIX = "SPOILER_";
+const isWhatsAppViewOnceMessageType = (msgType = "") =>
+	[
+		"viewOnceMessage",
+		"viewOnceMessageV2",
+		"viewOnceMessageV2Extension",
+	].includes(msgType);
+const asDiscordSpoilerFileName = (name = "attachment") => {
+	const fileName = String(name || "attachment");
+	return fileName.toUpperCase().startsWith(DISCORD_SPOILER_PREFIX)
+		? fileName
+		: `${DISCORD_SPOILER_PREFIX}${fileName}`;
+};
 
 const WINDOWS_RESERVED_BASENAMES = new Set([
 	"con",
@@ -4810,7 +4823,7 @@ const whatsapp = {
 				"documentMessage",
 				rawMsg.message[msgType].message.documentMessage,
 			];
-		} else if (msgType === "viewOnceMessageV2") {
+		} else if (isWhatsAppViewOnceMessageType(msgType)) {
 			const nMsgType = this.getMessageType(rawMsg.message[msgType]);
 			return [nMsgType, rawMsg.message[msgType].message[nMsgType]];
 		} else if (msgType === "editedMessage") {
@@ -4880,12 +4893,15 @@ const whatsapp = {
 		if (largeFile && !state.settings.LocalDownloads) return -1;
 		try {
 			const baseName = this.getFilename(msg, nMsgType);
+			const viewOnce = isWhatsAppViewOnceMessageType(msgType);
+			const fileName = viewOnce ? asDiscordSpoilerFileName(baseName) : baseName;
 			if (largeFile && state.settings.LocalDownloads) {
 				return {
-					name: baseName,
+					name: fileName,
 					downloadCtx: rawMsg,
 					msgType: nMsgType,
 					largeFile: true,
+					spoiler: viewOnce,
 				};
 			}
 			if (nMsgType === "videoMessage" && msg.gifPlayback) {
@@ -4908,16 +4924,19 @@ const whatsapp = {
 					messageId: this.getId(rawMsg),
 				});
 				return {
-					name: normalizedGif.fileName,
+					name: viewOnce
+						? asDiscordSpoilerFileName(normalizedGif.fileName)
+						: normalizedGif.fileName,
 					attachment: normalizedGif.attachmentBuffer,
 					contentType: normalizedGif.contentType,
 					largeFile,
 					downloadCtx: rawMsg,
 					msgType: nMsgType,
+					spoiler: viewOnce,
 				};
 			}
 			return {
-				name: baseName,
+				name: fileName,
 
 				attachment: await downloadMediaMessage(
 					rawMsg,
@@ -4931,6 +4950,7 @@ const whatsapp = {
 				largeFile,
 				downloadCtx: rawMsg,
 				msgType: nMsgType,
+				spoiler: viewOnce,
 			};
 		} catch (err) {
 			if (
@@ -4980,7 +5000,9 @@ const whatsapp = {
 			"audioMessage",
 			"documentMessage",
 			"documentWithCaptionMessage",
+			"viewOnceMessage",
 			"viewOnceMessageV2",
+			"viewOnceMessageV2Extension",
 			"stickerMessage",
 			"editedMessage",
 			"pollCreationMessage",
@@ -5024,7 +5046,7 @@ const whatsapp = {
 		let content = "";
 		const discordMentions = new Set();
 		let discordMentionEveryone = false;
-		if (msgType === "viewOnceMessageV2") {
+		if (isWhatsAppViewOnceMessageType(msgType)) {
 			content += "View once message:\n";
 		}
 		if (msg == null) {

@@ -782,6 +782,29 @@ const inferAttachmentMimeType = (attachment = {}) => {
 	}
 	return "application/octet-stream";
 };
+const DISCORD_SPOILER_PREFIX = "SPOILER_";
+const isDiscordSpoilerAttachment = (attachment = {}) => {
+	if (attachment?.spoiler === true) return true;
+	const name =
+		typeof attachment?.name === "string"
+			? attachment.name
+			: typeof attachment?.filename === "string"
+				? attachment.filename
+				: "";
+	return name.toUpperCase().startsWith(DISCORD_SPOILER_PREFIX);
+};
+const supportsWhatsAppViewOnceContent = (content = {}) =>
+	Boolean(content?.image || content?.video || content?.audio) &&
+	!content?.document &&
+	!content?.sticker;
+const applySpoilerViewOnceToWhatsAppContent = (
+	attachment = {},
+	content = {},
+) => {
+	if (!isDiscordSpoilerAttachment(attachment)) return content;
+	if (!supportsWhatsAppViewOnceContent(content)) return content;
+	return { ...content, viewOnce: true };
+};
 const normalizeAttachmentForWhatsAppSend = (attachment = {}) => {
 	const normalized = { ...attachment };
 	const normalizedName =
@@ -3122,6 +3145,11 @@ const connectToWhatsApp = async (retry = 1) => {
 		},
 		browser: CURRENT_WHATSAPP_BROWSER,
 	});
+	state.waConnection = {
+		connection: null,
+		hasQr: false,
+		updatedAt: Date.now(),
+	};
 	client.contacts = state.contacts;
 	patchSendMessageForLinkPreviews(client);
 	patchSendNodeForNewsletterMessages(client);
@@ -3139,6 +3167,12 @@ const connectToWhatsApp = async (retry = 1) => {
 			}
 
 			const { connection, lastDisconnect, qr } = update;
+			state.waConnection = {
+				...(state.waConnection || {}),
+				...(connection ? { connection } : {}),
+				hasQr: Boolean(qr) || Boolean(state.waConnection?.hasQr),
+				updatedAt: Date.now(),
+			};
 			if (qr) {
 				utils.whatsapp.sendQR(qr);
 			}
@@ -4403,6 +4437,7 @@ const connectToWhatsApp = async (retry = 1) => {
 						});
 					}
 				}
+				doc = applySpoilerViewOnceToWhatsAppContent(preparedFile, doc);
 				preparedAttachments.push({
 					attachment: preparedFile,
 					content: doc,
@@ -4423,9 +4458,13 @@ const connectToWhatsApp = async (retry = 1) => {
 			const albumEligibleAttachments = preparedAttachments.filter(
 				({ content }) => Boolean(getAlbumEligibleMediaKind(content)),
 			);
+			const hasViewOnceAttachment = preparedAttachments.some(({ content }) =>
+				Boolean(content?.viewOnce),
+			);
 			const canUseMediaAlbum =
 				!newsletterChat &&
 				!isBroadcastJid(targetJid) &&
+				!hasViewOnceAttachment &&
 				preparedAttachments.length >= 2 &&
 				albumEligibleAttachments.length === preparedAttachments.length;
 			if (canUseMediaAlbum) {

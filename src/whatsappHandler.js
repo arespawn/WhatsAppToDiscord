@@ -192,10 +192,71 @@ const getReconnectDelayMs = (retry) => {
 	return Math.min(baseDelay * 2 ** (slowAttempt - 1), maxDelay);
 };
 const WHATSAPP_BROWSER_PROFILE_STORAGE_KEY = "whatsapp-browser-profile";
-const CURRENT_WHATSAPP_BROWSER = Browsers.android("13");
+const WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY =
+	"whatsapp-pairing-code-browser-profile";
+export const WHATSAPP_BROWSER_PROFILE_ENV = "WA2DC_WHATSAPP_BROWSER";
+export const DEFAULT_WHATSAPP_BROWSER_PROFILE = "android";
+export const PAIRING_CODE_BROWSER_PROFILE = "macos-chrome";
+export const resolveWhatsAppBrowserProfile = (
+	value = DEFAULT_WHATSAPP_BROWSER_PROFILE,
+) => {
+	switch (
+		String(value || DEFAULT_WHATSAPP_BROWSER_PROFILE)
+			.trim()
+			.toLowerCase()
+	) {
+		case "android":
+			return Browsers.android("13");
+		case "macos-chrome":
+		case "macos":
+			return Browsers.macOS("Chrome");
+		case "windows-chrome":
+		case "windows":
+			return Browsers.windows("Chrome");
+		case "ubuntu-chrome":
+		case "ubuntu":
+			return Browsers.ubuntu("Chrome");
+		case "baileys":
+			return Browsers.baileys("Chrome");
+		default:
+			return resolveWhatsAppBrowserProfile(DEFAULT_WHATSAPP_BROWSER_PROFILE);
+	}
+};
+let currentWhatsAppBrowser = resolveWhatsAppBrowserProfile();
+
+export const getCurrentWhatsAppBrowserProfile = () => currentWhatsAppBrowser;
 
 export const serializeWhatsAppBrowserProfile = (browser = []) =>
 	Array.isArray(browser) ? browser.map((part) => String(part ?? "")) : [];
+
+export const selectWhatsAppBrowserProfile = ({
+	creds,
+	pairingCodeProfile,
+	storedProfile,
+	envValue = process.env[WHATSAPP_BROWSER_PROFILE_ENV],
+} = {}) => {
+	if (String(envValue || "").trim()) {
+		return resolveWhatsAppBrowserProfile(envValue);
+	}
+	if (
+		creds?.registered &&
+		Array.isArray(storedProfile) &&
+		storedProfile.length
+	) {
+		return serializeWhatsAppBrowserProfile(storedProfile);
+	}
+	if (!creds?.registered && String(pairingCodeProfile || "").trim()) {
+		return resolveWhatsAppBrowserProfile(pairingCodeProfile);
+	}
+	if (!creds?.registered) {
+		return resolveWhatsAppBrowserProfile(DEFAULT_WHATSAPP_BROWSER_PROFILE);
+	}
+	return resolveWhatsAppBrowserProfile(DEFAULT_WHATSAPP_BROWSER_PROFILE);
+};
+
+export const isWhatsAppBrowserProfile = (browser, profileName) =>
+	JSON.stringify(serializeWhatsAppBrowserProfile(browser)) ===
+	JSON.stringify(resolveWhatsAppBrowserProfile(profileName));
 
 export const shouldResetWhatsAppAuthForBrowserProfile = ({
 	creds,
@@ -236,6 +297,26 @@ const saveWhatsAppBrowserProfile = async (browser) => {
 		WHATSAPP_BROWSER_PROFILE_STORAGE_KEY,
 		JSON.stringify(serializeWhatsAppBrowserProfile(browser)),
 	);
+};
+
+const readWhatsAppPairingCodeBrowserProfile = async () => {
+	const raw = await storage.get(
+		WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY,
+	);
+	return raw?.toString("utf8").trim() || "";
+};
+
+export const saveWhatsAppPairingCodeBrowserProfile = async (
+	profile = PAIRING_CODE_BROWSER_PROFILE,
+) => {
+	await storage.upsert(
+		WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY,
+		String(profile || "").trim(),
+	);
+};
+
+const clearWhatsAppPairingCodeBrowserProfile = async () => {
+	await saveWhatsAppPairingCodeBrowserProfile("");
 };
 
 const getPollCreation = (message = {}) =>
@@ -3143,11 +3224,15 @@ const connectToWhatsApp = async (retry = 1) => {
 
 			return stored.message || stored;
 		},
-		browser: CURRENT_WHATSAPP_BROWSER,
+		browser: currentWhatsAppBrowser,
 	});
+	client.authState = authState;
 	state.waConnection = {
+		browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
 		connection: null,
 		hasQr: false,
+		qrAt: 0,
+		registered: authState?.creds?.registered ?? null,
 		updatedAt: Date.now(),
 	};
 	client.contacts = state.contacts;
@@ -3157,7 +3242,13 @@ const connectToWhatsApp = async (retry = 1) => {
 	const groupRefreshScheduler = createGroupRefreshScheduler({
 		refreshFn: (jid) => refreshGroupMetadata(client, jid),
 	});
-	const credsListener = typeof saveState === "function" ? saveState : () => {};
+	const credsListener = async () => {
+		state.waConnection = {
+			...(state.waConnection || {}),
+			registered: authState?.creds?.registered ?? null,
+		};
+		return typeof saveState === "function" ? saveState() : undefined;
+	};
 	client.ev.on("creds.update", credsListener);
 
 	client.ev.on("connection.update", async (update) => {
@@ -3167,11 +3258,25 @@ const connectToWhatsApp = async (retry = 1) => {
 			}
 
 			const { connection, lastDisconnect, qr } = update;
+			const now = Date.now();
+			const previousWaConnection = state.waConnection || {};
+			const hasQr = Boolean(qr);
+			const shouldClearQr = connection === "close" || connection === "open";
 			state.waConnection = {
-				...(state.waConnection || {}),
+				...previousWaConnection,
+				browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
 				...(connection ? { connection } : {}),
-				hasQr: Boolean(qr) || Boolean(state.waConnection?.hasQr),
-				updatedAt: Date.now(),
+				hasQr: hasQr
+					? true
+					: shouldClearQr
+						? false
+						: Boolean(previousWaConnection.hasQr),
+				qrAt: hasQr ? now : shouldClearQr ? 0 : previousWaConnection.qrAt || 0,
+				registered:
+					authState?.creds?.registered ??
+					previousWaConnection.registered ??
+					null,
+				updatedAt: now,
 			};
 			if (qr) {
 				utils.whatsapp.sendQR(qr);
@@ -3233,7 +3338,7 @@ const connectToWhatsApp = async (retry = 1) => {
 				state.waClient = client;
 
 				retry = 1;
-				await saveWhatsAppBrowserProfile(CURRENT_WHATSAPP_BROWSER).catch(
+				await saveWhatsAppBrowserProfile(currentWhatsAppBrowser).catch(
 					(err) => {
 						state.logger?.warn(
 							{ err },
@@ -3241,6 +3346,12 @@ const connectToWhatsApp = async (retry = 1) => {
 						);
 					},
 				);
+				await clearWhatsAppPairingCodeBrowserProfile().catch((err) => {
+					state.logger?.warn(
+						{ err },
+						"Failed to clear WhatsApp pairing-code browser profile.",
+					);
+				});
 				await sendControlMessage("WhatsApp connection successfully opened!");
 
 				try {
@@ -5361,10 +5472,17 @@ const connectToWhatsApp = async (retry = 1) => {
 const actions = {
 	async start() {
 		let baileyState = await useSQLiteAuthState();
+		let storedBrowserProfile = await readStoredWhatsAppBrowserProfile();
+		let pairingCodeBrowserProfile =
+			await readWhatsAppPairingCodeBrowserProfile();
+		currentWhatsAppBrowser = selectWhatsAppBrowserProfile({
+			creds: baileyState.state?.creds,
+			pairingCodeProfile: pairingCodeBrowserProfile,
+			storedProfile: storedBrowserProfile,
+		});
 		const currentBrowserProfile = serializeWhatsAppBrowserProfile(
-			CURRENT_WHATSAPP_BROWSER,
+			currentWhatsAppBrowser,
 		);
-		const storedBrowserProfile = await readStoredWhatsAppBrowserProfile();
 		if (
 			shouldResetWhatsAppAuthForBrowserProfile({
 				creds: baileyState.state?.creds,
@@ -5394,6 +5512,13 @@ const actions = {
 					);
 				});
 			baileyState = await useSQLiteAuthState();
+			storedBrowserProfile = await readStoredWhatsAppBrowserProfile();
+			pairingCodeBrowserProfile = await readWhatsAppPairingCodeBrowserProfile();
+			currentWhatsAppBrowser = selectWhatsAppBrowserProfile({
+				creds: baileyState.state?.creds,
+				pairingCodeProfile: pairingCodeBrowserProfile,
+				storedProfile: storedBrowserProfile,
+			});
 		}
 		await ensureSignalStoreSupport(baileyState.state?.keys);
 		authState = baileyState.state;

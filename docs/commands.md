@@ -209,7 +209,7 @@ Usage: `/hidephonenumbers enabled:<true|false>`
 WA2DC can optionally translate WhatsApp @mentions into Discord user mentions, if you link a WhatsApp contact to a Discord user.
 This only works for **real WhatsApp mentions** (select the person from WhatsApp’s mention picker); manually typing `@name` without selecting won’t include mention metadata and can’t be translated reliably.
 WhatsApp group-wide `@all` mentions are mirrored as Discord `@everyone` mentions when WhatsApp includes mention-all metadata; plain typed `@all` text is left unchanged.
-If a WhatsApp contact is linked, WA2DC will also translate **Discord user @mentions** into **WhatsApp mentions** when forwarding messages from Discord to WhatsApp (you must use a real Discord mention — select the user from autocomplete so Discord inserts a `<@...>` mention).
+If a WhatsApp contact is linked, WA2DC will also translate **Discord user @mentions** into **WhatsApp mentions** when forwarding messages from Discord to WhatsApp (you must use a real Discord mention — select the user from autocomplete so Discord inserts a `<@...>` mention). In WhatsApp group chats, real Discord `@everyone` / `@here` mentions are forwarded as WhatsApp `@all`; plain typed text is left unchanged.
 
 ### `/linkmention`
 Link a WhatsApp contact to a Discord user so future WhatsApp @mentions ping them in Discord.  

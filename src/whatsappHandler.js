@@ -941,6 +941,7 @@ const sendMediaAlbumToWhatsApp = async ({
 	contents,
 	captionText = "",
 	mentionJids = [],
+	mentionAll = false,
 	quoted = null,
 } = {}) => {
 	const relayBaseOptions = buildAlbumRelayOptions({
@@ -1011,6 +1012,9 @@ const sendMediaAlbumToWhatsApp = async ({
 				}
 				if (mentionJids.length) {
 					payload.contextInfo.mentionedJid = mentionJids;
+				}
+				if (mentionAll) {
+					payload.contextInfo.nonJidMentions = 1;
 				}
 			}
 			const childMessage = generateWAMessageFromContent(
@@ -1875,6 +1879,8 @@ const replaceLiteralMentionTokens = (text, replacements = []) => {
 
 const DISCORD_USER_MENTION_REGEX = /<@!?(\d+)>/g;
 const DISCORD_ROLE_MENTION_REGEX = /<@&(\d+)>/g;
+const DISCORD_EVERYONE_MENTION_REGEX =
+	/@(everyone|here)(?=$|\s|[\p{P}\p{S}])/giu;
 const DISCORD_REPLY_PREFIX_REGEX = /^(<@!?\d+>|@\S+)\s*/;
 const DISCORD_REPLY_FALLBACK_MAX_CHARS = 160;
 const DISCORD_MESSAGE_TYPE_REPLY = 19;
@@ -2090,6 +2096,25 @@ const normalizeMentionJidsForChat = async (jid, mentionJids = []) => [
 	),
 ];
 
+const resolveDiscordEveryoneMentionForWhatsApp = ({ message, text, jid }) => {
+	const canMentionAll =
+		typeof jid === "string" &&
+		jid.endsWith("@g.us") &&
+		message?.mentions?.everyone === true;
+	if (!canMentionAll) return { text, mentionAll: false };
+
+	let replaced = false;
+	const sourceText = typeof text === "string" ? text : "";
+	let nextText = sourceText.replace(DISCORD_EVERYONE_MENTION_REGEX, () => {
+		replaced = true;
+		return "@all";
+	});
+	if (!replaced) {
+		nextText = nextText ? `@all ${nextText}` : "@all";
+	}
+	return { text: nextText, mentionAll: true };
+};
+
 const resolveDiscordTextMentionsForWhatsApp = async ({
 	message,
 	text,
@@ -2107,10 +2132,16 @@ const resolveDiscordTextMentionsForWhatsApp = async ({
 					{ chatJid: jid },
 				)
 			: { text, mentionJids: [] };
-	const updatedText = replaceLiteralMentionTokens(
+	let updatedText = replaceLiteralMentionTokens(
 		linkedMentions.text ?? text,
 		fallbackReplacements,
 	);
+	const everyoneMention = resolveDiscordEveryoneMentionForWhatsApp({
+		message,
+		text: updatedText,
+		jid,
+	});
+	updatedText = everyoneMention.text;
 	const mentionJidsRaw = [
 		...new Set([
 			...(Array.isArray(linkedMentions.mentionJids)
@@ -2120,7 +2151,11 @@ const resolveDiscordTextMentionsForWhatsApp = async ({
 		]),
 	];
 	const mentionJids = await normalizeMentionJidsForChat(jid, mentionJidsRaw);
-	return { text: updatedText, mentionJids };
+	return {
+		text: updatedText,
+		mentionJids,
+		mentionAll: everyoneMention.mentionAll,
+	};
 };
 
 const handlePollUpdateMessage = async (client, rawMessage) => {
@@ -3908,6 +3943,7 @@ const connectToWhatsApp = async (retry = 1) => {
 		});
 		text = mentionResolution.text;
 		const mentionJids = mentionResolution.mentionJids;
+		const mentionAll = mentionResolution.mentionAll;
 		const ensureNewsletterReplyFallbackContext = async () => {
 			if (!useNewsletterSpecialFlow || !hasReplyReference) return "";
 			if (newsletterReplyFallbackContext) return newsletterReplyFallbackContext;
@@ -4213,6 +4249,7 @@ const connectToWhatsApp = async (retry = 1) => {
 						contents: batch.map((entry) => entry.content),
 						captionText: batchIndex === 0 ? attachmentCaptionText : "",
 						mentionJids: batchIndex === 0 ? mentionJids : [],
+						mentionAll: batchIndex === 0 ? mentionAll : false,
 						quoted: batchIndex === 0 ? options?.quoted : undefined,
 					});
 					if (albumResult?.error) {
@@ -4264,6 +4301,9 @@ const connectToWhatsApp = async (retry = 1) => {
 				if (!newsletterChat && mentionJids.length) {
 					standaloneTextPayload.mentions = mentionJids;
 				}
+				if (mentionAll) {
+					standaloneTextPayload.mentionAll = true;
+				}
 				await sendTrackedMessage(standaloneTextPayload, options, {
 					ackContext: "Sticker companion text send",
 					forceNewsletterAck: newsletterChat,
@@ -4291,6 +4331,9 @@ const connectToWhatsApp = async (retry = 1) => {
 						mentionJids.length
 					) {
 						doc.mentions = mentionJids;
+					}
+					if (!sentStandaloneStickerText && mentionAll) {
+						doc.mentionAll = true;
 					}
 				}
 				try {
@@ -4375,6 +4418,9 @@ const connectToWhatsApp = async (retry = 1) => {
 		const content = { text: finalText };
 		if (!newsletterChat && mentionJids.length) {
 			content.mentions = mentionJids;
+		}
+		if (mentionAll) {
+			content.mentionAll = true;
 		}
 		let preview = null;
 		if (!newsletterChat) {
@@ -4544,6 +4590,7 @@ const connectToWhatsApp = async (retry = 1) => {
 		});
 		text = mentionResolution.text;
 		const editMentions = mentionResolution.mentionJids;
+		const editMentionAll = mentionResolution.mentionAll;
 		const editOptions = buildSendOptionsForJid(targetJid);
 		const sendEditWithKey = async (editKey, mode = "default") => {
 			if (newsletterChat) {
@@ -4571,6 +4618,7 @@ const connectToWhatsApp = async (retry = 1) => {
 					...(!newsletterChat && editMentions.length
 						? { mentions: editMentions }
 						: {}),
+					...(editMentionAll ? { mentionAll: true } : {}),
 				},
 				editOptions,
 			);

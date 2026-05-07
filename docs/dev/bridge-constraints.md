@@ -32,6 +32,7 @@ Respect transport constraints when emitting output:
 - 2000-character message limit
 - use `utils.discord.partitionText(...)` for long responses
 - only enable Discord `@everyone` parsing for WhatsApp `@all` messages when WhatsApp includes mention-all metadata (`contextInfo.nonJidMentions`)
+- only set WhatsApp `mentionAll` for Discord `@everyone` / `@here` when Discord includes real everyone-mention metadata and the target is a WhatsApp group chat
 - respect file-size gating (for example `DiscordFileSizeLimit`)
 - keep WhatsApp-backed Discord attachment uploads bounded during media bursts; honor `state.settings.WhatsAppDiscordMediaBurstSize` and do not exceed Discord's 10-file upload limit
 - treat transient Discord upload transport failures from both Undici and Node HTTP/2 stream errors as retryable so WhatsApp-backed media bursts can recover or emit a fallback notice instead of dropping silently

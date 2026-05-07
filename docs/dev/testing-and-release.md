@@ -1,7 +1,7 @@
 # Testing And Release
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-03-19
+> Last reviewed: 2026-05-07
 > Scope: Validation commands, CI expectations, and packaging constraints.
 
 ## Validation matrix
@@ -24,8 +24,8 @@ CI executes the following on `ubuntu-latest`, `macos-latest`, and `windows-lates
 Release pipeline builds packaged binaries from an ESM runtime bundle plus a pkg-safe CJS bootstrap:
 
 - esbuild bundles `src/runner.js` to `out.js` (ESM) for Node smoke checks
-- esbuild also bundles `src/runner.js` to `out.js` (ESM) for pkg, then writes `out.cjs` as a tiny bootstrap that dynamically imports `out.js`
-- `pkg` produces platform binaries from `out.cjs` with `--no-bytecode`
+- esbuild also bundles `src/runner.js` to `out.js` (ESM) for pkg, then writes `out.cjs` as a tiny bootstrap that loads `out.js` from pkg's virtual filesystem and dynamically imports it
+- pinned `@yao-pkg/pkg` produces platform binaries from `out.cjs` with `--no-bytecode`
 - packaged builds also stage `build/runtime/` as a sidecar for runtime-only media dependencies (`sharp`, `canvas`, `jsdom`, `lottie-web`) so native image normalization and Discord sticker rendering remain available in packaged runtimes
 - release builds publish a signed `${binary}.runtime.tar.gz` archive for each packaged binary so `/update` can refresh the sidecar automatically
 - packaged startup may download that signed runtime archive on demand when a packaged install is missing `runtime/`

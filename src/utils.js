@@ -70,6 +70,7 @@ const buildUnicodeMentionRegex = (token) =>
 	new RegExp(`@${escapeRegex(token)}(?=$|\\s|[\\p{P}\\p{S}])`, "giu");
 const buildWordBoundaryMentionRegex = (token) =>
 	new RegExp(`@${escapeRegex(token)}(?=\\W|$)`, "g");
+const WHATSAPP_MENTION_ALL_REGEX = /@all(?=$|\s|[\p{P}\p{S}])/giu;
 const asLower = (value) => String(value || "").toLowerCase();
 const includesHint = (text, hints) =>
 	hints.some((hint) => text.includes(asLower(hint)));
@@ -5022,11 +5023,12 @@ const whatsapp = {
 	async getContent(msg, nMsgType, msgType, { mentionTarget = "name" } = {}) {
 		let content = "";
 		const discordMentions = new Set();
+		let discordMentionEveryone = false;
 		if (msgType === "viewOnceMessageV2") {
 			content += "View once message:\n";
 		}
 		if (msg == null) {
-			return { content, discordMentions: [] };
+			return { content, discordMentions: [], discordMentionEveryone };
 		}
 		switch (nMsgType) {
 			case "conversation":
@@ -5070,6 +5072,20 @@ const whatsapp = {
 		const mentions = contextInfo?.mentionedJid || [];
 		const links = state.settings?.WhatsAppDiscordMentionLinks;
 		const hasLinks = links && typeof links === "object";
+		const nonJidMentionCount = Number(contextInfo?.nonJidMentions || 0);
+		const hasWhatsAppMentionAll =
+			Number.isFinite(nonJidMentionCount) && nonJidMentionCount > 0;
+
+		if (mentionTarget === "discord" && hasWhatsAppMentionAll) {
+			const nextContent = content.replace(
+				WHATSAPP_MENTION_ALL_REGEX,
+				"@everyone",
+			);
+			if (nextContent !== content) {
+				content = nextContent;
+				discordMentionEveryone = true;
+			}
+		}
 
 		const resolveLinkedDiscordUserId = async (jid) => {
 			if (!hasLinks) return null;
@@ -5315,7 +5331,11 @@ const whatsapp = {
 			content = content ? `${content} ${suffix}` : suffix;
 		}
 
-		return { content, discordMentions: [...discordMentions] };
+		return {
+			content,
+			discordMentions: [...discordMentions],
+			discordMentionEveryone,
+		};
 	},
 	updateContacts(rawContacts) {
 		const contacts = rawContacts.chats || rawContacts.contacts || rawContacts;

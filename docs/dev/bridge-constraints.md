@@ -1,7 +1,7 @@
 # Bridge Constraints
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-04-06
+> Last reviewed: 2026-05-07
 > Scope: Message-routing and identity constraints that prevent regressions.
 
 ## Echo-loop prevention
@@ -31,6 +31,7 @@ Respect transport constraints when emitting output:
 
 - 2000-character message limit
 - use `utils.discord.partitionText(...)` for long responses
+- only enable Discord `@everyone` parsing for WhatsApp `@all` messages when WhatsApp includes mention-all metadata (`contextInfo.nonJidMentions`)
 - respect file-size gating (for example `DiscordFileSizeLimit`)
 - keep WhatsApp-backed Discord attachment uploads bounded during media bursts; honor `state.settings.WhatsAppDiscordMediaBurstSize` and do not exceed Discord's 10-file upload limit
 - treat transient Discord upload transport failures from both Undici and Node HTTP/2 stream errors as retryable so WhatsApp-backed media bursts can recover or emit a fallback notice instead of dropping silently

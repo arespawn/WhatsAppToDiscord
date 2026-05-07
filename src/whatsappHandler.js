@@ -3240,12 +3240,10 @@ const connectToWhatsApp = async (retry = 1) => {
 					rawMessage,
 					messageType,
 				);
-				const { content, discordMentions } = await utils.whatsapp.getContent(
-					message,
-					nMsgType,
-					messageType,
-					{ mentionTarget: "discord" },
-				);
+				const { content, discordMentions, discordMentionEveryone } =
+					await utils.whatsapp.getContent(message, nMsgType, messageType, {
+						mentionTarget: "discord",
+					});
 				state.dcClient.emit("whatsappMessage", {
 					id: utils.whatsapp.getId(rawMessage),
 					name: await utils.whatsapp.getSenderName(rawMessage),
@@ -3261,6 +3259,7 @@ const connectToWhatsApp = async (retry = 1) => {
 					),
 					isEdit: messageType === "editedMessage",
 					discordMentions,
+					discordMentionEveryone,
 				});
 				const ts = utils.whatsapp.getTimestamp(rawMessage);
 				if (ts > state.startTime) state.startTime = ts;

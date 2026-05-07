@@ -37,6 +37,7 @@ class FakeWhatsAppClient {
 		this.contacts = {};
 		this.signalRepository = {};
 		this.ws = { on() {} };
+		this.groupFetchCalls = 0;
 	}
 
 	async sendMessage() {
@@ -48,6 +49,7 @@ class FakeWhatsAppClient {
 	}
 
 	async groupFetchAllParticipating() {
+		this.groupFetchCalls += 1;
 		return {};
 	}
 }
@@ -178,6 +180,24 @@ test("WhatsApp client config avoids full/recent history sync buffering", async (
 			createdConfig.shouldSyncHistoryMessage({
 				syncType: proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
 			}),
+			false,
+		);
+		assert.equal(
+			createdConfig.shouldSyncHistoryMessage({
+				syncType: proto.HistorySync.HistorySyncType.NON_BLOCKING_DATA,
+			}),
+			false,
+		);
+		assert.equal(
+			createdConfig.shouldSyncHistoryMessage({
+				syncType: proto.HistorySync.HistorySyncType.INITIAL_STATUS_V3,
+			}),
+			false,
+		);
+		assert.equal(
+			createdConfig.shouldSyncHistoryMessage({
+				syncType: proto.HistorySync.HistorySyncType.PUSH_NAME,
+			}),
 			true,
 		);
 	} finally {
@@ -240,6 +260,43 @@ test("Baileys logger bounds bundled traces and binary payloads", async () => {
 		);
 		assert.equal(calls[0][0].buffer.byteLength, 4096);
 		assert.match(calls[0][0].trace, /omitted .* bundled stack trace/u);
+	} finally {
+		state.logger = originalLogger;
+		state.shutdownRequested = originalShutdownRequested;
+		restoreObject(state.contacts, originalContacts);
+		utils.discord.getControlChannel = originalGetControlChannel;
+		utils.whatsapp = originalWhatsappUtils;
+		resetClientFactoryOverrides();
+	}
+});
+
+test("connection open does not eagerly fetch all participating groups", async () => {
+	const originalLogger = state.logger;
+	const originalShutdownRequested = state.shutdownRequested;
+	const originalContacts = snapshotObject(state.contacts);
+	const originalGetControlChannel = utils.discord.getControlChannel;
+	const originalWhatsappUtils = utils.whatsapp;
+
+	try {
+		state.logger = { info() {}, error() {}, warn() {}, debug() {} };
+		state.shutdownRequested = false;
+		restoreObject(state.contacts, {});
+		utils.discord.getControlChannel = async () => null;
+		utils.whatsapp = stubWhatsappUtils();
+
+		const client = new FakeWhatsAppClient();
+		setClientFactoryOverrides({
+			createWhatsAppClient: () => client,
+			getBaileysVersion: async () => ({ version: [1, 0, 0] }),
+		});
+
+		const { connectToWhatsApp } = await import("../src/whatsappHandler.js");
+		await connectToWhatsApp(1);
+
+		client.ev.emit("connection.update", { connection: "open" });
+		await delay(20);
+
+		assert.equal(client.groupFetchCalls, 0);
 	} finally {
 		state.logger = originalLogger;
 		state.shutdownRequested = originalShutdownRequested;

@@ -16,6 +16,25 @@ if (!globalThis.crypto) {
 	globalThis.crypto = nodeCrypto.webcrypto;
 }
 
+const suppressSecretBearingDependencyConsoleLogs = () => {
+	const shouldSuppress = (args) =>
+		args[0] === "Closing stale open session for new outgoing prekey bundle" ||
+		args[0] === "Closing session:";
+	const wrap = (method) => {
+		const original = console[method].bind(console);
+		console[method] = (...args) => {
+			if (shouldSuppress(args)) {
+				return;
+			}
+			original(...args);
+		};
+	};
+	wrap("info");
+	wrap("warn");
+};
+
+suppressSecretBearingDependencyConsoleLogs();
+
 (async () => {
 	const packageVersion =
 		typeof packageInfo?.version === "string" ? packageInfo.version : "0.0.0";

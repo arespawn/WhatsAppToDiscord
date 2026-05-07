@@ -58,8 +58,12 @@ const MAX_BAILEYS_LOG_STRING_LENGTH = 2000;
 const MAX_BAILEYS_LOG_ARRAY_LENGTH = 25;
 const MAX_BAILEYS_LOG_DEPTH = 4;
 const HISTORY_SYNC_TYPES_TO_SKIP = new Set([
+	proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
+	proto.HistorySync.HistorySyncType.INITIAL_STATUS_V3,
 	proto.HistorySync.HistorySyncType.FULL,
 	proto.HistorySync.HistorySyncType.RECENT,
+	proto.HistorySync.HistorySyncType.NON_BLOCKING_DATA,
+	proto.HistorySync.HistorySyncType.ON_DEMAND,
 ]);
 const formatDisconnectReason = (statusCode) => {
 	if (typeof statusCode !== "number") return "unknown";
@@ -3206,12 +3210,6 @@ const connectToWhatsApp = async (retry = 1) => {
 				await sendControlMessage("WhatsApp connection successfully opened!");
 
 				try {
-					const groups = await client.groupFetchAllParticipating();
-					groupMetadataCache.prime(groups);
-					for (const [jid, data] of Object.entries(groups)) {
-						state.contacts[jid] = data.subject;
-						client.contacts[jid] = data.subject;
-					}
 					await migrateLegacyChats(client);
 				} catch (err) {
 					state.logger?.error(err);

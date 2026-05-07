@@ -16,7 +16,7 @@ Optional encryption-at-rest is enabled by `WA2DC_DB_PASSPHRASE`; passphrase hand
 
 Chat-link records in persisted `chats` state now store the webhook host `channelId` plus an optional `threadId` for thread-mode links.
 Legacy channel-only records must continue to load without migration steps.
-Thread-mode settings such as `DefaultChatType`, `ThreadNotificationsEnabled`, `ThreadNotificationRoles`, and `ThreadNotificationUsers` are regular persisted settings and must keep backward-compatible defaults.
+Thread-mode settings such as `DefaultChatType`, `DefaultThreadHostName`, `ThreadNotificationsEnabled`, `ThreadNotificationRoles`, and `ThreadNotificationUsers` are regular persisted settings and must keep backward-compatible defaults.
 
 ## Runtime artifacts
 

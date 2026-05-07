@@ -9,6 +9,7 @@ test("Default settings include DownloadDir", () => {
 	assert.equal(settings.redirectAnnouncementWebhooks, false);
 	assert.equal(settings.WhatsAppDiscordMediaBurstSize, 10);
 	assert.equal(settings.DefaultChatType, "channel");
+	assert.equal(settings.DefaultThreadHostName, "");
 	assert.equal(settings.ThreadNotificationsEnabled, false);
 	assert.deepEqual(settings.ThreadNotificationRoles, []);
 	assert.deepEqual(settings.ThreadNotificationUsers, []);

@@ -69,3 +69,4 @@ Routing may be restricted by deployment settings. Message-flow changes must pres
   Mirror incoming WhatsApp newsletter reactions via `newsletter.reaction` and/or raw `live_updates` notifications, keyed by `server_id`.
 
 When Discord links target forum threads instead of plain channels, resolve routing through the thread target ID while preserving the parent webhook host channel ID for webhook operations and recovery.
+Managed forum host discovery is scoped by the configured host name and the Discord bot owner marker in the forum topic so separate WA2DC bot users do not silently share the same default thread host.

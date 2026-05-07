@@ -22,8 +22,8 @@ Create a brand-new WhatsApp conversation and link it using the current default c
 Usage: `/start contact:<phone number or saved contact name>`
 
 ### `/defaultchat`
-Choose whether new WhatsApp chats are created as regular Discord channels or as forum threads under managed `whatsapp-threads` channels.  
-Usage: `/defaultchat mode:<channel|thread>`
+Choose whether new WhatsApp chats are created as regular Discord channels or as forum threads under managed forum channels.  
+Usage: `/defaultchat mode:<channel|thread> host_name:<optional forum name>`
 
 ### `/threadnotifications`
 Toggle the one-time notification post WA2DC sends when it creates a new WhatsApp thread.  
@@ -60,7 +60,8 @@ Usage: `/setpinduration duration:<24h|7d|30d>`
 Thread mode notes:
 
 - `channel` remains the default for backward compatibility.
-- In `thread` mode, WA2DC creates forum threads under auto-managed forum channels named `whatsapp-threads`, `whatsapp-threads-2`, and so on.
+- In `thread` mode, WA2DC creates forum threads under auto-managed forum channels named `whatsapp-threads`, `whatsapp-threads-2`, and so on, unless you provide `host_name`.
+- `host_name` is sanitized into a Discord channel name and only affects newly created managed forum channels.
 - Existing channel links continue working unchanged after you switch the default.
 - Thread notification pings are sent only once when the thread is first created, never on every mirrored message.
 

@@ -131,12 +131,17 @@ test("utils.discord.getOrCreateChannel creates a managed forum thread when threa
 	};
 	const originalSettings = {
 		DefaultChatType: state.settings.DefaultChatType,
+		DefaultThreadHostName: state.settings.DefaultThreadHostName,
 		Categories: Array.isArray(state.settings.Categories)
 			? [...state.settings.Categories]
 			: [],
 		ThreadNotificationsEnabled: state.settings.ThreadNotificationsEnabled,
-		ThreadNotificationRoles: [...(state.settings.ThreadNotificationRoles || [])],
-		ThreadNotificationUsers: [...(state.settings.ThreadNotificationUsers || [])],
+		ThreadNotificationRoles: [
+			...(state.settings.ThreadNotificationRoles || []),
+		],
+		ThreadNotificationUsers: [
+			...(state.settings.ThreadNotificationUsers || []),
+		],
 	};
 	const originalContacts = { ...state.contacts };
 	const originalChats = { ...state.chats };
@@ -145,6 +150,7 @@ test("utils.discord.getOrCreateChannel creates a managed forum thread when threa
 
 	try {
 		state.settings.DefaultChatType = "thread";
+		state.settings.DefaultThreadHostName = "";
 		state.settings.Categories = ["cat-1"];
 		state.settings.ThreadNotificationsEnabled = true;
 		state.settings.ThreadNotificationRoles = ["111"];
@@ -204,6 +210,7 @@ test("utils.discord.getOrCreateChannel creates a managed forum thread when threa
 				async create(payload) {
 					createdChannels.push(payload);
 					if (payload.type === ChannelType.GuildForum) {
+						forumHost.topic = payload.topic;
 						channels.set(forumHost.id, forumHost);
 						return forumHost;
 					}
@@ -218,13 +225,21 @@ test("utils.discord.getOrCreateChannel creates a managed forum thread when threa
 			},
 		});
 
-		const webhook = await utils.discord.getOrCreateChannel("123@s.whatsapp.net");
+		const webhook =
+			await utils.discord.getOrCreateChannel("123@s.whatsapp.net");
 
 		assert.equal(createdChannels.length, 1);
 		assert.equal(createdChannels[0]?.type, ChannelType.GuildForum);
+		assert.equal(
+			createdChannels[0]?.topic,
+			"WA2DC managed thread host for bot bot-1",
+		);
 		assert.equal(createdThreads.length, 1);
 		assert.equal(createdThreads[0]?.name, "Alice");
-		assert.match(createdThreads[0]?.message?.content || "", /New WhatsApp chat/);
+		assert.match(
+			createdThreads[0]?.message?.content || "",
+			/New WhatsApp chat/,
+		);
 		assert.match(createdThreads[0]?.message?.content || "", /<@&111>/);
 		assert.match(createdThreads[0]?.message?.content || "", /<@222>/);
 		assert.equal(state.chats["123@s.whatsapp.net"]?.channelId, "forum-1");
@@ -233,6 +248,8 @@ test("utils.discord.getOrCreateChannel creates a managed forum thread when threa
 	} finally {
 		utils.discord.getGuild = originalDiscordUtils.getGuild;
 		state.settings.DefaultChatType = originalSettings.DefaultChatType;
+		state.settings.DefaultThreadHostName =
+			originalSettings.DefaultThreadHostName;
 		state.settings.Categories = originalSettings.Categories;
 		state.settings.ThreadNotificationsEnabled =
 			originalSettings.ThreadNotificationsEnabled;
@@ -240,6 +257,129 @@ test("utils.discord.getOrCreateChannel creates a managed forum thread when threa
 			originalSettings.ThreadNotificationRoles;
 		state.settings.ThreadNotificationUsers =
 			originalSettings.ThreadNotificationUsers;
+		restoreObject(state.contacts, originalContacts);
+		restoreObject(state.chats, originalChats);
+		restoreObject(state.goccRuns, originalGoccRuns);
+		state.dcClient = originalDcClient;
+	}
+});
+
+test("thread mode creates a separate managed forum when another bot owns the existing host", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+	};
+	const originalSettings = {
+		DefaultChatType: state.settings.DefaultChatType,
+		DefaultThreadHostName: state.settings.DefaultThreadHostName,
+		Categories: Array.isArray(state.settings.Categories)
+			? [...state.settings.Categories]
+			: [],
+	};
+	const originalContacts = { ...state.contacts };
+	const originalChats = { ...state.chats };
+	const originalGoccRuns = { ...state.goccRuns };
+	const originalDcClient = state.dcClient;
+
+	try {
+		state.settings.DefaultChatType = "thread";
+		state.settings.DefaultThreadHostName = "Team A Threads";
+		state.settings.Categories = ["cat-1"];
+		state.contacts["123@s.whatsapp.net"] = "Alice";
+		restoreObject(state.chats, {});
+		restoreObject(state.goccRuns, {});
+		state.dcClient = { user: { id: "bot-2" } };
+
+		const channels = new Collection();
+		channels.set("cat-1", {
+			id: "cat-1",
+			type: ChannelType.GuildCategory,
+		});
+		channels.set("forum-other", {
+			id: "forum-other",
+			name: "team-a-threads",
+			type: ChannelType.GuildForum,
+			parentId: "cat-1",
+			topic: "WA2DC managed thread host for bot bot-1",
+		});
+
+		const createdChannels = [];
+		const createdThreads = [];
+		const ownedForum = {
+			id: "forum-owned",
+			name: "team-a-threads-2",
+			type: ChannelType.GuildForum,
+			parentId: "cat-1",
+			topic: null,
+			async fetchWebhooks() {
+				return { find: () => null };
+			},
+			async createWebhook() {
+				return {
+					id: "wh-owned",
+					type: 1,
+					token: "tok",
+					channelId: "forum-owned",
+					client: { options: {} },
+				};
+			},
+			threads: {
+				create: async (payload) => {
+					createdThreads.push(payload);
+					const thread = {
+						id: "thread-owned",
+						type: ChannelType.PublicThread,
+						parentId: "forum-owned",
+						name: payload.name,
+					};
+					channels.set(thread.id, thread);
+					return thread;
+				},
+			},
+		};
+
+		utils.discord.getGuild = async () => ({
+			channels: {
+				cache: channels,
+				async fetch(id) {
+					if (typeof id === "undefined") return channels;
+					return channels.get(id) || null;
+				},
+				async create(payload) {
+					createdChannels.push(payload);
+					if (payload.type === ChannelType.GuildForum) {
+						ownedForum.name = payload.name;
+						ownedForum.topic = payload.topic;
+						channels.set(ownedForum.id, ownedForum);
+						return ownedForum;
+					}
+					const category = {
+						id: "cat-created",
+						name: payload.name,
+						type: payload.type,
+					};
+					channels.set(category.id, category);
+					return category;
+				},
+			},
+		});
+
+		await utils.discord.getOrCreateChannel("123@s.whatsapp.net");
+
+		assert.equal(createdChannels.length, 1);
+		assert.equal(createdChannels[0]?.name, "team-a-threads-2");
+		assert.equal(
+			createdChannels[0]?.topic,
+			"WA2DC managed thread host for bot bot-2",
+		);
+		assert.equal(createdThreads.length, 1);
+		assert.equal(state.chats["123@s.whatsapp.net"]?.channelId, "forum-owned");
+		assert.equal(state.chats["123@s.whatsapp.net"]?.threadId, "thread-owned");
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		state.settings.DefaultChatType = originalSettings.DefaultChatType;
+		state.settings.DefaultThreadHostName =
+			originalSettings.DefaultThreadHostName;
+		state.settings.Categories = originalSettings.Categories;
 		restoreObject(state.contacts, originalContacts);
 		restoreObject(state.chats, originalChats);
 		restoreObject(state.goccRuns, originalGoccRuns);
@@ -257,6 +397,7 @@ test("/defaultchat and /threadnotifications update persisted thread settings", a
 		GuildID: state.settings.GuildID,
 		ControlChannelID: state.settings.ControlChannelID,
 		DefaultChatType: state.settings.DefaultChatType,
+		DefaultThreadHostName: state.settings.DefaultThreadHostName,
 		ThreadNotificationsEnabled: state.settings.ThreadNotificationsEnabled,
 	};
 	const originalDcClient = state.dcClient;
@@ -266,6 +407,7 @@ test("/defaultchat and /threadnotifications update persisted thread settings", a
 		state.settings.GuildID = "guild";
 		state.settings.ControlChannelID = "control";
 		state.settings.DefaultChatType = "channel";
+		state.settings.DefaultThreadHostName = "";
 		state.settings.ThreadNotificationsEnabled = false;
 
 		utils.discord.getGuild = async () => ({
@@ -275,22 +417,25 @@ test("/defaultchat and /threadnotifications update persisted thread settings", a
 
 		const fakeClient = new FakeDiscordClient();
 		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
-		const discordHandler = await importDiscordHandler("thread-settings-commands");
+		const discordHandler = await importDiscordHandler(
+			"thread-settings-commands",
+		);
 		state.dcClient = await discordHandler.start();
 		await delay(0);
 
 		const defaultChatInteraction = createInteraction({
 			channelId: "control",
 			commandName: "defaultchat",
-			stringOptions: { mode: "thread" },
+			stringOptions: { mode: "thread", host_name: " Team A Threads! " },
 		});
 		fakeClient.emit("interactionCreate", defaultChatInteraction);
 		await delay(0);
 
 		assert.equal(state.settings.DefaultChatType, "thread");
+		assert.equal(state.settings.DefaultThreadHostName, "team-a-threads");
 		assert.match(
 			String(defaultChatInteraction.records.editReply[0]?.content || ""),
-			/Default chat mode set to `thread`/i,
+			/`team-a-threads` channels/i,
 		);
 
 		const notificationsInteraction = createInteraction({
@@ -313,6 +458,8 @@ test("/defaultchat and /threadnotifications update persisted thread settings", a
 		state.settings.GuildID = originalSettings.GuildID;
 		state.settings.ControlChannelID = originalSettings.ControlChannelID;
 		state.settings.DefaultChatType = originalSettings.DefaultChatType;
+		state.settings.DefaultThreadHostName =
+			originalSettings.DefaultThreadHostName;
 		state.settings.ThreadNotificationsEnabled =
 			originalSettings.ThreadNotificationsEnabled;
 		state.dcClient = originalDcClient;
@@ -330,8 +477,12 @@ test("/threadtargets uses one command for add/remove/list across roles and users
 		GuildID: state.settings.GuildID,
 		ControlChannelID: state.settings.ControlChannelID,
 		ThreadNotificationsEnabled: state.settings.ThreadNotificationsEnabled,
-		ThreadNotificationRoles: [...(state.settings.ThreadNotificationRoles || [])],
-		ThreadNotificationUsers: [...(state.settings.ThreadNotificationUsers || [])],
+		ThreadNotificationRoles: [
+			...(state.settings.ThreadNotificationRoles || []),
+		],
+		ThreadNotificationUsers: [
+			...(state.settings.ThreadNotificationUsers || []),
+		],
 	};
 	const originalDcClient = state.dcClient;
 

@@ -22,7 +22,7 @@ Primary flow:
 WhatsApp startup guardrails:
 
 - `src/whatsappHandler.js` intentionally does not process WhatsApp history-sync payloads beyond push-name updates. The bridge only needs live/offline message delivery, and history payload processing can make Baileys allocate large decoded batches during reconnects after pairing.
-- Do not eagerly call `groupFetchAllParticipating()` on every WhatsApp reconnect. Group metadata is refreshed through live group events and explicit sync commands; all-groups fetches can allocate very large Baileys response structures immediately after pairing.
+- Do not eagerly call `groupFetchAllParticipating()` on WhatsApp reconnect or `/resync`. Group metadata is refreshed through live group events and `/resync` uses a lightweight `@g.us` participating-groups query that does not request every participant roster/description; full all-groups fetches can allocate very large Baileys response structures after pairing.
 - Pass Baileys a bounded logger wrapper instead of the root pino logger. Baileys errors can include bundled `data:text/javascript;base64...` stack traces and binary payloads; keep those summarized so `logs.txt` and `terminal.log` stay useful and do not drive heap pressure.
 
 ## Developer quick start

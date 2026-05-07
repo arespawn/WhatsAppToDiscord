@@ -8,7 +8,8 @@ All bot controls now run exclusively through Discord slash commands. Type `/` in
 
 ### `/pairwithcode`
 Request a pairing code for a specific phone number.  
-Usage: `/pairwithcode number:<E.164 phone number>`
+Usage: `/pairwithcode phone:<E.164 phone number>`  
+Note: `phone` can include a leading `+`, spaces, dashes, dots, or parentheses; WA2DC normalizes it before requesting the pairing code.
 
 ### `/chatinfo`
 Show which WhatsApp chat the current channel/thread is linked to (JID + type), plus the Discord target mode.  

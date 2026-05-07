@@ -2183,6 +2183,48 @@ const requireNewsletterMethod = async (ctx, methodName) => {
 	return method.bind(state.waClient);
 };
 
+const getStringOrNumberOptionValue = (ctx, optionName) => {
+	try {
+		const stringValue = ctx.getStringOption(optionName);
+		if (stringValue !== null && stringValue !== undefined) {
+			return stringValue;
+		}
+	} catch {}
+
+	try {
+		const numberValue = ctx.getNumberOption(optionName);
+		if (numberValue !== null && numberValue !== undefined) {
+			return numberValue;
+		}
+	} catch {}
+
+	try {
+		const integerValue = ctx.getIntegerOption(optionName);
+		if (integerValue !== null && integerValue !== undefined) {
+			return integerValue;
+		}
+	} catch {}
+
+	return null;
+};
+
+const normalizePairingPhoneNumber = (value) => {
+	if (
+		typeof value === "number" &&
+		(!Number.isFinite(value) || !Number.isInteger(value))
+	) {
+		return null;
+	}
+
+	const raw = String(value ?? "").trim();
+	if (!raw || !/^\+?[\d\s().-]+$/.test(raw)) {
+		return null;
+	}
+
+	const digits = raw.replace(/\D/g, "");
+	return /^[1-9]\d{6,14}$/.test(digits) ? digits : null;
+};
+
 const commandHandlers = {
 	ping: {
 		description: "Check the bot latency.",
@@ -2230,17 +2272,20 @@ const commandHandlers = {
 		description: "Request a WhatsApp pairing code.",
 		options: [
 			{
-				name: "number",
-				description: "Phone number with country code.",
+				name: "phone",
+				description: "Phone number with country code, such as +12025550123.",
 				type: ApplicationCommandOptionTypes.STRING,
 				required: true,
 			},
 		],
 		async execute(ctx) {
-			const number = ctx.getStringOption("number");
+			const rawNumber =
+				getStringOrNumberOptionValue(ctx, "phone") ??
+				getStringOrNumberOptionValue(ctx, "number");
+			const number = normalizePairingPhoneNumber(rawNumber);
 			if (!number) {
 				await ctx.reply(
-					'Please enter your number. Usage: `pairWithCode <number>`. Don\'t use "+" or any other special characters.',
+					"Please enter a phone number with country code, such as `+12025550123` or `12025550123`.",
 				);
 				return;
 			}

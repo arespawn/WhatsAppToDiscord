@@ -18,12 +18,15 @@ await esbuild.build({
 	outfile: "out.js",
 });
 
-const bundleBase64 = fs.readFileSync("out.js", "base64");
 const pkgBootstrap = `'use strict';
+
+const fs = require('fs');
+const path = require('path');
 
 globalThis.__wa2dcPkgRequire = require;
 
-const bundleUrl = "data:text/javascript;base64,${bundleBase64}";
+const bundleBase64 = fs.readFileSync(path.join(__dirname, 'out.js'), 'base64');
+const bundleUrl = \`data:text/javascript;base64,\${bundleBase64}\`;
 
 (async () => {
 	await import(bundleUrl);

@@ -6,6 +6,7 @@ import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const RUNTIME_SIDECAR_DEPENDENCIES = ["sharp", "canvas", "jsdom", "lottie-web"];
+const PKG_PACKAGE_SPEC = process.env.WA2DC_PKG_PACKAGE || "@yao-pkg/pkg@6.19.0";
 
 function platformToPkgOs(platform) {
 	if (platform === "win32") return "win";
@@ -123,7 +124,7 @@ run(getBin("npm"), ["run", "bundle:pkg"]);
 
 const pkgArgs = [
 	"-y",
-	"@yao-pkg/pkg",
+	PKG_PACKAGE_SPEC,
 	pkgEntrypoint,
 	"-t",
 	target,

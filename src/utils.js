@@ -2552,8 +2552,11 @@ const normalizeDiscordId = (value) => {
 	const trimmed = String(value).trim();
 	return trimmed ? trimmed : null;
 };
-const uniqueDiscordIds = (value = []) =>
-	[...new Set((Array.isArray(value) ? value : []).map(normalizeDiscordId).filter(Boolean))];
+const uniqueDiscordIds = (value = []) => [
+	...new Set(
+		(Array.isArray(value) ? value : []).map(normalizeDiscordId).filter(Boolean),
+	),
+];
 const getManagedThreadHostName = (index = 0) =>
 	index <= 0
 		? MANAGED_THREAD_HOST_BASE_NAME
@@ -2587,7 +2590,9 @@ const attachWebhookChatMetadata = (webhook, chatLink = {}) => {
 	if (!webhook) return webhook;
 	webhook.wa2dcThreadId = normalizeDiscordId(chatLink?.threadId);
 	webhook.wa2dcTargetChannelId =
-		getChatTargetChannelId(chatLink) || webhook.wa2dcThreadId || webhook.channelId;
+		getChatTargetChannelId(chatLink) ||
+		webhook.wa2dcThreadId ||
+		webhook.channelId;
 	return webhook;
 };
 const withThreadIdForChat = (payload, jid) => {
@@ -2615,9 +2620,10 @@ const discord = {
 		return this.channelIdToJids(channelId)[0] || null;
 	},
 	hostChannelIdToJids(channelId) {
-		return Object.keys(state.chats).filter((key) =>
-			isThreadChatLink(state.chats[key]) &&
-			chatUsesHostChannelId(state.chats[key], channelId),
+		return Object.keys(state.chats).filter(
+			(key) =>
+				isThreadChatLink(state.chats[key]) &&
+				chatUsesHostChannelId(state.chats[key], channelId),
 		);
 	},
 	getChatLink(jid) {
@@ -2632,7 +2638,10 @@ const discord = {
 		return targetChannelId ? `<#${targetChannelId}>` : null;
 	},
 	isManagedThreadHostChannel(channel = {}) {
-		return isForumChannelType(channel?.type) && isManagedThreadHostName(channel?.name);
+		return (
+			isForumChannelType(channel?.type) &&
+			isManagedThreadHostName(channel?.name)
+		);
 	},
 	partitionText(text) {
 		return text.match(/(.|[\r\n]){1,2000}/g) || [];
@@ -2936,7 +2945,10 @@ const discord = {
 	},
 	buildManagedThreadStarterPayload(
 		jid,
-		{ restored = false, notifyTargets = state.settings.ThreadNotificationsEnabled } = {},
+		{
+			restored = false,
+			notifyTargets = state.settings.ThreadNotificationsEnabled,
+		} = {},
 	) {
 		const name = whatsapp.jidToName(jid);
 		const roleIds = uniqueDiscordIds(state.settings?.ThreadNotificationRoles);
@@ -2966,7 +2978,9 @@ const discord = {
 			...(allowedMentions ? { allowedMentions } : {}),
 		};
 	},
-	async getOrCreateManagedThreadHostChannel({ preferredHostChannelId = null } = {}) {
+	async getOrCreateManagedThreadHostChannel({
+		preferredHostChannelId = null,
+	} = {}) {
 		const guild = await this.getGuild();
 		if (!guild) return null;
 		await guild.channels.fetch();
@@ -2983,7 +2997,10 @@ const discord = {
 			if (!isThreadChatLink(chatLink)) return;
 			const hostChannelId = getChatHostChannelId(chatLink);
 			if (!hostChannelId) return;
-			threadCounts.set(hostChannelId, (threadCounts.get(hostChannelId) || 0) + 1);
+			threadCounts.set(
+				hostChannelId,
+				(threadCounts.get(hostChannelId) || 0) + 1,
+			);
 		});
 
 		const managedHosts = [...guild.channels.cache.values()]
@@ -3015,7 +3032,11 @@ const discord = {
 	},
 	async createManagedThreadLink(
 		jid,
-		{ restored = false, notifyTargets = state.settings.ThreadNotificationsEnabled, preferredHostChannelId = null } = {},
+		{
+			restored = false,
+			notifyTargets = state.settings.ThreadNotificationsEnabled,
+			preferredHostChannelId = null,
+		} = {},
 	) {
 		const hostChannel = await this.getOrCreateManagedThreadHostChannel({
 			preferredHostChannelId,
@@ -3069,7 +3090,10 @@ const discord = {
 			...created.chatLink,
 		};
 		delete state.goccRuns[normalizedJid];
-		return attachWebhookChatMetadata(created.webhook, state.chats[normalizedJid]);
+		return attachWebhookChatMetadata(
+			created.webhook,
+			state.chats[normalizedJid],
+		);
 	},
 	_unfinishedGoccCalls: 0,
 	async getOrCreateChannel(jid) {
@@ -3129,10 +3153,7 @@ const discord = {
 				});
 				const webhook = await this.getOrCreateOwnedWebhook(channel);
 				state.chats[normalizedJid] = buildStoredChatLink(webhook);
-				return attachWebhookChatMetadata(
-					webhook,
-					state.chats[normalizedJid],
-				);
+				return attachWebhookChatMetadata(webhook, state.chats[normalizedJid]);
 			} finally {
 				this._unfinishedGoccCalls--;
 			}
@@ -3196,7 +3217,10 @@ const discord = {
 				return null;
 			}
 			const refreshedWebhook = await this.getOrCreateOwnedWebhook(channel);
-			state.chats[normalizedJid] = buildStoredChatLink(refreshedWebhook, chatInfo);
+			state.chats[normalizedJid] = buildStoredChatLink(
+				refreshedWebhook,
+				chatInfo,
+			);
 			return attachWebhookChatMetadata(
 				refreshedWebhook,
 				state.chats[normalizedJid],
@@ -3615,7 +3639,9 @@ const discord = {
 
 		for (const [jid, chatLink] of Object.entries(state.chats)) {
 			try {
-				const channel = await guild.channels.fetch(getChatTargetChannelId(chatLink));
+				const channel = await guild.channels.fetch(
+					getChatTargetChannelId(chatLink),
+				);
 				await channel.edit({
 					name: whatsapp.jidToName(jid),
 				});

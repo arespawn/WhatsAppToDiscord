@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import * as baileys from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
-import { createDiscordClient } from "./clientFactories.js";
 import {
 	getChatHostChannelId,
 	getChatTargetChannelId,
 	isThreadChatLink,
 } from "./chatLinks.js";
+import { createDiscordClient } from "./clientFactories.js";
 import groupMetadataCache from "./groupMetadataCache.js";
 import messageStore from "./messageStore.js";
 import {
@@ -190,7 +190,8 @@ const resolveManualLinkTarget = async (channel) => {
 
 	const parentId = channel.parentId || channel.parent?.id;
 	const parentChannel =
-		channel.parent || (parentId ? await utils.discord.getChannel(parentId) : null);
+		channel.parent ||
+		(parentId ? await utils.discord.getChannel(parentId) : null);
 	if (!parentChannel || !ForumChannelTypes.includes(parentChannel.type)) {
 		return {
 			ok: false,
@@ -219,7 +220,8 @@ const buildChatLinkFromWebhook = (webhook, { threadId = null } = {}) => ({
 const isWebhookSharedAcrossChats = (webhookId, exceptJid = null) =>
 	Object.entries(state.chats || {}).some(
 		([jid, chatLink]) =>
-			jid !== exceptJid && String(chatLink?.id || "") === String(webhookId || ""),
+			jid !== exceptJid &&
+			String(chatLink?.id || "") === String(webhookId || ""),
 	);
 
 const requestSafeRestart = async (
@@ -3701,7 +3703,8 @@ const commandHandlers = {
 		},
 	},
 	defaultchat: {
-		description: "Choose whether new WhatsApp chats are created as channels or threads.",
+		description:
+			"Choose whether new WhatsApp chats are created as channels or threads.",
 		options: [
 			{
 				name: "mode",
@@ -3730,11 +3733,13 @@ const commandHandlers = {
 		},
 	},
 	threadnotifications: {
-		description: "Toggle the one-time notification post when WA2DC creates a new WhatsApp thread.",
+		description:
+			"Toggle the one-time notification post when WA2DC creates a new WhatsApp thread.",
 		options: [
 			{
 				name: "enabled",
-				description: "Whether new WA-created threads should ping configured users/roles.",
+				description:
+					"Whether new WA-created threads should ping configured users/roles.",
 				type: ApplicationCommandOptionTypes.BOOLEAN,
 				required: true,
 			},
@@ -3754,7 +3759,8 @@ const commandHandlers = {
 		options: [
 			{
 				name: "action",
-				description: "Add, remove, or list configured thread-notification targets.",
+				description:
+					"Add, remove, or list configured thread-notification targets.",
 				type: ApplicationCommandOptionTypes.STRING,
 				required: true,
 				choices: [
@@ -3782,8 +3788,12 @@ const commandHandlers = {
 			const role = ctx.getRoleOption("role");
 
 			if (action === "list") {
-				const roleTargets = [...new Set(state.settings.ThreadNotificationRoles || [])];
-				const userTargets = [...new Set(state.settings.ThreadNotificationUsers || [])];
+				const roleTargets = [
+					...new Set(state.settings.ThreadNotificationRoles || []),
+				];
+				const userTargets = [
+					...new Set(state.settings.ThreadNotificationUsers || []),
+				];
 				await ctx.reply(
 					[
 						`Thread notifications: ${state.settings.ThreadNotificationsEnabled ? "enabled" : "disabled"}`,
@@ -3799,9 +3809,7 @@ const commandHandlers = {
 				return;
 			}
 			if (Boolean(user) === Boolean(role)) {
-				await ctx.reply(
-					"Choose exactly one target: either `user` or `role`.",
-				);
+				await ctx.reply("Choose exactly one target: either `user` or `role`.");
 				return;
 			}
 
@@ -3830,10 +3838,14 @@ const commandHandlers = {
 			}
 			if (isRoleTarget) {
 				state.settings.ThreadNotificationRoles =
-					state.settings.ThreadNotificationRoles.filter((id) => id !== targetId);
+					state.settings.ThreadNotificationRoles.filter(
+						(id) => id !== targetId,
+					);
 			} else {
 				state.settings.ThreadNotificationUsers =
-					state.settings.ThreadNotificationUsers.filter((id) => id !== targetId);
+					state.settings.ThreadNotificationUsers.filter(
+						(id) => id !== targetId,
+					);
 			}
 			await storage.saveSettings().catch(() => {});
 			await ctx.reply(`Removed ${targetLabel} from thread notifications.`);
@@ -3976,8 +3988,9 @@ const commandHandlers = {
 				!isWebhookSharedAcrossChats(previousChat.id, normalizedJid)
 			) {
 				try {
-					const previousChannel =
-						await utils.discord.getChannel(previousHostChannelId);
+					const previousChannel = await utils.discord.getChannel(
+						previousHostChannelId,
+					);
 					const previousWebhooks = await previousChannel?.fetchWebhooks();
 					const previousWebhook =
 						previousWebhooks?.get(previousChat.id) ||
@@ -5526,7 +5539,9 @@ const handleInteractionCommand = async (interaction, commandName) => {
 const isUnknownInteractionError = (err) =>
 	Number(err?.code) === 10062 ||
 	Number(err?.rawError?.code) === 10062 ||
-	String(err?.message || "").toLowerCase().includes("unknown interaction");
+	String(err?.message || "")
+		.toLowerCase()
+		.includes("unknown interaction");
 
 const handleInteractionCommandFailure = async ({
 	interaction,
@@ -5593,7 +5608,8 @@ client.on("interactionCreate", async (interaction) => {
 	} catch (err) {
 		await handleInteractionCommandFailure({
 			interaction,
-			commandName: interaction.commandName?.toLowerCase() || interaction.customId,
+			commandName:
+				interaction.commandName?.toLowerCase() || interaction.customId,
 			err,
 		});
 	}

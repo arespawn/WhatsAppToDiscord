@@ -14,8 +14,8 @@ import {
 	getKeyAuthor,
 } from "@whiskeysockets/baileys/lib/Utils/generics.js";
 import { decryptPollVote } from "@whiskeysockets/baileys/lib/Utils/process-message.js";
-import { getChatTargetChannelId } from "./chatLinks.js";
 import useSQLiteAuthState from "./auth/sqliteAuthState.js";
+import { getChatTargetChannelId } from "./chatLinks.js";
 import { createWhatsAppClient, getBaileysVersion } from "./clientFactories.js";
 import groupMetadataCache from "./groupMetadataCache.js";
 import { createGroupRefreshScheduler } from "./groupMetadataRefresh.js";
@@ -2915,7 +2915,7 @@ const connectToWhatsApp = async (retry = 1) => {
 
 			return stored.message || stored;
 		},
-		browser: Browsers.android('13'),
+		browser: Browsers.android("13"),
 	});
 	client.contacts = state.contacts;
 	patchSendMessageForLinkPreviews(client);

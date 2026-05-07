@@ -4,8 +4,8 @@ import path from "node:path";
 import readline from "node:readline";
 import { BufferJSON } from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
-import { createDiscordClient } from "./clientFactories.js";
 import { normalizeChatLinks } from "./chatLinks.js";
+import { createDiscordClient } from "./clientFactories.js";
 import sqliteStore from "./persistence/sqliteStore.js";
 import state from "./state.js";
 

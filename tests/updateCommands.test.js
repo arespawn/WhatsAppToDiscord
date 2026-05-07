@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
+import discordJs from "discord.js";
 import {
 	resetClientFactoryOverrides,
 	setClientFactoryOverrides,
@@ -18,6 +19,8 @@ import utils from "../src/utils.js";
 import initIsolatedStorage from "./helpers/initIsolatedStorage.js";
 
 await initIsolatedStorage(import.meta.url);
+
+const { ApplicationCommandOptionType } = discordJs;
 
 const importDiscordHandler = async (tag) =>
 	(await import(`../src/discordHandler.js?test=${encodeURIComponent(tag)}`))
@@ -1025,6 +1028,200 @@ test("/poll in a newsletter-linked channel falls back to text when interactive a
 		state.dcClient = originalDcClient;
 		state.waClient = originalWaClient;
 		restoreObject(state.chats, originalChats);
+		resetClientFactoryOverrides();
+	}
+});
+
+test("/pairwithcode registers a phone string option", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+	};
+	const originalDcClient = state.dcClient;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+
+		let registeredCommands = null;
+		utils.discord.getGuild = async () => ({
+			commands: {
+				set: async (commands) => {
+					registeredCommands = commands;
+				},
+			},
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler(
+			"pairwithcode-registration",
+		);
+		state.dcClient = await discordHandler.start();
+
+		assert.equal(await waitFor(() => registeredCommands), true);
+		const command = registeredCommands.find(
+			(candidate) => candidate.name === "pairwithcode",
+		);
+		assert.ok(command);
+		assert.deepEqual(command.options, [
+			{
+				name: "phone",
+				description: "Phone number with country code, such as +12025550123.",
+				type: ApplicationCommandOptionType.String,
+				required: true,
+			},
+		]);
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+
+		state.dcClient = originalDcClient;
+		resetClientFactoryOverrides();
+	}
+});
+
+test("/pairwithcode accepts E.164 input and sends digits to Baileys", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+	};
+	const originalDcClient = state.dcClient;
+	const originalWaClient = state.waClient;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+
+		const pairingRequests = [];
+		state.waClient = {
+			async requestPairingCode(phoneNumber) {
+				pairingRequests.push(phoneNumber);
+				return "ABCD-1234";
+			},
+		};
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler("pairwithcode-e164");
+		state.dcClient = await discordHandler.start();
+		await delay(0);
+
+		const interaction = createInteraction({
+			channelId: "control",
+			commandName: "pairwithcode",
+			stringOptions: {
+				phone: "+20 (10) 123-4567",
+			},
+		});
+		fakeClient.emit("interactionCreate", interaction);
+		await delay(0);
+
+		assert.deepEqual(pairingRequests, ["20101234567"]);
+		assert.equal(interaction.records.editReply.length, 1);
+		assert.equal(
+			interaction.records.editReply[0]?.content,
+			"Your pairing code is: ABCD-1234",
+		);
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+
+		state.dcClient = originalDcClient;
+		state.waClient = originalWaClient;
+		resetClientFactoryOverrides();
+	}
+});
+
+test("/pairwithcode still accepts legacy number option interactions", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+	};
+	const originalDcClient = state.dcClient;
+	const originalWaClient = state.waClient;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+
+		const pairingRequests = [];
+		state.waClient = {
+			async requestPairingCode(phoneNumber) {
+				pairingRequests.push(phoneNumber);
+				return "WXYZ-9876";
+			},
+		};
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler("pairwithcode-legacy");
+		state.dcClient = await discordHandler.start();
+		await delay(0);
+
+		const interaction = createInteraction({
+			channelId: "control",
+			commandName: "pairwithcode",
+			stringOptions: {
+				number: "+1 202 555 0123",
+			},
+		});
+		fakeClient.emit("interactionCreate", interaction);
+		await delay(0);
+
+		assert.deepEqual(pairingRequests, ["12025550123"]);
+		assert.equal(interaction.records.editReply.length, 1);
+		assert.equal(
+			interaction.records.editReply[0]?.content,
+			"Your pairing code is: WXYZ-9876",
+		);
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+
+		state.dcClient = originalDcClient;
+		state.waClient = originalWaClient;
 		resetClientFactoryOverrides();
 	}
 });

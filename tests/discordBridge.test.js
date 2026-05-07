@@ -309,6 +309,128 @@ test("WhatsApp view once media is sent to Discord as a spoiler attachment", asyn
 	}
 });
 
+test("WhatsApp view once media flag is sent to Discord as a spoiler attachment", async () => {
+	const originalLocalDownloads = state.settings.LocalDownloads;
+	const originalDiscordFileSizeLimit = state.settings.DiscordFileSizeLimit;
+	try {
+		state.settings.LocalDownloads = true;
+		state.settings.DiscordFileSizeLimit = 1;
+		const file = await utils.whatsapp.getFile(
+			{
+				key: {
+					id: "wa-view-once-flag",
+					remoteJid: "jid@s.whatsapp.net",
+				},
+				message: {
+					imageMessage: {
+						mimetype: "image/jpeg",
+						fileLength: 2,
+						viewOnce: true,
+					},
+				},
+			},
+			"imageMessage",
+		);
+
+		assert.equal(file?.name, "SPOILER_imageMessage.jpeg");
+		assert.equal(file?.spoiler, true);
+	} finally {
+		state.settings.LocalDownloads = originalLocalDownloads;
+		state.settings.DiscordFileSizeLimit = originalDiscordFileSizeLimit;
+	}
+});
+
+test("WhatsApp spoiler files are uploaded to Discord with spoiler filenames", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+		getOrCreateChannel: utils.discord.getOrCreateChannel,
+		safeWebhookSend: utils.discord.safeWebhookSend,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		oneWay: state.settings.oneWay,
+	};
+	const originalLastMessages = state.lastMessages;
+	const originalDcClient = state.dcClient;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.oneWay = 0b11;
+		state.lastMessages = {};
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+		utils.discord.getOrCreateChannel = async () => ({
+			id: "hook-1",
+			token: "token",
+			channel: { type: "GUILD_TEXT" },
+		});
+
+		const sent = [];
+		utils.discord.safeWebhookSend = async (_webhook, args) => {
+			sent.push(args);
+			return { id: `dc-${sent.length}`, channel: { type: "GUILD_TEXT" } };
+		};
+
+		class FakeDiscordClient extends EventEmitter {
+			constructor() {
+				super();
+				this.user = { id: "bot-1" };
+			}
+
+			async login() {
+				queueMicrotask(() => this.emit("ready"));
+				return this;
+			}
+		}
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler(
+			"wa-spoiler-file-name-normalization",
+		);
+		state.dcClient = await discordHandler.start();
+
+		fakeClient.emit("whatsappMessage", {
+			id: "wa-view-once-unprefixed",
+			name: "Tester",
+			content: "",
+			channelJid: "jid@s.whatsapp.net",
+			file: {
+				name: "imageMessage.jpeg",
+				attachment: Buffer.from("image"),
+				spoiler: true,
+			},
+			quote: null,
+			profilePic: null,
+			isGroup: false,
+			isForwarded: false,
+			isEdit: false,
+		});
+
+		assert.equal(await waitFor(() => sent.length === 1), true);
+		assert.equal(sent[0]?.files?.[0]?.name, "SPOILER_imageMessage.jpeg");
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+		utils.discord.getOrCreateChannel = originalDiscordUtils.getOrCreateChannel;
+		utils.discord.safeWebhookSend = originalDiscordUtils.safeWebhookSend;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.oneWay = originalSettings.oneWay;
+
+		state.lastMessages = originalLastMessages;
+		state.dcClient = originalDcClient;
+		resetClientFactoryOverrides();
+	}
+});
+
 test("WhatsApp newsletter reactions resolve Discord message via value-side mapping fallback", async () => {
 	const originalDiscordUtils = {
 		getGuild: utils.discord.getGuild,

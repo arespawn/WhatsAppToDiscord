@@ -244,7 +244,7 @@ Defaults (out of the box):
 - Local downloads are disabled (`/localdownloads enabled:true` to turn on).
 - Download directory is `./downloads` and pruning is disabled (`/setdownloadlimit`, `/setdownloadmaxage`, `/setdownloadminfree` all default to `0` = off).
 - Local download server is disabled; when enabled it defaults to local-only (`127.0.0.1` bind, `localhost` URLs, port `8080`).
-- Discord spoiler media attachments are sent to WhatsApp as view-once media when WhatsApp supports that media type. WhatsApp view-once media is mirrored to Discord as spoiler attachments.
+- WhatsApp view-once media is mirrored to Discord as spoiler attachments.
 
 ### `/setwamediaburstsize`
 Set how many WhatsApp attachments WA2DC uploads to Discord per batch when mirroring media bursts.  

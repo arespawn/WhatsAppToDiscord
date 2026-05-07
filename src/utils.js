@@ -743,11 +743,29 @@ const isWhatsAppViewOnceMessageType = (msgType = "") =>
 		"viewOnceMessageV2",
 		"viewOnceMessageV2Extension",
 	].includes(msgType);
+const isWhatsAppViewOnceMediaMessage = (rawMsg = {}, msgType = "", msg = {}) => {
+	if (isWhatsAppViewOnceMessageType(msgType)) return true;
+	if (msg?.viewOnce === true) return true;
+	const typedMessage = rawMsg?.message?.[msgType];
+	if (typedMessage?.viewOnce === true) return true;
+	return false;
+};
 const asDiscordSpoilerFileName = (name = "attachment") => {
 	const fileName = String(name || "attachment");
 	return fileName.toUpperCase().startsWith(DISCORD_SPOILER_PREFIX)
 		? fileName
 		: `${DISCORD_SPOILER_PREFIX}${fileName}`;
+};
+const ensureDiscordSpoilerFileName = (file = {}) => {
+	if (!file || typeof file !== "object" || file.spoiler !== true) return file;
+	const name =
+		typeof file.name === "string" && file.name.trim()
+			? file.name.trim()
+			: typeof file.attachment?.name === "string" && file.attachment.name.trim()
+				? file.attachment.name.trim()
+				: "attachment";
+	const spoilerName = asDiscordSpoilerFileName(name);
+	return spoilerName === file.name ? file : { ...file, name: spoilerName };
 };
 
 const WINDOWS_RESERVED_BASENAMES = new Set([
@@ -2663,6 +2681,9 @@ const discord = {
 	isRetryableWebhookTransportError,
 	chunkWebhookFilesForSend(files) {
 		return chunkDiscordWebhookFilesForSend(files);
+	},
+	ensureSpoilerFileName(file) {
+		return ensureDiscordSpoilerFileName(file);
 	},
 	async sendPartitioned(channel, text) {
 		if (!channel || !text) return;
@@ -4893,7 +4914,7 @@ const whatsapp = {
 		if (largeFile && !state.settings.LocalDownloads) return -1;
 		try {
 			const baseName = this.getFilename(msg, nMsgType);
-			const viewOnce = isWhatsAppViewOnceMessageType(msgType);
+			const viewOnce = isWhatsAppViewOnceMediaMessage(rawMsg, msgType, msg);
 			const fileName = viewOnce ? asDiscordSpoilerFileName(baseName) : baseName;
 			if (largeFile && state.settings.LocalDownloads) {
 				return {

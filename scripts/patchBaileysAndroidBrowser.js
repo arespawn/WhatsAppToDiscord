@@ -68,6 +68,23 @@ const replacements = [
 			"    }\n" +
 			"    const syncDisabled =",
 	},
+	{
+		file: "lib/Socket/chats.js",
+		marker: "History sync is enabled, awaiting notification with a 20s timeout.",
+		before:
+			"        // On reconnection (accountSyncCounter > 0), the server does not push\n" +
+			"        // history sync notifications — the device already has its data.\n" +
+			"        // Skip the 20s wait and go online immediately.\n" +
+			"        if (authState.creds.accountSyncCounter > 0) {\n" +
+			"            logger.info('Reconnection with existing sync data, skipping history sync wait. Transitioning to Online.');\n" +
+			"            syncState = SyncState.Online;\n" +
+			"            setTimeout(() => ev.flush(), 0);\n" +
+			"            return;\n" +
+			"        }\n" +
+			"        logger.info('First connection, awaiting history sync notification with a 20s timeout.');",
+		after:
+			"        logger.info('History sync is enabled, awaiting notification with a 20s timeout.');",
+	},
 ];
 
 const replaceOnce = async ({ file, marker, before, after }) => {

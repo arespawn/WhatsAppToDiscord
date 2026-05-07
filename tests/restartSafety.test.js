@@ -134,6 +134,83 @@ test("connection.update ignores Discord send failures and still reconnects", asy
 	}
 });
 
+test("restartRequired reconnects without logging raw Baileys payloads", async () => {
+	const originalLogger = state.logger;
+	const originalShutdownRequested = state.shutdownRequested;
+	const originalContacts = snapshotObject(state.contacts);
+	const originalGetControlChannel = utils.discord.getControlChannel;
+	const originalWhatsappUtils = utils.whatsapp;
+
+	try {
+		const warnings = [];
+		state.logger = {
+			info() {},
+			error() {
+				throw new Error("raw disconnect should not be logged as error");
+			},
+			warn(payload, message) {
+				warnings.push({ payload, message });
+			},
+			debug() {},
+		};
+		state.shutdownRequested = false;
+		restoreObject(state.contacts, {});
+
+		const controlMessages = [];
+		const controlChannel = {
+			send: async (message) => {
+				controlMessages.push(message);
+			},
+		};
+		utils.discord.getControlChannel = async () => controlChannel;
+		utils.whatsapp = stubWhatsappUtils();
+
+		const createdClients = [];
+		setClientFactoryOverrides({
+			createWhatsAppClient: () => {
+				const client = new FakeWhatsAppClient();
+				createdClients.push(client);
+				return client;
+			},
+			getBaileysVersion: async () => ({ version: [1, 0, 0] }),
+		});
+
+		const { connectToWhatsApp } = await import("../src/whatsappHandler.js");
+		const client = await connectToWhatsApp(1);
+		const hugeError = new Error("restart required");
+		hugeError.output = {
+			statusCode: 515,
+			payload: "x".repeat(2_000_000),
+		};
+
+		client.ev.emit("connection.update", {
+			connection: "close",
+			lastDisconnect: { error: hugeError },
+		});
+
+		const reconnected = await waitFor(() => createdClients.length >= 2, {
+			timeoutMs: 1500,
+		});
+
+		assert.equal(reconnected, true);
+		assert.deepEqual(controlMessages, [
+			"WhatsApp pairing restart requested. Reconnecting with the saved session...",
+		]);
+		assert.ok(warnings.length >= 1);
+		assert.ok(
+			JSON.stringify(warnings[0]).length < 2000,
+			"disconnect warning should be bounded",
+		);
+	} finally {
+		state.logger = originalLogger;
+		state.shutdownRequested = originalShutdownRequested;
+		restoreObject(state.contacts, originalContacts);
+		utils.discord.getControlChannel = originalGetControlChannel;
+		utils.whatsapp = originalWhatsappUtils;
+		resetClientFactoryOverrides();
+	}
+});
+
 test("connection.update no-ops during shutdown", async () => {
 	const originalLogger = state.logger;
 	const originalShutdownRequested = state.shutdownRequested;

@@ -9,7 +9,9 @@ All bot controls now run exclusively through Discord slash commands. Type `/` in
 ### `/pairwithcode`
 Request a pairing code for a specific phone number.  
 Usage: `/pairwithcode phone:<E.164 phone number>`  
-Note: `phone` can include a leading `+`, spaces, dashes, dots, or parentheses; WA2DC normalizes it before requesting the pairing code. Run this while WhatsApp is showing a QR/pairing prompt; pairing codes are only valid before the WhatsApp socket is fully connected.
+Note: `phone` can include a leading `+`, spaces, dashes, dots, or parentheses; WA2DC normalizes it before requesting the pairing code. Run this while WhatsApp is showing a fresh QR/pairing prompt, then enter the code immediately in WhatsApp. WA2DC waits briefly after the WhatsApp pairing prompt before requesting a code and refuses to request codes for already registered sessions, but pairing codes are still less reliable than QR scanning because WhatsApp may reject or rate-limit them.
+
+Advanced troubleshooting: WA2DC starts fresh/unregistered WhatsApp sessions with the Android browser profile by default because it has better view-once media support. When `/pairwithcode` is used from Android, WA2DC stores a temporary `macos-chrome` pairing profile, clears the unregistered WhatsApp auth stub, and restarts; run `/pairwithcode phone:<number>` again after the restart to receive the code. The command warns that this profile is less reliable for WhatsApp view-once media. Set `WA2DC_WHATSAPP_BROWSER` before startup to force a specific profile; supported values are `android`, `macos-chrome`, `windows-chrome`, `ubuntu-chrome`, and `baileys`.
 
 ### `/chatinfo`
 Show which WhatsApp chat the current channel/thread is linked to (JID + type), plus the Discord target mode.  

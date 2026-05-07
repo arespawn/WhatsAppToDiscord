@@ -28,6 +28,12 @@ import { resolveRestartFlagPath } from "./runnerLogic.js";
 import state from "./state.js";
 import storage from "./storage.js";
 import utils from "./utils.js";
+import {
+	PAIRING_CODE_BROWSER_PROFILE,
+	WHATSAPP_BROWSER_PROFILE_ENV,
+	isWhatsAppBrowserProfile,
+	saveWhatsAppPairingCodeBrowserProfile,
+} from "./whatsappHandler.js";
 import { resyncWhatsAppContactsAndGroups } from "./whatsappResync.js";
 
 const {
@@ -2226,11 +2232,38 @@ const normalizePairingPhoneNumber = (value) => {
 };
 
 const PAIRING_READY_WAIT_MS = 15_000;
-const isWhatsAppPairingReady = () => {
+const PAIRING_READY_FRESH_MS = 45_000;
+const PAIRING_CODE_REQUEST_DELAY_MS = 5_000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const getWhatsAppPairingReadyAt = () => {
 	const waConnection = state.waConnection || {};
-	return (
-		waConnection.connection === "connecting" || waConnection.hasQr === true
+	const lastReadyAt =
+		waConnection.hasQr === true
+			? waConnection.qrAt || waConnection.updatedAt
+			: waConnection.connection === "connecting"
+				? waConnection.updatedAt
+				: 0;
+	return lastReadyAt && Date.now() - lastReadyAt <= PAIRING_READY_FRESH_MS
+		? lastReadyAt
+		: 0;
+};
+const isWhatsAppPairingReady = () => Boolean(getWhatsAppPairingReadyAt());
+const isWhatsAppAuthRegistered = () =>
+	state.waClient?.authState?.creds?.registered === true ||
+	state.waConnection?.registered === true;
+const isUsingPairingCodeBrowserProfile = () =>
+	isWhatsAppBrowserProfile(
+		state.waConnection?.browserProfile,
+		PAIRING_CODE_BROWSER_PROFILE,
 	);
+const isWhatsAppBrowserProfileForced = () =>
+	Boolean(String(process.env[WHATSAPP_BROWSER_PROFILE_ENV] || "").trim());
+const waitBeforePairingCodeRequest = async () => {
+	const readyAt = getWhatsAppPairingReadyAt();
+	const waitMs = readyAt + PAIRING_CODE_REQUEST_DELAY_MS - Date.now();
+	if (waitMs > 0) {
+		await sleep(waitMs);
+	}
 };
 const waitForWhatsAppPairingReady = async (client) => {
 	if (!client?.ev || typeof client.ev.on !== "function") {
@@ -2348,9 +2381,40 @@ const commandHandlers = {
 				return;
 			}
 
+			if (!isWhatsAppAuthRegistered() && !isUsingPairingCodeBrowserProfile()) {
+				if (isWhatsAppBrowserProfileForced()) {
+					await ctx.reply(
+						`WA2DC is currently forced to use \`${process.env[WHATSAPP_BROWSER_PROFILE_ENV]}\` through \`${WHATSAPP_BROWSER_PROFILE_ENV}\`. Pairing codes need the \`${PAIRING_CODE_BROWSER_PROFILE}\` profile. Remove the override or set \`${WHATSAPP_BROWSER_PROFILE_ENV}=${PAIRING_CODE_BROWSER_PROFILE}\`, restart, then run \`/pairwithcode\` again.`,
+					);
+					return;
+				}
+
+				await saveWhatsAppPairingCodeBrowserProfile(
+					PAIRING_CODE_BROWSER_PROFILE,
+				);
+				await utils.whatsapp.deleteSession();
+				await requestSafeRestart(ctx, {
+					message: `Pairing codes need the \`${PAIRING_CODE_BROWSER_PROFILE}\` WhatsApp browser profile, so WA2DC will restart and switch profiles. This profile is not expected to support WhatsApp view-once media as reliably as the default Android profile; Android remains the default for QR pairing and view-once support. After the restart, run \`/pairwithcode phone:${number}\` again to get the code.`,
+					reason: "pairing-code-browser-profile",
+				});
+				return;
+			}
+
 			if (typeof state.waClient?.requestPairingCode !== "function") {
 				await ctx.reply(
 					"WhatsApp is not ready yet. Wait for the QR/pairing prompt, then run `/pairwithcode` again.",
+				);
+				return;
+			}
+			if (state.waConnection?.connection === "open") {
+				await ctx.reply(
+					"WhatsApp is already connected. To pair a different account, remove the existing WhatsApp linked device/session first, then restart pairing.",
+				);
+				return;
+			}
+			if (isWhatsAppAuthRegistered()) {
+				await ctx.reply(
+					"WhatsApp already has a registered auth session. If you need to pair again, remove the saved WhatsApp session first and restart pairing.",
 				);
 				return;
 			}
@@ -2364,9 +2428,27 @@ const commandHandlers = {
 				await ctx.reply(message);
 				return;
 			}
+			await waitBeforePairingCodeRequest();
+			if (
+				state.waConnection?.connection === "open" ||
+				isWhatsAppAuthRegistered()
+			) {
+				await ctx.reply(
+					"WhatsApp connected before a pairing code was requested. No code is needed.",
+				);
+				return;
+			}
+			if (!isWhatsAppPairingReady()) {
+				await ctx.reply(
+					"WhatsApp pairing window changed before a code could be requested. Wait for the next QR/pairing prompt, then run `/pairwithcode` again.",
+				);
+				return;
+			}
 
 			const code = await state.waClient.requestPairingCode(number);
-			await ctx.reply(`Your pairing code is: ${code}`);
+			await ctx.reply(
+				`Your pairing code is: ${code}\nEnter it immediately in WhatsApp. If it is rejected, wait for the next QR/pairing prompt and request a fresh code.`,
+			);
 		},
 	},
 	start: {

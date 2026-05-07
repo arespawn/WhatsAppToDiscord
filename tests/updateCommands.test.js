@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -15,6 +18,7 @@ import {
 	notePendingNewsletterSend,
 } from "../src/newsletterBridge.js";
 import state from "../src/state.js";
+import storage from "../src/storage.js";
 import utils from "../src/utils.js";
 import initIsolatedStorage from "./helpers/initIsolatedStorage.js";
 
@@ -1125,9 +1129,12 @@ test("/pairwithcode accepts E.164 input and sends digits to Baileys", async () =
 			},
 		};
 		state.waConnection = {
+			browserProfile: ["Mac OS", "Chrome", "14.4.1"],
 			connection: "connecting",
 			hasQr: false,
-			updatedAt: Date.now(),
+			qrAt: 0,
+			registered: false,
+			updatedAt: Date.now() - 6000,
 		};
 
 		const fakeClient = new FakeDiscordClient();
@@ -1150,7 +1157,7 @@ test("/pairwithcode accepts E.164 input and sends digits to Baileys", async () =
 		assert.equal(interaction.records.editReply.length, 1);
 		assert.equal(
 			interaction.records.editReply[0]?.content,
-			"Your pairing code is: ABCD-1234",
+			"Your pairing code is: ABCD-1234\nEnter it immediately in WhatsApp. If it is rejected, wait for the next QR/pairing prompt and request a fresh code.",
 		);
 	} finally {
 		utils.discord.getGuild = originalDiscordUtils.getGuild;
@@ -1200,9 +1207,12 @@ test("/pairwithcode still accepts legacy number option interactions", async () =
 			},
 		};
 		state.waConnection = {
+			browserProfile: ["Mac OS", "Chrome", "14.4.1"],
 			connection: "connecting",
 			hasQr: false,
-			updatedAt: Date.now(),
+			qrAt: 0,
+			registered: false,
+			updatedAt: Date.now() - 6000,
 		};
 
 		const fakeClient = new FakeDiscordClient();
@@ -1225,7 +1235,7 @@ test("/pairwithcode still accepts legacy number option interactions", async () =
 		assert.equal(interaction.records.editReply.length, 1);
 		assert.equal(
 			interaction.records.editReply[0]?.content,
-			"Your pairing code is: WXYZ-9876",
+			"Your pairing code is: WXYZ-9876\nEnter it immediately in WhatsApp. If it is rejected, wait for the next QR/pairing prompt and request a fresh code.",
 		);
 	} finally {
 		utils.discord.getGuild = originalDiscordUtils.getGuild;
@@ -1275,8 +1285,11 @@ test("/pairwithcode refuses to request codes after WhatsApp is connected", async
 			},
 		};
 		state.waConnection = {
+			browserProfile: ["Mac OS", "Chrome", "14.4.1"],
 			connection: "open",
 			hasQr: false,
+			qrAt: 0,
+			registered: true,
 			updatedAt: Date.now(),
 		};
 
@@ -1312,6 +1325,211 @@ test("/pairwithcode refuses to request codes after WhatsApp is connected", async
 		state.settings.GuildID = originalSettings.GuildID;
 		state.settings.ControlChannelID = originalSettings.ControlChannelID;
 
+		state.dcClient = originalDcClient;
+		state.waClient = originalWaClient;
+		state.waConnection = originalWaConnection;
+		resetClientFactoryOverrides();
+	}
+});
+
+test("/pairwithcode refuses to request codes when auth is already registered", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+	};
+	const originalDcClient = state.dcClient;
+	const originalWaClient = state.waClient;
+	const originalWaConnection = state.waConnection;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+
+		const pairingRequests = [];
+		state.waClient = {
+			authState: { creds: { registered: true } },
+			ev: new EventEmitter(),
+			async requestPairingCode(phoneNumber) {
+				pairingRequests.push(phoneNumber);
+				return "ABCD-1234";
+			},
+		};
+		state.waConnection = {
+			browserProfile: ["Mac OS", "Chrome", "14.4.1"],
+			connection: "connecting",
+			hasQr: false,
+			qrAt: 0,
+			registered: true,
+			updatedAt: Date.now() - 6000,
+		};
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler(
+			"pairwithcode-registered",
+		);
+		state.dcClient = await discordHandler.start();
+		await delay(0);
+
+		const interaction = createInteraction({
+			channelId: "control",
+			commandName: "pairwithcode",
+			stringOptions: {
+				phone: "+1 202 555 0123",
+			},
+		});
+		fakeClient.emit("interactionCreate", interaction);
+
+		assert.equal(
+			await waitFor(() => interaction.records.editReply.length === 1),
+			true,
+		);
+		assert.deepEqual(pairingRequests, []);
+		assert.match(
+			interaction.records.editReply[0]?.content,
+			/already has a registered auth session/,
+		);
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+
+		state.dcClient = originalDcClient;
+		state.waClient = originalWaClient;
+		state.waConnection = originalWaConnection;
+		resetClientFactoryOverrides();
+	}
+});
+
+test("/pairwithcode on Android schedules a pairing-browser restart", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+	};
+	const originalDcClient = state.dcClient;
+	const originalWaClient = state.waClient;
+	const originalWaConnection = state.waConnection;
+	const originalShutdownRequested = state.shutdownRequested;
+	const originalDeleteSession = utils.whatsapp.deleteSession;
+	const originalExit = process.exit;
+	const originalRestartFlagPath = process.env.WA2DC_RESTART_FLAG_PATH;
+	const originalBrowserEnv = process.env.WA2DC_WHATSAPP_BROWSER;
+	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "wa2dc-pair-"));
+	const flagPath = path.join(tempDir, "restart.flag");
+	let exitCode = null;
+	let deletedSession = false;
+
+	try {
+		process.env.WA2DC_RESTART_FLAG_PATH = flagPath;
+		delete process.env.WA2DC_WHATSAPP_BROWSER;
+		process.exit = (code) => {
+			exitCode = code;
+		};
+		state.shutdownRequested = false;
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+		utils.whatsapp.deleteSession = async () => {
+			deletedSession = true;
+		};
+
+		const pairingRequests = [];
+		state.waClient = {
+			ev: new EventEmitter(),
+			async requestPairingCode(phoneNumber) {
+				pairingRequests.push(phoneNumber);
+				return "ABCD-1234";
+			},
+		};
+		state.waConnection = {
+			browserProfile: ["13", "Android", ""],
+			connection: "connecting",
+			hasQr: false,
+			qrAt: 0,
+			registered: false,
+			updatedAt: Date.now() - 6000,
+		};
+
+		const fakeClient = new FakeDiscordClient();
+		fakeClient.destroy = () => {};
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler(
+			"pairwithcode-android-restart",
+		);
+		state.dcClient = await discordHandler.start();
+		await delay(0);
+
+		const interaction = createInteraction({
+			channelId: "control",
+			commandName: "pairwithcode",
+			stringOptions: {
+				phone: "+1 202 555 0123",
+			},
+		});
+		fakeClient.emit("interactionCreate", interaction);
+
+		assert.equal(
+			await waitFor(() => interaction.records.editReply.length === 1),
+			true,
+		);
+		assert.deepEqual(pairingRequests, []);
+		assert.equal(deletedSession, true);
+		assert.match(interaction.records.editReply[0]?.content, /will restart/);
+		assert.match(interaction.records.editReply[0]?.content, /view-once/i);
+
+		const pendingProfile = await storage.get(
+			"whatsapp-pairing-code-browser-profile",
+		);
+		assert.equal(pendingProfile?.toString("utf8"), "macos-chrome");
+		assert.equal(await waitFor(() => exitCode === 0), true);
+		const flag = JSON.parse(await fs.readFile(flagPath, "utf8"));
+		assert.equal(flag.reason, "pairing-code-browser-profile");
+	} finally {
+		process.exit = originalExit;
+		if (originalRestartFlagPath == null) {
+			delete process.env.WA2DC_RESTART_FLAG_PATH;
+		} else {
+			process.env.WA2DC_RESTART_FLAG_PATH = originalRestartFlagPath;
+		}
+		if (originalBrowserEnv == null) {
+			delete process.env.WA2DC_WHATSAPP_BROWSER;
+		} else {
+			process.env.WA2DC_WHATSAPP_BROWSER = originalBrowserEnv;
+		}
+		await storage.upsert("whatsapp-pairing-code-browser-profile", "");
+		await fs.rm(tempDir, { recursive: true, force: true });
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+		utils.whatsapp.deleteSession = originalDeleteSession;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+		state.shutdownRequested = originalShutdownRequested;
 		state.dcClient = originalDcClient;
 		state.waClient = originalWaClient;
 		state.waConnection = originalWaConnection;

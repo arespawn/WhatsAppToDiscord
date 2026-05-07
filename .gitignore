@@ -14,3 +14,6 @@ out.cjs
 .vscode/settings.json
 __pycache__/
 tests/__pycache__/
+testing env/runtime/package.json
+.DS_Store
+testing env/WA2DC-macOS

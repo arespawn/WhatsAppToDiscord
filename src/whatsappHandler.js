@@ -54,11 +54,106 @@ const allowsDiscordToWhatsApp = () =>
 const allowsWhatsAppToDiscord = () =>
 	oneWayAllowsWhatsAppToDiscord(state.settings.oneWay);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAX_BAILEYS_LOG_STRING_LENGTH = 2000;
+const MAX_BAILEYS_LOG_ARRAY_LENGTH = 25;
+const MAX_BAILEYS_LOG_DEPTH = 4;
+const HISTORY_SYNC_TYPES_TO_SKIP = new Set([
+	proto.HistorySync.HistorySyncType.FULL,
+	proto.HistorySync.HistorySyncType.RECENT,
+]);
 const formatDisconnectReason = (statusCode) => {
 	if (typeof statusCode !== "number") return "unknown";
 	const label = DisconnectReason[statusCode];
 	return label ? `${label} (${statusCode})` : `code ${statusCode}`;
 };
+const sanitizeBaileysLogString = (value) => {
+	if (value.length <= MAX_BAILEYS_LOG_STRING_LENGTH) {
+		return value;
+	}
+	if (value.includes("data:text/javascript;base64")) {
+		return `[omitted ${value.length} character bundled stack trace]`;
+	}
+	return `${value.slice(0, MAX_BAILEYS_LOG_STRING_LENGTH)}... [truncated ${value.length - MAX_BAILEYS_LOG_STRING_LENGTH} chars]`;
+};
+const sanitizeBaileysLogValue = (
+	value,
+	{ depth = 0, seen = new WeakSet() } = {},
+) => {
+	if (typeof value === "string") {
+		return sanitizeBaileysLogString(value);
+	}
+	if (
+		value == null ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
+		return value;
+	}
+	if (typeof value === "bigint") {
+		return `${value}n`;
+	}
+	if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+		return {
+			type: Buffer.isBuffer(value) ? "Buffer" : value.constructor.name,
+			byteLength: value.byteLength,
+		};
+	}
+	if (value instanceof Error) {
+		return summarizeDisconnectError(value);
+	}
+	if (typeof value !== "object") {
+		return String(value);
+	}
+	if (seen.has(value)) {
+		return "[Circular]";
+	}
+	if (depth >= MAX_BAILEYS_LOG_DEPTH) {
+		return `[${Array.isArray(value) ? "Array" : "Object"}]`;
+	}
+	seen.add(value);
+	if (Array.isArray(value)) {
+		const entries = value
+			.slice(0, MAX_BAILEYS_LOG_ARRAY_LENGTH)
+			.map((entry) =>
+				sanitizeBaileysLogValue(entry, { depth: depth + 1, seen }),
+			);
+		if (value.length > MAX_BAILEYS_LOG_ARRAY_LENGTH) {
+			entries.push(
+				`[truncated ${value.length - MAX_BAILEYS_LOG_ARRAY_LENGTH} items]`,
+			);
+		}
+		return entries;
+	}
+	return Object.fromEntries(
+		Object.entries(value).map(([key, entry]) => [
+			key,
+			sanitizeBaileysLogValue(entry, { depth: depth + 1, seen }),
+		]),
+	);
+};
+const sanitizeBaileysLogArgs = (args) =>
+	args.map((arg) => sanitizeBaileysLogValue(arg));
+const createBaileysLogger = (baseLogger) => {
+	const levels = ["trace", "debug", "info", "warn", "error", "fatal"];
+	const logger = {};
+	for (const level of levels) {
+		logger[level] = (...args) => {
+			const target =
+				typeof baseLogger?.[level] === "function"
+					? baseLogger[level]
+					: typeof baseLogger?.info === "function"
+						? baseLogger.info
+						: null;
+			if (target) {
+				target.apply(baseLogger, sanitizeBaileysLogArgs(args));
+			}
+		};
+	}
+	logger.child = () => logger;
+	return logger;
+};
+const shouldSyncWhatsAppHistoryMessage = ({ syncType } = {}) =>
+	!HISTORY_SYNC_TYPES_TO_SKIP.has(syncType);
 const summarizeDisconnectError = (error) => {
 	if (!error) {
 		return { message: "unknown" };
@@ -75,7 +170,11 @@ const summarizeDisconnectError = (error) => {
 		code: error.code,
 		stack:
 			typeof error.stack === "string"
-				? error.stack.split("\n").slice(0, 6).join("\n")
+				? error.stack
+						.split("\n")
+						.slice(0, 6)
+						.map(sanitizeBaileysLogString)
+						.join("\n")
 				: undefined,
 	};
 };
@@ -3001,10 +3100,10 @@ const connectToWhatsApp = async (retry = 1) => {
 		version,
 		printQRInTerminal: false,
 		auth: authState,
-		logger: state.logger,
+		logger: createBaileysLogger(state.logger),
 		markOnlineOnConnect: false,
-		syncFullHistory: true,
-		shouldSyncHistoryMessage: () => true,
+		syncFullHistory: false,
+		shouldSyncHistoryMessage: shouldSyncWhatsAppHistoryMessage,
 		generateHighQualityLinkPreview: true,
 		cachedGroupMetadata: async (jid) =>
 			groupMetadataCache.get(utils.whatsapp.formatJid(jid)),

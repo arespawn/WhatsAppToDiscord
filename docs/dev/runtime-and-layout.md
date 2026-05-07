@@ -1,7 +1,7 @@
 # Runtime And Layout
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-03-19
+> Last reviewed: 2026-05-07
 > Scope: Runtime model, startup, and repository map.
 
 ## Runtime model
@@ -18,6 +18,11 @@ Primary flow:
 1. `src/runner.js` starts worker process and handles restart/backoff.
 2. `src/index.js` bootstraps state/storage and starts platform handlers.
 3. Discord/WhatsApp handlers mirror messages and control commands.
+
+WhatsApp startup guardrails:
+
+- `src/whatsappHandler.js` intentionally does not request full or recent history sync from Baileys. The bridge only needs live/offline message delivery, and recent/full history can make Baileys buffer large event batches during reconnects after pairing.
+- Pass Baileys a bounded logger wrapper instead of the root pino logger. Baileys errors can include bundled `data:text/javascript;base64...` stack traces and binary payloads; keep those summarized so `logs.txt` and `terminal.log` stay useful and do not drive heap pressure.
 
 ## Developer quick start
 

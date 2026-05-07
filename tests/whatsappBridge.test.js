@@ -1310,6 +1310,140 @@ test("Discord raw user and role mentions are converted before forwarding to What
 	}
 });
 
+test("Discord everyone and here mentions become WhatsApp @all in group chats", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	try {
+		harness.fakeClient.ev.emit("discordMessage", {
+			jid: "123456789@g.us",
+			message: {
+				id: "dc-everyone-msg",
+				content: "Team @everyone",
+				cleanContent: "Team @everyone",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				attachments: new Map(),
+				stickers: new Map(),
+				embeds: [],
+				mentions: {
+					everyone: true,
+					users: new Map(),
+					members: new Map(),
+					roles: new Map(),
+				},
+			},
+		});
+		await delay(0);
+
+		assert.equal(harness.fakeClient.sendCalls[0]?.content?.text, "Team @all");
+		assert.equal(harness.fakeClient.sendCalls[0]?.content?.mentionAll, true);
+
+		harness.fakeClient.ev.emit("discordMessage", {
+			jid: "123456789@g.us",
+			message: {
+				id: "dc-here-msg",
+				content: "Team @here",
+				cleanContent: "Team @here",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				attachments: new Map(),
+				stickers: new Map(),
+				embeds: [],
+				mentions: {
+					everyone: true,
+					users: new Map(),
+					members: new Map(),
+					roles: new Map(),
+				},
+			},
+		});
+		await delay(0);
+
+		assert.equal(harness.fakeClient.sendCalls[1]?.content?.text, "Team @all");
+		assert.equal(harness.fakeClient.sendCalls[1]?.content?.mentionAll, true);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test("Plain Discord @everyone text is not promoted to WhatsApp @all", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	try {
+		harness.fakeClient.ev.emit("discordMessage", {
+			jid: "123456789@g.us",
+			message: {
+				id: "dc-manual-everyone-msg",
+				content: "Manual @everyone",
+				cleanContent: "Manual @everyone",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				attachments: new Map(),
+				stickers: new Map(),
+				embeds: [],
+				mentions: {
+					everyone: false,
+					users: new Map(),
+					members: new Map(),
+					roles: new Map(),
+				},
+			},
+		});
+		await delay(0);
+
+		assert.equal(
+			harness.fakeClient.sendCalls[0]?.content?.text,
+			"Manual @everyone",
+		);
+		assert.equal(
+			harness.fakeClient.sendCalls[0]?.content?.mentionAll,
+			undefined,
+		);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test("Discord edited everyone mentions keep WhatsApp mentionAll metadata", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	try {
+		state.lastMessages["dc-edit-everyone"] = "wa-edit-everyone";
+
+		harness.fakeClient.ev.emit("discordEdit", {
+			jid: "123456789@g.us",
+			message: {
+				id: "dc-edit-everyone",
+				content: "Edited @everyone",
+				cleanContent: "Edited @everyone",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				mentions: {
+					everyone: true,
+					users: new Map(),
+					members: new Map(),
+					roles: new Map(),
+				},
+			},
+		});
+		await delay(0);
+
+		assert.equal(harness.fakeClient.sendCalls[0]?.content?.text, "Edited @all");
+		assert.equal(harness.fakeClient.sendCalls[0]?.content?.mentionAll, true);
+		assert.equal(
+			harness.fakeClient.sendCalls[0]?.content?.edit?.id,
+			"wa-edit-everyone",
+		);
+	} finally {
+		harness.cleanup();
+	}
+});
+
 test("Discord embeds are ignored when DiscordEmbedsToWhatsApp is disabled", async () => {
 	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
 	const originalEmbedSetting = state.settings.DiscordEmbedsToWhatsApp;

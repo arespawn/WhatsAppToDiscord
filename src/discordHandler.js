@@ -981,9 +981,11 @@ const sendWhatsappMessage = async (
 			mentionIdsRaw.map((id) => String(id)).filter((id) => /^\d+$/.test(id)),
 		),
 	];
-	const allowedMentions = mentionIds.length
-		? { parse: [], users: mentionIds }
-		: undefined;
+	const mentionEveryone = message?.discordMentionEveryone === true;
+	const allowedMentions = {
+		parse: mentionEveryone ? ["everyone"] : [],
+		...(mentionIds.length ? { users: mentionIds } : {}),
+	};
 	const content = utils.discord.convertWhatsappFormatting(message.content);
 	const quoteContent = message.quote
 		? utils.discord.convertWhatsappFormatting(message.quote.content)

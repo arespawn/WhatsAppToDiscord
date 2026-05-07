@@ -43,12 +43,13 @@ Originally created by [Fatih Kilic](https://github.com/FKLC), now maintained by 
 
 ## Baileys 7 migration
 
-This repository currently pins the published npm package `@whiskeysockets/baileys@7.0.0-rc.9`. Upstream outlines every breaking change in their migration article: [https://whiskey.so/migrate-latest](https://whiskey.so/migrate-latest). Notes and common workarounds:
+This repository currently pins the published npm package `@whiskeysockets/baileys@7.0.0-rc10`. Upstream outlines every breaking change in their migration article: [https://whiskey.so/migrate-latest](https://whiskey.so/migrate-latest). Notes and common workarounds:
 
 **Notes**
 
 - Local Identifiers (LIDs) are now preferred over PN-based JIDs. The bot listens for `lid-mapping.update` events, migrates stored chats/whitelists as WhatsApp reveals PN↔LID pairs, and always talks to the chat using the identifier WhatsApp considers canonical.
-- The Signal auth store seeds the newly required `lid-mapping`, `tctoken`, `device-list`, and `device-index` namespaces so rc.9 can write those blobs safely.
+- WA2DC applies a small postinstall patch for upstream PR 2201 so `Browsers.android('13')` remains available while running rc10.
+- The Signal auth store seeds the newly required `lid-mapping`, `tctoken`, `device-list`, and `device-index` namespaces so rc10 can write those blobs safely.
 
 **Common issues & workarounds**
 

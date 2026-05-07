@@ -2394,7 +2394,7 @@ const commandHandlers = {
 				);
 				await utils.whatsapp.deleteSession();
 				await requestSafeRestart(ctx, {
-					message: `Pairing codes need the \`${PAIRING_CODE_BROWSER_PROFILE}\` WhatsApp browser profile, so WA2DC will restart and switch profiles. This profile is not expected to support WhatsApp view-once media as reliably as the default Android profile; Android remains the default for QR pairing and view-once support. After the restart, run \`/pairwithcode phone:${number}\` again to get the code.`,
+					message: `Pairing codes need the \`${PAIRING_CODE_BROWSER_PROFILE}\` WhatsApp browser profile, so WA2DC will restart and switch profiles. This profile is not expected to support WhatsApp view-once media as the default Android profile; Android remains the default for QR pairing and view-once support. After the restart, run \`/pairwithcode phone:${number}\` again to get the code.`,
 					reason: "pairing-code-browser-profile",
 				});
 				return;

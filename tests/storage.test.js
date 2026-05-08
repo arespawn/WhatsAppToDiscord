@@ -72,6 +72,7 @@ test("parseSettings merges defaults when older settings are missing keys", async
 		assert.equal(settings.PinDurationSeconds, 7 * 24 * 60 * 60);
 		assert.equal(settings.WhatsAppDiscordMediaBurstSize, 10);
 		assert.equal(settings.DefaultChatType, "channel");
+		assert.equal(settings.DefaultThreadHostName, "");
 		assert.equal(settings.ThreadNotificationsEnabled, false);
 		assert.deepEqual(settings.ThreadNotificationRoles, []);
 		assert.deepEqual(settings.ThreadNotificationUsers, []);

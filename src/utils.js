@@ -129,7 +129,9 @@ const LINK_PREVIEW_MAX_BYTES = 1024 * 1024;
 const LINK_PREVIEW_THUMB_MAX_BYTES = 8 * 1024 * 1024;
 const FORUM_CHANNEL_TYPES = [ChannelType.GuildForum, "GUILD_FORUM"];
 const MANAGED_THREAD_HOST_BASE_NAME = "whatsapp-threads";
+const MANAGED_THREAD_HOST_OWNER_PREFIX = "WA2DC managed thread host for bot ";
 const MANAGED_THREAD_HOST_SOFT_LIMIT = 500;
+const MANAGED_THREAD_HOST_NAME_MAX_LENGTH = 80;
 const DISCORD_MAX_FILES_PER_MESSAGE = 10;
 const EXPLICIT_URL_REGEX = /<?https?:\/\/[^\s>]+>?/i;
 const BARE_URL_REGEX =
@@ -743,7 +745,11 @@ const isWhatsAppViewOnceMessageType = (msgType = "") =>
 		"viewOnceMessageV2",
 		"viewOnceMessageV2Extension",
 	].includes(msgType);
-const isWhatsAppViewOnceMediaMessage = (rawMsg = {}, msgType = "", msg = {}) => {
+const isWhatsAppViewOnceMediaMessage = (
+	rawMsg = {},
+	msgType = "",
+	msg = {},
+) => {
 	if (isWhatsAppViewOnceMessageType(msgType)) return true;
 	if (msg?.viewOnce === true) return true;
 	const typedMessage = rawMsg?.message?.[msgType];
@@ -2589,21 +2595,72 @@ const uniqueDiscordIds = (value = []) => [
 		(Array.isArray(value) ? value : []).map(normalizeDiscordId).filter(Boolean),
 	),
 ];
-const getManagedThreadHostName = (index = 0) =>
-	index <= 0
-		? MANAGED_THREAD_HOST_BASE_NAME
-		: `${MANAGED_THREAD_HOST_BASE_NAME}-${index + 1}`;
+const normalizeManagedThreadHostBaseName = (value) => {
+	const normalized = String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/gu, "-")
+		.replace(/[^a-z0-9_-]+/gu, "")
+		.replace(/-+/gu, "-")
+		.replace(/^[-_]+|[-_]+$/gu, "")
+		.slice(0, MANAGED_THREAD_HOST_NAME_MAX_LENGTH);
+	return normalized || MANAGED_THREAD_HOST_BASE_NAME;
+};
+const getManagedThreadHostBaseName = () =>
+	normalizeManagedThreadHostBaseName(state.settings?.DefaultThreadHostName);
+const getManagedThreadHostName = (
+	index = 0,
+	baseName = getManagedThreadHostBaseName(),
+) => (index <= 0 ? baseName : `${baseName}-${index + 1}`);
+const managedThreadHostNamePattern = (baseName) =>
+	new RegExp(`^${escapeRegex(baseName)}-(\\d+)$`, "iu");
+const getManagedThreadHostNameBase = (name = "") => {
+	const normalizedName = String(name || "").toLowerCase();
+	const configuredBase = getManagedThreadHostBaseName();
+	if (normalizedName === configuredBase) return configuredBase;
+	if (normalizedName === MANAGED_THREAD_HOST_BASE_NAME) {
+		return MANAGED_THREAD_HOST_BASE_NAME;
+	}
+	if (managedThreadHostNamePattern(configuredBase).test(normalizedName)) {
+		return configuredBase;
+	}
+	if (
+		managedThreadHostNamePattern(MANAGED_THREAD_HOST_BASE_NAME).test(
+			normalizedName,
+		)
+	) {
+		return MANAGED_THREAD_HOST_BASE_NAME;
+	}
+	return null;
+};
 const isManagedThreadHostName = (name = "") =>
-	typeof name === "string" &&
-	(name === MANAGED_THREAD_HOST_BASE_NAME ||
-		/^whatsapp-threads-\d+$/i.test(name));
+	typeof name === "string" && Boolean(getManagedThreadHostNameBase(name));
 const getManagedThreadHostIndex = (channel = {}) => {
 	const name = String(channel?.name || "").toLowerCase();
-	if (name === MANAGED_THREAD_HOST_BASE_NAME) return 0;
-	const match = name.match(/^whatsapp-threads-(\d+)$/i);
+	const baseName = getManagedThreadHostNameBase(name);
+	if (!baseName) return null;
+	if (name === baseName) return 0;
+	const match = name.match(managedThreadHostNamePattern(baseName));
 	if (!match) return null;
 	const parsed = Number.parseInt(match[1], 10);
 	return Number.isFinite(parsed) && parsed >= 2 ? parsed - 1 : null;
+};
+const getManagedThreadHostTopic = (botId = state.dcClient?.user?.id) =>
+	botId ? `${MANAGED_THREAD_HOST_OWNER_PREFIX}${botId}` : "";
+const getManagedThreadHostOwnerId = (channel = {}) => {
+	const topic = typeof channel?.topic === "string" ? channel.topic : "";
+	const markerIndex = topic.indexOf(MANAGED_THREAD_HOST_OWNER_PREFIX);
+	if (markerIndex < 0) return null;
+	const ownerId = topic
+		.slice(markerIndex + MANAGED_THREAD_HOST_OWNER_PREFIX.length)
+		.trim()
+		.split(/\s+/u)[0];
+	return normalizeDiscordId(ownerId);
+};
+const isManagedThreadHostOwnedByCurrentBot = (channel = {}) => {
+	const ownerId = getManagedThreadHostOwnerId(channel);
+	const currentBotId = normalizeDiscordId(state.dcClient?.user?.id);
+	return !ownerId || !currentBotId || ownerId === currentBotId;
 };
 const buildStoredChatLink = (webhook, existingChat = {}, overrides = {}) => {
 	const threadId = normalizeDiscordId(
@@ -2674,6 +2731,34 @@ const discord = {
 			isForumChannelType(channel?.type) &&
 			isManagedThreadHostName(channel?.name)
 		);
+	},
+	isOwnedManagedThreadHostChannel(channel = {}) {
+		return (
+			this.isManagedThreadHostChannel(channel) &&
+			isManagedThreadHostOwnedByCurrentBot(channel)
+		);
+	},
+	async ensureManagedThreadHostOwnership(channel) {
+		if (!this.isOwnedManagedThreadHostChannel(channel)) return channel;
+		const ownerTopic = getManagedThreadHostTopic();
+		if (!ownerTopic || getManagedThreadHostOwnerId(channel)) return channel;
+
+		if (typeof channel.setTopic === "function") {
+			try {
+				await channel.setTopic(ownerTopic);
+				channel.topic = ownerTopic;
+			} catch (err) {
+				state.logger?.warn(
+					{
+						err,
+						channelId: channel.id,
+						botId: state.dcClient?.user?.id,
+					},
+					"Could not mark managed thread host ownership",
+				);
+			}
+		}
+		return channel;
 	},
 	partitionText(text) {
 		return text.match(/(.|[\r\n]){1,2000}/g) || [];
@@ -3023,8 +3108,8 @@ const discord = {
 		const preferredHost = preferredHostChannelId
 			? guild.channels.cache.get(preferredHostChannelId) || null
 			: null;
-		if (preferredHost && this.isManagedThreadHostChannel(preferredHost)) {
-			return preferredHost;
+		if (preferredHost && this.isOwnedManagedThreadHostChannel(preferredHost)) {
+			return this.ensureManagedThreadHostOwnership(preferredHost);
 		}
 
 		const threadCounts = new Map();
@@ -3038,23 +3123,26 @@ const discord = {
 			);
 		});
 
-		const managedHosts = [...guild.channels.cache.values()]
+		const allManagedHosts = [...guild.channels.cache.values()]
 			.filter((channel) => this.isManagedThreadHostChannel(channel))
 			.sort(
 				(a, b) =>
 					(getManagedThreadHostIndex(a) ?? Number.MAX_SAFE_INTEGER) -
 					(getManagedThreadHostIndex(b) ?? Number.MAX_SAFE_INTEGER),
 			);
+		const managedHosts = allManagedHosts.filter((channel) =>
+			isManagedThreadHostOwnedByCurrentBot(channel),
+		);
 		const availableHost = managedHosts.find(
 			(channel) =>
 				(threadCounts.get(channel.id) || 0) < MANAGED_THREAD_HOST_SOFT_LIMIT,
 		);
 		if (availableHost) {
-			return availableHost;
+			return this.ensureManagedThreadHostOwnership(availableHost);
 		}
 
 		const nextIndex =
-			managedHosts.reduce(
+			allManagedHosts.reduce(
 				(maxIndex, channel) =>
 					Math.max(maxIndex, getManagedThreadHostIndex(channel) ?? -1),
 				-1,
@@ -3062,6 +3150,7 @@ const discord = {
 		return guild.channels.create({
 			name: getManagedThreadHostName(nextIndex),
 			type: ChannelType.GuildForum,
+			topic: getManagedThreadHostTopic() || undefined,
 			parent: await this.getCategory(0),
 		});
 	},

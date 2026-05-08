@@ -197,6 +197,10 @@ const WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY =
 export const WHATSAPP_BROWSER_PROFILE_ENV = "WA2DC_WHATSAPP_BROWSER";
 export const DEFAULT_WHATSAPP_BROWSER_PROFILE = "android";
 export const PAIRING_CODE_BROWSER_PROFILE = "macos-chrome";
+const getBaileysBrowserProfile = (preset, args, fallback) => {
+	const factory = Browsers?.[preset];
+	return typeof factory === "function" ? factory(...args) : fallback;
+};
 export const resolveWhatsAppBrowserProfile = (
 	value = DEFAULT_WHATSAPP_BROWSER_PROFILE,
 ) => {
@@ -206,18 +210,34 @@ export const resolveWhatsAppBrowserProfile = (
 			.toLowerCase()
 	) {
 		case "android":
-			return Browsers.android("13");
+			return getBaileysBrowserProfile("android", ["13"], ["13", "Android", ""]);
 		case "macos-chrome":
 		case "macos":
-			return Browsers.macOS("Chrome");
+			return getBaileysBrowserProfile(
+				"macOS",
+				["Chrome"],
+				["Mac OS", "Chrome", "14.4.1"],
+			);
 		case "windows-chrome":
 		case "windows":
-			return Browsers.windows("Chrome");
+			return getBaileysBrowserProfile(
+				"windows",
+				["Chrome"],
+				["Windows", "Chrome", "10.0.22631"],
+			);
 		case "ubuntu-chrome":
 		case "ubuntu":
-			return Browsers.ubuntu("Chrome");
+			return getBaileysBrowserProfile(
+				"ubuntu",
+				["Chrome"],
+				["Ubuntu", "Chrome", "22.04.4"],
+			);
 		case "baileys":
-			return Browsers.baileys("Chrome");
+			return getBaileysBrowserProfile(
+				"baileys",
+				["Chrome"],
+				["Baileys", "Chrome", "6.5.0"],
+			);
 		default:
 			return resolveWhatsAppBrowserProfile(DEFAULT_WHATSAPP_BROWSER_PROFILE);
 	}

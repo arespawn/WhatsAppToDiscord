@@ -29,10 +29,10 @@ import state from "./state.js";
 import storage from "./storage.js";
 import utils from "./utils.js";
 import {
-	PAIRING_CODE_BROWSER_PROFILE,
-	WHATSAPP_BROWSER_PROFILE_ENV,
 	isWhatsAppBrowserProfile,
+	PAIRING_CODE_BROWSER_PROFILE,
 	saveWhatsAppPairingCodeBrowserProfile,
+	WHATSAPP_BROWSER_PROFILE_ENV,
 } from "./whatsappHandler.js";
 import { resyncWhatsAppContactsAndGroups } from "./whatsappResync.js";
 
@@ -54,6 +54,15 @@ const PIN_DURATION_PRESETS = {
 	"7d": 7 * 24 * 60 * 60,
 	"30d": 30 * 24 * 60 * 60,
 };
+const normalizeManagedThreadHostNameOption = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/gu, "-")
+		.replace(/[^a-z0-9_-]+/gu, "")
+		.replace(/-+/gu, "-")
+		.replace(/^[-_]+|[-_]+$/gu, "")
+		.slice(0, 80);
 const AnnouncementChannelTypes = [ChannelType.GuildAnnouncement, "GUILD_NEWS"];
 const TextBridgeChannelTypes = [
 	ChannelType.GuildText,
@@ -3920,6 +3929,13 @@ const commandHandlers = {
 					{ name: "Thread", value: "thread" },
 				],
 			},
+			{
+				name: "host_name",
+				description:
+					"Optional forum-channel name for new thread-mode WhatsApp chats.",
+				type: ApplicationCommandOptionTypes.STRING,
+				required: false,
+			},
 		],
 		async execute(ctx) {
 			const mode = ctx.getStringOption("mode");
@@ -3927,11 +3943,17 @@ const commandHandlers = {
 				await ctx.reply("Choose either `channel` or `thread`.");
 				return;
 			}
+			const hostName = normalizeManagedThreadHostNameOption(
+				ctx.getStringOption("host_name"),
+			);
 			state.settings.DefaultChatType = mode;
+			if (mode === "thread") {
+				state.settings.DefaultThreadHostName = hostName;
+			}
 			await storage.saveSettings().catch(() => {});
 			await ctx.reply(
 				mode === "thread"
-					? "Default chat mode set to `thread`. New WhatsApp chats will be created as forum threads under managed `whatsapp-threads` channels."
+					? `Default chat mode set to \`thread\`. New WhatsApp chats will be created as forum threads under managed \`${hostName || "whatsapp-threads"}\` channels.`
 					: "Default chat mode set to `channel`. New WhatsApp chats will keep using regular Discord channels.",
 			);
 		},

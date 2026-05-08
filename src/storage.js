@@ -323,6 +323,10 @@ const storage = {
 			if (parsed.DefaultChatType !== "thread") {
 				parsed.DefaultChatType = "channel";
 			}
+			parsed.DefaultThreadHostName =
+				typeof parsed.DefaultThreadHostName === "string"
+					? parsed.DefaultThreadHostName.trim()
+					: "";
 			if (Object.hasOwn(parsed, "ThreadNotificationsEnabled")) {
 				parsed.ThreadNotificationsEnabled = Boolean(
 					parsed.ThreadNotificationsEnabled,

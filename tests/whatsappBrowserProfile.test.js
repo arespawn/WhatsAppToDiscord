@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { Browsers } from "@whiskeysockets/baileys";
+
 import {
 	resolveWhatsAppBrowserProfile,
 	selectWhatsAppBrowserProfile,
@@ -70,6 +72,20 @@ test("WhatsApp browser profile override supports pairing-code experiments", () =
 		"Android",
 		"",
 	]);
+});
+
+test("WhatsApp Android browser profile has a local fallback when Baileys is unpatched", () => {
+	const originalAndroid = Browsers.android;
+	try {
+		Browsers.android = undefined;
+		assert.deepEqual(resolveWhatsAppBrowserProfile("android"), [
+			"13",
+			"Android",
+			"",
+		]);
+	} finally {
+		Browsers.android = originalAndroid;
+	}
 });
 
 test("WhatsApp browser profile selection uses Android for fresh QR pairing", () => {

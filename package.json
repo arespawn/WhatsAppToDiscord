@@ -13,9 +13,9 @@
 		"build:bin": "node scripts/buildBinary.js",
 		"build:bin:smoke": "node scripts/buildBinary.js --smoke",
 		"test": "node --test",
-		"lint": "biome lint src --error-on-warnings",
-		"check": "biome check src --error-on-warnings",
-		"format": "biome format --write src"
+		"lint": "biome lint src tests scripts --error-on-warnings",
+		"check": "biome check src tests scripts --error-on-warnings",
+		"format": "biome format --write src tests scripts"
 	},
 	"author": "arespawn (forked from Fatih Kilic)",
 	"repository": "https://github.com/arespawn/WhatsAppToDiscord",

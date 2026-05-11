@@ -1,11 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
-const packageRoot = path.resolve(
-	"node_modules",
-	"@whiskeysockets",
-	"baileys",
-);
+const packageRoot = path.resolve("node_modules", "@whiskeysockets", "baileys");
 
 const replacements = [
 	{
@@ -70,7 +66,8 @@ const replacements = [
 	},
 	{
 		file: "lib/Socket/chats.js",
-		marker: "History sync is enabled, awaiting notification with a 20s timeout.",
+		marker:
+			"History sync is enabled, awaiting notification with a 20s timeout.",
 		before:
 			"        // On reconnection (accountSyncCounter > 0), the server does not push\n" +
 			"        // history sync notifications — the device already has its data.\n" +

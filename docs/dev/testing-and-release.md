@@ -1,7 +1,7 @@
 # Testing And Release
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-05-07
+> Last reviewed: 2026-05-13
 > Scope: Validation commands, CI expectations, and packaging constraints.
 
 ## Validation matrix
@@ -30,7 +30,7 @@ Release pipeline builds packaged binaries from an ESM runtime bundle plus a pkg-
 - release builds publish a signed `${binary}.runtime.tar.gz` archive for each packaged binary so `/update` can refresh the sidecar automatically
 - packaged startup may download that signed runtime archive on demand when a packaged install is missing `runtime/`
 - runtime may branch on `process.pkg` for packaged-vs-source behavior
-- `postinstall` patches Baileys rc10 for the Android browser profile and for reconnect initial-sync buffering; release builds must run after that patch has been applied
+- `postinstall` patches Baileys rc11 for the Android browser profile and for reconnect initial-sync buffering; release builds must run after that patch has been applied
 
 ## Packaging-safe dependency rules
 

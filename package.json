@@ -25,7 +25,7 @@
 	},
 	"dependencies": {
 		"@adiwajshing/keyed-db": "^0.2.4",
-		"@whiskeysockets/baileys": "7.0.0-rc10",
+		"@whiskeysockets/baileys": "7.0.0-rc11",
 		"canvas": "^3.2.3",
 		"discord.js": "^14.25.1",
 		"jsdom": "^29.1.0",

@@ -5,7 +5,7 @@ import test from "node:test";
 import { Browsers, proto } from "@whiskeysockets/baileys";
 import { generateLoginNode } from "@whiskeysockets/baileys/lib/Utils/validate-connection.js";
 
-test("Baileys rc10 carries WA2DC Android browser patch", () => {
+test("Baileys rc11 carries WA2DC Android browser patch", () => {
 	assert.equal(typeof Browsers.android, "function");
 	assert.deepEqual(Browsers.android("13"), ["13", "Android", ""]);
 
@@ -22,7 +22,7 @@ test("Baileys rc10 carries WA2DC Android browser patch", () => {
 	);
 });
 
-test("Baileys rc10 waits for initial sync on reconnects", () => {
+test("Baileys rc11 waits for initial sync on reconnects", () => {
 	const chatsSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/chats.js",
 		"utf8",
@@ -38,7 +38,7 @@ test("Baileys rc10 waits for initial sync on reconnects", () => {
 	);
 });
 
-test("Baileys rc10 tctoken prune is bounded during startup", () => {
+test("Baileys rc11 tctoken prune is bounded during startup", () => {
 	const messagesRecvSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",
 		"utf8",

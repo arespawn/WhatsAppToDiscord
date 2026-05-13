@@ -43,17 +43,17 @@ Originally created by [Fatih Kilic](https://github.com/FKLC), now maintained by 
 
 ## Baileys 7 migration
 
-This repository currently pins the published npm package `@whiskeysockets/baileys@7.0.0-rc10`. Upstream outlines every breaking change in their migration article: [https://whiskey.so/migrate-latest](https://whiskey.so/migrate-latest). Notes and common workarounds:
+This repository currently pins the published npm package `@whiskeysockets/baileys@7.0.0-rc11`. Upstream outlines every breaking change in their migration article: [https://whiskey.so/migrate-latest](https://whiskey.so/migrate-latest). Notes and common workarounds:
 
 **Notes**
 
 - Local Identifiers (LIDs) are now preferred over PN-based JIDs. The bot listens for `lid-mapping.update` events, migrates stored chats/whitelists as WhatsApp reveals PN↔LID pairs, and always talks to the chat using the identifier WhatsApp considers canonical.
-- WA2DC applies a small postinstall patch for upstream PR 2201 so `Browsers.android('13')` remains available while running rc10.
+- WA2DC applies a small postinstall patch for upstream PR 2201 so `Browsers.android('13')` remains available while running rc11.
 - Fresh WhatsApp startup uses the Android Baileys browser profile by default for view-once media support. The `/pairwithcode` flow can temporarily restart into `macos-chrome` because pairing codes are more reliable with that profile.
 - When WA2DC sees registered WhatsApp auth without a matching saved browser-profile marker, it clears only the WhatsApp auth state and asks you to pair again. This prevents older sessions from being reused blindly under a different browser profile.
-- WA2DC also keeps rc10 reconnects on the initial-sync wait path instead of immediately flushing buffered events when `accountSyncCounter > 0`; this avoids a packaged-startup heap spike seen after switching existing sessions to the Android browser profile.
-- WA2DC logs bounded WhatsApp startup memory probes and patches rc10 tctoken pruning to run in batches, so large auth stores do not trigger a single huge heap allocation while the socket is coming online.
-- The Signal auth store seeds the newly required `lid-mapping`, `tctoken`, `device-list`, and `device-index` namespaces so rc10 can write those blobs safely.
+- WA2DC also keeps rc11 reconnects on the initial-sync wait path instead of immediately flushing buffered events when `accountSyncCounter > 0`; this avoids a packaged-startup heap spike seen after switching existing sessions to the Android browser profile.
+- WA2DC logs bounded WhatsApp startup memory probes and patches rc11 tctoken pruning to run in batches, so large auth stores do not trigger a single huge heap allocation while the socket is coming online.
+- The Signal auth store seeds the newly required `lid-mapping`, `tctoken`, `device-list`, and `device-index` namespaces so rc11 can write those blobs safely.
 
 **Common issues & workarounds**
 

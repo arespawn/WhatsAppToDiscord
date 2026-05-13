@@ -106,3 +106,23 @@ test("Baileys rc11 tctoken prune is bounded during startup", () => {
 		/const allTokens = await authState\.keys\.get\('tctoken', jids\)/u,
 	);
 });
+
+test("Baileys rc11 preserves delivered receipts while WA2DC stays unavailable", () => {
+	const messagesRecvSource = fs.readFileSync(
+		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",
+		"utf8",
+	);
+
+	assert.match(
+		messagesRecvSource,
+		/WA2DC stays unavailable on connect so the phone keeps getting notifications/u,
+	);
+	assert.doesNotMatch(
+		messagesRecvSource,
+		/else if \(!sendActiveReceipts\) \{\s*type = 'inactive';\s*\}/u,
+	);
+	assert.match(
+		messagesRecvSource,
+		/await sendReceipt\(msg\.key\.remoteJid, participant, \[msg\.key\.id\], type\)/u,
+	);
+});

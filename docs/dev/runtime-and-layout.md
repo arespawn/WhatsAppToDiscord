@@ -24,8 +24,8 @@ WhatsApp startup guardrails:
 - `src/whatsappHandler.js` intentionally does not process WhatsApp history-sync payloads beyond push-name updates. The bridge only needs live/offline message delivery, and history payload processing can make Baileys allocate large decoded batches during reconnects after pairing.
 - Do not eagerly call `groupFetchAllParticipating()` on WhatsApp reconnect or `/resync`. Group metadata is refreshed through live group events and `/resync` uses a lightweight `@g.us` participating-groups query that does not request every participant roster/description; full all-groups fetches can allocate very large Baileys response structures after pairing.
 - Pass Baileys a bounded logger wrapper instead of the root pino logger. Baileys errors can include bundled `data:text/javascript;base64...` stack traces and binary payloads; keep those summarized so `logs.txt` and `terminal.log` stay useful and do not drive heap pressure.
-- Keep WhatsApp startup memory probes around socket creation, WA connection, initial buffer flush, and LID session migration. These probes are intentionally small structured logs used to diagnose packaged OOM rollbacks.
-- The Baileys rc11 postinstall patch also bounds tctoken pruning: it logs index size, defers unexpectedly large prunes during the first startup minute, and reads tctoken entries in batches instead of one all-at-once auth-store query.
+- Keep WhatsApp startup memory probes around socket creation, WA connection, real initial buffer flushes, and LID session migration. These probes are intentionally small structured logs used to diagnose packaged OOM rollbacks.
+- The Baileys rc11 postinstall patch skips startup event buffering when history sync is disabled, avoids buffer-and-immediate-flush on the disabled-history path, and bounds tctoken pruning so large auth stores do not trigger single huge heap allocations while the socket is coming online.
 
 ## Developer quick start
 

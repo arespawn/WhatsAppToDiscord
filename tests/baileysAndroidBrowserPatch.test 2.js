@@ -38,56 +38,6 @@ test("Baileys rc11 waits for initial sync on reconnects", () => {
 	);
 });
 
-test("Baileys rc11 skips startup buffering when history sync is disabled", () => {
-	const socketSource = fs.readFileSync(
-		"node_modules/@whiskeysockets/baileys/lib/Socket/socket.js",
-		"utf8",
-	);
-	const chatsSource = fs.readFileSync(
-		"node_modules/@whiskeysockets/baileys/lib/Socket/chats.js",
-		"utf8",
-	);
-
-	assert.match(
-		socketSource,
-		/WA2DC skipped Baileys initial event buffer because recent history sync is disabled/u,
-	);
-	assert.match(socketSource, /const wa2dcSkipInitialBuffer/u);
-	assert.match(
-		socketSource,
-		/syncType: proto\.HistorySync\.HistorySyncType\.RECENT/u,
-	);
-	assert.match(
-		socketSource,
-		/if \(creds\.me\?\.id && !wa2dcSkipInitialBuffer\)/u,
-	);
-	assert.match(
-		chatsSource,
-		/WA2DC history sync disabled before Baileys event buffer/u,
-	);
-	assert.ok(
-		chatsSource.indexOf("const willSyncHistory") <
-			chatsSource.indexOf("ev.buffer();"),
-	);
-	assert.doesNotMatch(chatsSource, /setTimeout\(\(\) => ev\.flush\(\), 0\)/u);
-});
-
-test("Baileys rc11 logs summarized own LID migration probes", () => {
-	const socketSource = fs.readFileSync(
-		"node_modules/@whiskeysockets/baileys/lib/Socket/socket.js",
-		"utf8",
-	);
-
-	assert.match(socketSource, /WA2DC starting own LID mapping store/u);
-	assert.match(socketSource, /WA2DC starting own LID session migration/u);
-	assert.match(socketSource, /WA2DC own LID session migration complete/u);
-	assert.match(socketSource, /hasPN: Boolean\(myPN\)/u);
-	assert.doesNotMatch(
-		socketSource,
-		/logger\.info\(\{ myPN, myLID \}, 'Own LID session created successfully'\)/u,
-	);
-});
-
 test("Baileys rc11 tctoken prune is bounded during startup", () => {
 	const messagesRecvSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",

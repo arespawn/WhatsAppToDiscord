@@ -199,8 +199,7 @@ const createStartupProbeBaileysLogger = (baseLogger) => {
 					milestone: "after-lid-session-migration",
 				},
 				{
-					match:
-						"History sync is disabled by config, not waiting for notification. Transitioning to Online.",
+					match: "Timeout in AwaitingInitialSync, forcing state to Online and flushing buffer",
 					milestone: "after-first-event-buffer-flush",
 					deferMs: 25,
 				},
@@ -224,6 +223,16 @@ const createStartupProbeBaileysLogger = (baseLogger) => {
 };
 const shouldSyncWhatsAppHistoryMessage = ({ syncType } = {}) =>
 	!HISTORY_SYNC_TYPES_TO_SKIP.has(syncType);
+const summarizeBaileysErrorStack = (stack) => {
+	if (typeof stack !== "string") return undefined;
+	if (
+		stack.length > MAX_BAILEYS_LOG_STRING_LENGTH ||
+		stack.includes("data:text/javascript;base64")
+	) {
+		return sanitizeBaileysLogString(stack);
+	}
+	return stack.split("\n").slice(0, 6).map(sanitizeBaileysLogString).join("\n");
+};
 const summarizeDisconnectError = (error) => {
 	if (!error) {
 		return { message: "unknown" };
@@ -238,14 +247,7 @@ const summarizeDisconnectError = (error) => {
 					? error.statusCode
 					: undefined,
 		code: error.code,
-		stack:
-			typeof error.stack === "string"
-				? error.stack
-						.split("\n")
-						.slice(0, 6)
-						.map(sanitizeBaileysLogString)
-						.join("\n")
-				: undefined,
+		stack: summarizeBaileysErrorStack(error.stack),
 	};
 };
 const getReconnectDelayMs = (retry) => {
@@ -3619,13 +3621,14 @@ const connectToWhatsApp = async (retry = 1) => {
 					continue;
 				}
 				const messageType = utils.whatsapp.getMessageType(rawMessage);
-				storeMessage(rawMessage);
 				if (
 					!utils.whatsapp.inWhitelist(rawMessage) ||
 					!utils.whatsapp.sentAfterStart(rawMessage) ||
 					!messageType
 				)
 					continue;
+
+				storeMessage(rawMessage);
 
 				if (
 					utils.whatsapp.isStatusBroadcast(rawMessage) &&

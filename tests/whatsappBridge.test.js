@@ -257,6 +257,7 @@ const setupWhatsAppHarness = async ({
 test("WhatsApp message emits Discord event", async () => {
 	const harness = await setupWhatsAppHarness();
 	try {
+		messageStore.clear();
 		harness.fakeClient.ev.emit("messages.upsert", {
 			type: "notify",
 			messages: [
@@ -275,8 +276,90 @@ test("WhatsApp message emits Discord event", async () => {
 			harness.forwarded.messages[0]?.channelJid,
 			"jid@s.whatsapp.net",
 		);
+		assert.ok(
+			messageStore.get({
+				id: "abc",
+				remoteJid: "jid@s.whatsapp.net",
+			}),
+		);
 		assert.ok(harness.controlMessages.length >= 1);
 	} finally {
+		messageStore.clear();
+		harness.cleanup();
+	}
+});
+
+test("WhatsApp stale pre-start messages are not stored", async () => {
+	const harness = await setupWhatsAppHarness({
+		sentAfterStart: () => false,
+	});
+	try {
+		messageStore.clear();
+		harness.fakeClient.ev.emit("messages.upsert", {
+			type: "notify",
+			messages: [
+				{
+					key: { id: "stale", remoteJid: "jid@s.whatsapp.net" },
+					message: "old message",
+				},
+			],
+		});
+
+		await delay(0);
+
+		assert.equal(harness.forwarded.messages.length, 0);
+		assert.equal(
+			messageStore.get({
+				id: "stale",
+				remoteJid: "jid@s.whatsapp.net",
+			}),
+			null,
+		);
+	} finally {
+		messageStore.clear();
+		harness.cleanup();
+	}
+});
+
+test("WhatsApp newsletter server-id mapping runs before stale message skip", async () => {
+	const harness = await setupWhatsAppHarness({
+		sentAfterStart: () => false,
+	});
+	try {
+		messageStore.clear();
+		state.lastMessages["newsletter-outbound"] = "dc-news";
+		state.lastMessages["dc-news"] = "newsletter-outbound";
+
+		harness.fakeClient.ev.emit("messages.upsert", {
+			type: "notify",
+			messages: [
+				{
+					key: {
+						id: "newsletter-outbound",
+						server_id: "newsletter-server",
+						remoteJid: "120363123456789@newsletter",
+						fromMe: true,
+					},
+					message: "newsletter post",
+				},
+			],
+		});
+
+		await delay(0);
+
+		assert.equal(harness.forwarded.messages.length, 0);
+		assert.equal(state.lastMessages["dc-news"], "newsletter-server");
+		assert.equal(state.lastMessages["newsletter-server"], "dc-news");
+		assert.equal(state.sentMessages.has("newsletter-server"), true);
+		assert.equal(
+			messageStore.get({
+				id: "newsletter-outbound",
+				remoteJid: "120363123456789@newsletter",
+			}),
+			null,
+		);
+	} finally {
+		messageStore.clear();
 		harness.cleanup();
 	}
 });

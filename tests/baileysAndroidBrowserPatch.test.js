@@ -37,3 +37,22 @@ test("Baileys rc10 waits for initial sync on reconnects", () => {
 		/Reconnection with existing sync data, skipping history sync wait/u,
 	);
 });
+
+test("Baileys rc10 tctoken prune is bounded during startup", () => {
+	const messagesRecvSource = fs.readFileSync(
+		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",
+		"utf8",
+	);
+
+	assert.match(messagesRecvSource, /TC_TOKEN_PRUNE_BATCH_SIZE = 250/u);
+	assert.match(messagesRecvSource, /starting bounded tctoken prune/u);
+	assert.match(messagesRecvSource, /tctoken prune deferred during startup/u);
+	assert.match(
+		messagesRecvSource,
+		/batchTokens = await authState\.keys\.get\('tctoken', batch\)/u,
+	);
+	assert.doesNotMatch(
+		messagesRecvSource,
+		/const allTokens = await authState\.keys\.get\('tctoken', jids\)/u,
+	);
+});

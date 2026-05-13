@@ -38,6 +38,7 @@ test("update validation requests rollback on second crash within healthy window"
 	assert.equal(second.shouldAttemptRollback, true);
 	assert.equal(second.validationState.crashCount, 2);
 	assert.equal(second.validationState.rollbackAttempted, true);
+	assert.equal(second.reason, "rollback-threshold");
 });
 
 test("update validation clears state after healthy runtime threshold", () => {

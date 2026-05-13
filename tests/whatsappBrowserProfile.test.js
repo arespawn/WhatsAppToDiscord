@@ -132,3 +132,22 @@ test("WhatsApp browser profile env override wins over stored sessions", () => {
 		["Windows", "Chrome", "10.0.22631"],
 	);
 });
+
+test("WhatsApp browser profile env override supports emergency web fallback", () => {
+	assert.deepEqual(
+		selectWhatsAppBrowserProfile({
+			creds: { registered: true },
+			storedProfile: ["13", "Android", ""],
+			envValue: "baileys",
+		}),
+		["Baileys", "Chrome", "6.5.0"],
+	);
+	assert.deepEqual(
+		selectWhatsAppBrowserProfile({
+			creds: { registered: true },
+			storedProfile: ["13", "Android", ""],
+			envValue: "macos-chrome",
+		}),
+		["Mac OS", "Chrome", "14.4.1"],
+	);
+});

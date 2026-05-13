@@ -42,6 +42,7 @@ import {
 	oneWayAllowsWhatsAppToDiscord,
 } from "./oneWay.js";
 import { getPollEncKey, getPollOptions } from "./pollUtils.js";
+import { UPDATE_VALIDATION_WINDOW_MS } from "./runnerLogic.js";
 import state from "./state.js";
 import storage from "./storage.js";
 import utils from "./utils.js";
@@ -57,6 +58,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const MAX_BAILEYS_LOG_STRING_LENGTH = 2000;
 const MAX_BAILEYS_LOG_ARRAY_LENGTH = 25;
 const MAX_BAILEYS_LOG_DEPTH = 4;
+const BYTES_PER_MIB = 1024 * 1024;
 const HISTORY_SYNC_TYPES_TO_SKIP = new Set([
 	proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
 	proto.HistorySync.HistorySyncType.INITIAL_STATUS_V3,
@@ -137,6 +139,24 @@ const sanitizeBaileysLogValue = (
 };
 const sanitizeBaileysLogArgs = (args) =>
 	args.map((arg) => sanitizeBaileysLogValue(arg));
+const formatMemoryUsageMiB = (usage = process.memoryUsage()) =>
+	Object.fromEntries(
+		Object.entries(usage).map(([key, value]) => [
+			key,
+			Math.round((Number(value || 0) / BYTES_PER_MIB) * 10) / 10,
+		]),
+	);
+const logWhatsAppStartupMemoryProbe = (milestone, extra = {}) => {
+	state.logger?.info?.(
+		{
+			milestone,
+			memoryMiB: formatMemoryUsageMiB(),
+			uptimeMs: Math.round(process.uptime() * 1000),
+			...extra,
+		},
+		"WhatsApp startup memory probe.",
+	);
+};
 const createBaileysLogger = (baseLogger) => {
 	const levels = ["trace", "debug", "info", "warn", "error", "fatal"];
 	const logger = {};
@@ -154,6 +174,52 @@ const createBaileysLogger = (baseLogger) => {
 		};
 	}
 	logger.child = () => logger;
+	return logger;
+};
+const createStartupProbeBaileysLogger = (baseLogger) => {
+	const logger = createBaileysLogger(baseLogger);
+	const probeOnce = new Set();
+	const wrapProbe = (level) => {
+		const base = logger[level];
+		logger[level] = (...args) => {
+			base(...args);
+			const message = args.find((arg) => typeof arg === "string");
+			if (!message) return;
+			const probe = [
+				{
+					match: "connected to WA",
+					milestone: "after-connected-to-wa",
+				},
+				{
+					match: "opened connection to WA",
+					milestone: "after-opened-connection-to-wa",
+				},
+				{
+					match: "Own LID session created successfully",
+					milestone: "after-lid-session-migration",
+				},
+				{
+					match:
+						"History sync is disabled by config, not waiting for notification. Transitioning to Online.",
+					milestone: "after-first-event-buffer-flush",
+					deferMs: 25,
+				},
+			].find(({ match }) => message.includes(match));
+			if (!probe || probeOnce.has(probe.milestone)) return;
+			probeOnce.add(probe.milestone);
+			if (typeof probe.deferMs === "number") {
+				setTimeout(
+					() => logWhatsAppStartupMemoryProbe(probe.milestone),
+					probe.deferMs,
+				).unref?.();
+				return;
+			}
+			logWhatsAppStartupMemoryProbe(probe.milestone);
+		};
+	};
+	for (const level of ["info", "warn", "error"]) {
+		wrapProbe(level);
+	}
 	return logger;
 };
 const shouldSyncWhatsAppHistoryMessage = ({ syncType } = {}) =>
@@ -192,6 +258,8 @@ const getReconnectDelayMs = (retry) => {
 	return Math.min(baseDelay * 2 ** (slowAttempt - 1), maxDelay);
 };
 const WHATSAPP_BROWSER_PROFILE_STORAGE_KEY = "whatsapp-browser-profile";
+const WHATSAPP_BROWSER_PROFILE_HEALTHY_STORAGE_KEY =
+	"whatsapp-browser-profile-healthy";
 const WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY =
 	"whatsapp-pairing-code-browser-profile";
 export const WHATSAPP_BROWSER_PROFILE_ENV = "WA2DC_WHATSAPP_BROWSER";
@@ -243,6 +311,7 @@ export const resolveWhatsAppBrowserProfile = (
 	}
 };
 let currentWhatsAppBrowser = resolveWhatsAppBrowserProfile();
+let browserProfileHealthyTimer = null;
 
 export const getCurrentWhatsAppBrowserProfile = () => currentWhatsAppBrowser;
 
@@ -317,6 +386,47 @@ const saveWhatsAppBrowserProfile = async (browser) => {
 		WHATSAPP_BROWSER_PROFILE_STORAGE_KEY,
 		JSON.stringify(serializeWhatsAppBrowserProfile(browser)),
 	);
+};
+const clearBrowserProfileHealthyTimer = () => {
+	if (!browserProfileHealthyTimer) {
+		return;
+	}
+	clearTimeout(browserProfileHealthyTimer);
+	browserProfileHealthyTimer = null;
+};
+const scheduleWhatsAppBrowserProfileHealthyMarker = (browser) => {
+	clearBrowserProfileHealthyTimer();
+	const browserProfile = serializeWhatsAppBrowserProfile(browser);
+	if (!isWhatsAppBrowserProfile(browserProfile, DEFAULT_WHATSAPP_BROWSER_PROFILE)) {
+		return;
+	}
+	browserProfileHealthyTimer = setTimeout(() => {
+		browserProfileHealthyTimer = null;
+		storage
+			.upsert(
+				WHATSAPP_BROWSER_PROFILE_HEALTHY_STORAGE_KEY,
+				JSON.stringify({
+					browserProfile,
+					healthyAt: new Date().toISOString(),
+					uptimeMs: Math.round(process.uptime() * 1000),
+				}),
+			)
+			.then(() => {
+				state.logger?.info(
+					{ browserProfile },
+					"Marked WhatsApp Android browser profile healthy.",
+				);
+			})
+			.catch((err) => {
+				state.logger?.warn(
+					{ err },
+					"Failed to persist WhatsApp browser profile healthy marker.",
+				);
+			});
+	}, UPDATE_VALIDATION_WINDOW_MS);
+	if (typeof browserProfileHealthyTimer.unref === "function") {
+		browserProfileHealthyTimer.unref();
+	}
 };
 
 const readWhatsAppPairingCodeBrowserProfile = async () => {
@@ -3201,11 +3311,15 @@ const connectToWhatsApp = async (retry = 1) => {
 		}
 	}
 
+	logWhatsAppStartupMemoryProbe("before-whatsapp-socket-create", {
+		browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
+	});
+
 	const client = createWhatsAppClient({
 		version,
 		printQRInTerminal: false,
 		auth: authState,
-		logger: createBaileysLogger(state.logger),
+		logger: createStartupProbeBaileysLogger(state.logger),
 		markOnlineOnConnect: false,
 		syncFullHistory: false,
 		shouldSyncHistoryMessage: shouldSyncWhatsAppHistoryMessage,
@@ -3222,6 +3336,9 @@ const connectToWhatsApp = async (retry = 1) => {
 			return stored.message || stored;
 		},
 		browser: currentWhatsAppBrowser,
+	});
+	logWhatsAppStartupMemoryProbe("after-whatsapp-socket-create", {
+		browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
 	});
 	client.authState = authState;
 	state.waConnection = {
@@ -3279,6 +3396,7 @@ const connectToWhatsApp = async (retry = 1) => {
 				utils.whatsapp.sendQR(qr);
 			}
 			if (connection === "close") {
+				clearBrowserProfileHealthyTimer();
 				groupRefreshScheduler.clearAll();
 				groupMetadataCache.clear();
 				const statusCode = lastDisconnect?.error?.output?.statusCode;
@@ -3335,6 +3453,9 @@ const connectToWhatsApp = async (retry = 1) => {
 				state.waClient = client;
 
 				retry = 1;
+				logWhatsAppStartupMemoryProbe("after-connection-update-open", {
+					browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
+				});
 				await saveWhatsAppBrowserProfile(currentWhatsAppBrowser).catch(
 					(err) => {
 						state.logger?.warn(
@@ -3349,6 +3470,7 @@ const connectToWhatsApp = async (retry = 1) => {
 						"Failed to clear WhatsApp pairing-code browser profile.",
 					);
 				});
+				scheduleWhatsAppBrowserProfileHealthyMarker(currentWhatsAppBrowser);
 				await sendControlMessage("WhatsApp connection successfully opened!");
 
 				try {

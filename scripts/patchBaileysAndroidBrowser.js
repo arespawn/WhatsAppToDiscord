@@ -3,6 +3,151 @@ import path from "node:path";
 
 const packageRoot = path.resolve("node_modules", "@whiskeysockets", "baileys");
 
+const boundedTcTokenPruneBefore = `    async function pruneExpiredTcTokens() {
+        try {
+            await tcTokenIndexLoaded;
+            // Union with the persisted index picks up JIDs added by other layers
+            // (history sync) without needing inter-module wiring.
+            const persisted = await readTcTokenIndex(authState.keys);
+            const allJids = new Set(tcTokenKnownJids);
+            for (const jid of persisted)
+                allJids.add(jid);
+            if (!allJids.size)
+                return;
+            const jids = [...allJids];
+            const allTokens = await authState.keys.get('tctoken', jids);
+            const writes = {};
+            const survivors = new Set();
+            let mutated = 0;
+            for (const jid of jids) {
+                const entry = allTokens[jid];
+                if (!entry) {
+                    // Tracked but nothing in store — drop from index.
+                    mutated++;
+                    continue;
+                }
+                const hasPeerToken = !!entry.token?.length;
+                const peerTokenExpired = hasPeerToken && isTcTokenExpired(entry.timestamp);
+                const hasSenderTs = entry.senderTimestamp !== undefined;
+                const senderTsExpired = hasSenderTs && isTcTokenExpired(entry.senderTimestamp);
+                const keepPeerToken = hasPeerToken && !peerTokenExpired;
+                const keepSenderTs = hasSenderTs && !senderTsExpired;
+                if (!keepPeerToken && !keepSenderTs) {
+                    writes[jid] = null;
+                    mutated++;
+                }
+                else if (peerTokenExpired && keepSenderTs) {
+                    writes[jid] = { token: Buffer.alloc(0), senderTimestamp: entry.senderTimestamp };
+                    survivors.add(jid);
+                    mutated++;
+                }
+                else {
+                    survivors.add(jid);
+                }
+            }
+            if (mutated === 0)
+                return;
+            await authState.keys.set({
+                tctoken: {
+                    ...writes,
+                    [TC_TOKEN_INDEX_KEY]: {
+                        token: Buffer.from(JSON.stringify([...survivors]))
+                    }
+                }
+            });
+            tcTokenKnownJids.clear();
+            for (const jid of survivors)
+                tcTokenKnownJids.add(jid);
+            logger.debug({ mutated, remaining: survivors.size }, 'pruned expired tctokens');
+        }
+        catch (err) {
+            logger.warn({ err: err?.message }, 'failed to prune expired tctokens');
+        }
+    }`;
+
+const boundedTcTokenPruneAfter = `    const TC_TOKEN_PRUNE_BATCH_SIZE = 250;
+    const TC_TOKEN_PRUNE_STARTUP_DEFER_MS = 60_000;
+    const TC_TOKEN_PRUNE_STARTUP_DEFER_THRESHOLD = 2_000;
+    let tcTokenPruneDeferred = false;
+    async function pruneExpiredTcTokens() {
+        try {
+            await tcTokenIndexLoaded;
+            // Union with the persisted index picks up JIDs added by other layers
+            // (history sync) without needing inter-module wiring.
+            const persisted = await readTcTokenIndex(authState.keys);
+            const allJids = new Set(tcTokenKnownJids);
+            for (const jid of persisted)
+                allJids.add(jid);
+            if (!allJids.size)
+                return;
+            const jids = [...allJids];
+            logger.info({ count: jids.length, batchSize: TC_TOKEN_PRUNE_BATCH_SIZE }, 'starting bounded tctoken prune');
+            const uptimeMs = typeof process?.uptime === 'function' ? process.uptime() * 1000 : TC_TOKEN_PRUNE_STARTUP_DEFER_MS;
+            if (jids.length > TC_TOKEN_PRUNE_STARTUP_DEFER_THRESHOLD && uptimeMs < TC_TOKEN_PRUNE_STARTUP_DEFER_MS) {
+                if (!tcTokenPruneDeferred) {
+                    tcTokenPruneDeferred = true;
+                    const delayMs = Math.max(1_000, TC_TOKEN_PRUNE_STARTUP_DEFER_MS - uptimeMs);
+                    logger.warn({ count: jids.length, delayMs }, 'tctoken prune deferred during startup');
+                    setTimeout(() => {
+                        tcTokenPruneDeferred = false;
+                        void pruneExpiredTcTokens();
+                    }, delayMs).unref?.();
+                }
+                return;
+            }
+            const writes = {};
+            const survivors = new Set();
+            let mutated = 0;
+            for (let offset = 0; offset < jids.length; offset += TC_TOKEN_PRUNE_BATCH_SIZE) {
+                const batch = jids.slice(offset, offset + TC_TOKEN_PRUNE_BATCH_SIZE);
+                const batchTokens = await authState.keys.get('tctoken', batch);
+                for (const jid of batch) {
+                    const entry = batchTokens[jid];
+                    if (!entry) {
+                        // Tracked but nothing in store — drop from index.
+                        mutated++;
+                        continue;
+                    }
+                    const hasPeerToken = !!entry.token?.length;
+                    const peerTokenExpired = hasPeerToken && isTcTokenExpired(entry.timestamp);
+                    const hasSenderTs = entry.senderTimestamp !== undefined;
+                    const senderTsExpired = hasSenderTs && isTcTokenExpired(entry.senderTimestamp);
+                    const keepPeerToken = hasPeerToken && !peerTokenExpired;
+                    const keepSenderTs = hasSenderTs && !senderTsExpired;
+                    if (!keepPeerToken && !keepSenderTs) {
+                        writes[jid] = null;
+                        mutated++;
+                    }
+                    else if (peerTokenExpired && keepSenderTs) {
+                        writes[jid] = { token: Buffer.alloc(0), senderTimestamp: entry.senderTimestamp };
+                        survivors.add(jid);
+                        mutated++;
+                    }
+                    else {
+                        survivors.add(jid);
+                    }
+                }
+            }
+            if (mutated === 0)
+                return;
+            await authState.keys.set({
+                tctoken: {
+                    ...writes,
+                    [TC_TOKEN_INDEX_KEY]: {
+                        token: Buffer.from(JSON.stringify([...survivors]))
+                    }
+                }
+            });
+            tcTokenKnownJids.clear();
+            for (const jid of survivors)
+                tcTokenKnownJids.add(jid);
+            logger.debug({ mutated, remaining: survivors.size }, 'pruned expired tctokens');
+        }
+        catch (err) {
+            logger.warn({ err: err?.message }, 'failed to prune expired tctokens');
+        }
+    }`;
+
 const replacements = [
 	{
 		file: "lib/Utils/browser-utils.js",
@@ -81,6 +226,12 @@ const replacements = [
 			"        logger.info('First connection, awaiting history sync notification with a 20s timeout.');",
 		after:
 			"        logger.info('History sync is enabled, awaiting notification with a 20s timeout.');",
+	},
+	{
+		file: "lib/Socket/messages-recv.js",
+		marker: "tctoken prune deferred during startup",
+		before: boundedTcTokenPruneBefore,
+		after: boundedTcTokenPruneAfter,
 	},
 ];
 

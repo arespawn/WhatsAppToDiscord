@@ -3295,7 +3295,10 @@ const discord = {
 		const normalizedJid = whatsapp.formatJid(jid) || jid;
 		const normalizeWebhookUsername = (value) => {
 			if (typeof value !== "string") return null;
-			const trimmed = value.trim();
+			const trimmed = value
+				.replace(/discord/giu, "Disc")
+				.replace(/clyde/giu, "Cly")
+				.trim();
 			if (!trimmed) return null;
 			return trimmed.length > 80 ? trimmed.slice(0, 80) : trimmed;
 		};

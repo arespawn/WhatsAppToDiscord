@@ -332,6 +332,9 @@ const storage = {
 					parsed.ThreadNotificationsEnabled,
 				);
 			}
+			if (parsed.WhatsAppAudioConversionFormat !== "mp3") {
+				parsed.WhatsAppAudioConversionFormat = "original";
+			}
 			parsed.ThreadNotificationRoles = normalizeDiscordIdArray(
 				parsed.ThreadNotificationRoles,
 			);

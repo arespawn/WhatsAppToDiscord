@@ -31,6 +31,12 @@ WA2DC can mirror Discord voice-style attachments to WhatsApp voice notes (`ptt`)
 - For best compatibility, install `ffmpeg` on the host running WA2DC. The bridge will transcode Discord voice uploads to Opus/Ogg mono before sending.
 - If `ffmpeg` is not installed, WA2DC still attempts a raw audio send, but some voice uploads may fail on WhatsApp clients.
 
+## Playing WhatsApp audio on older Discord clients or phones
+WhatsApp audio is mirrored to Discord in its original format by default, which is best for modern clients.
+
+- Some older devices support Ogg Vorbis but not WhatsApp's usual Ogg/Opus audio. Use `/waaudiomp3 enabled:true` to convert WhatsApp audio to MP3 before Discord upload.
+- MP3 conversion requires `ffmpeg`. If `ffmpeg` is missing or conversion fails, WA2DC falls back to the original WhatsApp audio attachment.
+
 ## Why did a WhatsApp GIF arrive on Discord as a video?
 WhatsApp usually exposes GIF sends as short `videoMessage` payloads flagged with `gifPlayback`, not as literal `.gif` files.
 

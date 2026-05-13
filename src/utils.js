@@ -29,6 +29,7 @@ import {
 	isThreadChatLink,
 } from "./chatLinks.js";
 import { getImageSharp } from "./imageLibs.js";
+import { createWhatsAppAudioToDiscordFileNormalizer } from "./internal/whatsappAudioToDiscordNormalization.js";
 import { createWhatsAppGifToDiscordFileNormalizer } from "./internal/whatsappGifToDiscordNormalization.js";
 import messageStore from "./messageStore.js";
 import state from "./state.js";
@@ -171,6 +172,10 @@ const UPDATE_BUTTON_IDS = {
 const ROLLBACK_BUTTON_ID = "wa2dc:rollback";
 const normalizeWhatsAppGifFileForDiscord =
 	createWhatsAppGifToDiscordFileNormalizer({
+		getLogger: () => state.logger,
+	});
+const normalizeWhatsAppAudioFileForDiscord =
+	createWhatsAppAudioToDiscordFileNormalizer({
 		getLogger: () => state.logger,
 	});
 const resolveLinkPreviewFromContentFn = () => {
@@ -5042,6 +5047,42 @@ const whatsapp = {
 						: normalizedGif.fileName,
 					attachment: normalizedGif.attachmentBuffer,
 					contentType: normalizedGif.contentType,
+					largeFile,
+					downloadCtx: rawMsg,
+					msgType: nMsgType,
+					spoiler: viewOnce,
+				};
+			}
+			if (
+				nMsgType === "audioMessage" &&
+				state.settings.WhatsAppAudioConversionFormat === "mp3"
+			) {
+				const attachmentBuffer = Buffer.from(
+					await downloadMediaMessage(
+						rawMsg,
+						"buffer",
+						{},
+						{
+							logger: state.logger,
+							reuploadRequest: state.waClient.updateMediaMessage,
+						},
+					),
+				);
+				const normalizedAudio = await normalizeWhatsAppAudioFileForDiscord({
+					attachmentBuffer,
+					fileName: baseName,
+					mimetype: msg.mimetype,
+					targetFormat: state.settings.WhatsAppAudioConversionFormat,
+					jid: remoteJid,
+					messageId: this.getId(rawMsg),
+					maxBytes: state.settings.DiscordFileSizeLimit,
+				});
+				return {
+					name: viewOnce
+						? asDiscordSpoilerFileName(normalizedAudio.fileName)
+						: normalizedAudio.fileName,
+					attachment: normalizedAudio.attachmentBuffer,
+					contentType: normalizedAudio.contentType,
 					largeFile,
 					downloadCtx: rawMsg,
 					msgType: nMsgType,

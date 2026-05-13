@@ -43,6 +43,7 @@ Respect transport constraints when emitting output:
 - do not flatten or duplicate animated Discord media just to satisfy static image normalization paths; when Discord exposes both a GIF file entry and its preview video for the same upload, prefer a single animated send candidate
 - when Discord GIF providers (for example Tenor/Giphy) expose extensionless video URLs plus static preview thumbnails, infer the animated video send from the provider embed and suppress the duplicate preview image
 - when WhatsApp exposes GIFs as `videoMessage` payloads with `gifPlayback`, prefer transcoding them into real Discord GIF attachments when runtime tooling (`ffmpeg`) is available; if transcoding is unavailable or fails, fall back to the original video attachment instead of dropping media
+- keep WhatsApp audio mirroring in the original format by default; only convert WhatsApp audio to MP3 when `WhatsAppAudioConversionFormat` is `mp3`, and fall back to the original attachment if `ffmpeg` is unavailable or conversion fails
 - prefer the sticker asset URL exposed by Discord over reconstructing sticker CDN/proxy URLs locally; convert Discord sticker assets into WhatsApp sticker payloads when possible, including animated Lottie stickers via the dedicated renderer path
 - keep Discord -> WhatsApp bare-URL normalization narrow enough that plain email addresses are forwarded unchanged instead of being rewritten into malformed `https://.../@domain` text
 

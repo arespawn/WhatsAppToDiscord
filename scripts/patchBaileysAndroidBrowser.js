@@ -261,6 +261,15 @@ const boundedTcTokenPruneAfter = `    const TC_TOKEN_PRUNE_BATCH_SIZE = 250;
         }
     }`;
 
+const preserveDeliveredReceiptWhileUnavailableBefore = `                        else if (!sendActiveReceipts) {
+                            type = 'inactive';
+                        }`;
+
+const preserveDeliveredReceiptWhileUnavailableAfter = `                        else if (!sendActiveReceipts) {
+                            // WA2DC stays unavailable on connect so the phone keeps getting notifications,
+                            // but inbound messages should still acknowledge delivery to the sender.
+                        }`;
+
 const replacements = [
 	{
 		file: "lib/Utils/browser-utils.js",
@@ -369,6 +378,12 @@ const replacements = [
 		marker: "tctoken prune deferred during startup",
 		before: boundedTcTokenPruneBefore,
 		after: boundedTcTokenPruneAfter,
+	},
+	{
+		file: "lib/Socket/messages-recv.js",
+		marker: "WA2DC stays unavailable on connect so the phone keeps getting notifications",
+		before: preserveDeliveredReceiptWhileUnavailableBefore,
+		after: preserveDeliveredReceiptWhileUnavailableAfter,
 	},
 ];
 

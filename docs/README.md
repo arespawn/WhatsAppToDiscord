@@ -52,6 +52,7 @@ This repository currently pins the published npm package `@whiskeysockets/bailey
 - Fresh WhatsApp startup uses the Android Baileys browser profile by default for view-once media support. The `/pairwithcode` flow can temporarily restart into `macos-chrome` because pairing codes are more reliable with that profile.
 - When WA2DC sees registered WhatsApp auth without a matching saved browser-profile marker, it clears only the WhatsApp auth state and asks you to pair again. This prevents older sessions from being reused blindly under a different browser profile.
 - WA2DC also keeps rc11 reconnects on the initial-sync wait path when history sync is enabled, but skips Baileys startup buffering when history sync is disabled; this avoids packaged-startup heap spikes seen after switching existing sessions to the Android browser profile.
+- WA2DC keeps `markOnlineOnConnect: false` so your phone can keep receiving WhatsApp notifications, but patches rc11 so inbound non-newsletter messages still send normal delivered receipts instead of the downgraded `inactive` receipt.
 - WA2DC logs bounded WhatsApp startup memory probes and patches rc11 LID migration/tctoken pruning paths, so large auth stores do not trigger single huge heap allocations while the socket is coming online.
 - The Signal auth store seeds the newly required `lid-mapping`, `tctoken`, `device-list`, and `device-index` namespaces so rc11 can write those blobs safely.
 

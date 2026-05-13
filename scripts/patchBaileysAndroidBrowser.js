@@ -252,9 +252,9 @@ const main = async () => {
 	const packageJson = JSON.parse(
 		await fs.readFile(path.join(packageRoot, "package.json"), "utf8"),
 	);
-	if (packageJson.version !== "7.0.0-rc10") {
+	if (packageJson.version !== "7.0.0-rc11") {
 		throw new Error(
-			`Baileys Android browser patch expects 7.0.0-rc10, found ${packageJson.version}`,
+			`Baileys Android browser patch expects 7.0.0-rc11, found ${packageJson.version}`,
 		);
 	}
 

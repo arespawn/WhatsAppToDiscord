@@ -1713,36 +1713,43 @@ client.on("whatsappDelete", async ({ id, jid }) => {
 });
 
 client.on("whatsappCall", async ({ call, jid }) => {
-	if (!allowsWhatsAppToDiscord()) {
-		return;
-	}
+	try {
+		if (!allowsWhatsAppToDiscord()) {
+			return;
+		}
 
-	const webhook = await utils.discord.getOrCreateChannel(jid);
+		const webhook = await utils.discord.getOrCreateChannel(jid);
 
-	const name = utils.whatsapp.jidToName(jid);
-	const callType = call.isVideo ? "video" : "voice";
-	let content = "";
+		const name = utils.whatsapp.jidToName(jid);
+		const callType = call.isVideo ? "video" : "voice";
+		let content = "";
 
-	switch (call.status) {
-		case "offer":
-			content = `${name} is ${callType} calling you! Check your phone to respond.`;
-			break;
-		case "timeout":
-			content = `Missed a ${callType} call from ${name}!`;
-			break;
-	}
+		switch (call.status) {
+			case "offer":
+				content = `${name} is ${callType} calling you! Check your phone to respond.`;
+				break;
+			case "timeout":
+				content = `Missed a ${callType} call from ${name}!`;
+				break;
+		}
 
-	if (content !== "") {
-		const avatarURL =
-			(await utils.whatsapp.getProfilePic(call)) || DEFAULT_AVATAR_URL;
-		await utils.discord.safeWebhookSend(
-			webhook,
-			{
-				content,
-				username: name,
-				avatarURL,
-			},
-			jid,
+		if (content !== "") {
+			const avatarURL =
+				(await utils.whatsapp.getProfilePic(call)) || DEFAULT_AVATAR_URL;
+			await utils.discord.safeWebhookSend(
+				webhook,
+				{
+					content,
+					username: name,
+					avatarURL,
+				},
+				jid,
+			);
+		}
+	} catch (err) {
+		state.logger?.error(
+			{ err, jid, status: call?.status },
+			"Failed to process WhatsApp call notification",
 		);
 	}
 });

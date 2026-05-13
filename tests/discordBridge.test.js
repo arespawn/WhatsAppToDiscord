@@ -220,6 +220,101 @@ test("oneWay gating blocks WhatsApp -> Discord forwards in discordHandler", asyn
 	}
 });
 
+test("WhatsApp call notification send failures do not crash discordHandler", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+		getOrCreateChannel: utils.discord.getOrCreateChannel,
+		safeWebhookSend: utils.discord.safeWebhookSend,
+	};
+	const originalWhatsappUtils = {
+		jidToName: utils.whatsapp.jidToName,
+		getProfilePic: utils.whatsapp.getProfilePic,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		oneWay: state.settings.oneWay,
+	};
+	const originalLogger = state.logger;
+	const originalDcClient = state.dcClient;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.oneWay = 0b11;
+
+		const errors = [];
+		state.logger = {
+			error(...args) {
+				errors.push(args);
+			},
+		};
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+		utils.discord.getOrCreateChannel = async () => ({ id: "webhook-1" });
+		utils.discord.safeWebhookSend = async () => {
+			throw new Error("discord send failed");
+		};
+		utils.whatsapp.jidToName = () => "B Welcomehost Discord Whatsapp";
+		utils.whatsapp.getProfilePic = async () => null;
+
+		let unhandled;
+		const onUnhandled = (err) => {
+			unhandled = err;
+		};
+		process.once("unhandledRejection", onUnhandled);
+
+		class FakeDiscordClient extends EventEmitter {
+			constructor() {
+				super();
+				this.user = { id: "bot-1" };
+			}
+
+			async login() {
+				queueMicrotask(() => this.emit("ready"));
+				return this;
+			}
+		}
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler("wa-call-send-failure");
+		state.dcClient = await discordHandler.start();
+
+		fakeClient.emit("whatsappCall", {
+			jid: "jid@s.whatsapp.net",
+			call: { status: "offer", isVideo: false },
+		});
+
+		assert.equal(
+			await waitFor(() => errors.length > 0 || Boolean(unhandled)),
+			true,
+		);
+		process.removeListener("unhandledRejection", onUnhandled);
+
+		assert.equal(unhandled, undefined);
+		assert.equal(errors[0]?.[1], "Failed to process WhatsApp call notification");
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+		utils.discord.getOrCreateChannel = originalDiscordUtils.getOrCreateChannel;
+		utils.discord.safeWebhookSend = originalDiscordUtils.safeWebhookSend;
+		utils.whatsapp.jidToName = originalWhatsappUtils.jidToName;
+		utils.whatsapp.getProfilePic = originalWhatsappUtils.getProfilePic;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.oneWay = originalSettings.oneWay;
+		state.logger = originalLogger;
+
+		state.dcClient = originalDcClient;
+		resetClientFactoryOverrides();
+	}
+});
+
 test("WhatsApp view once media is sent to Discord as a spoiler attachment", async () => {
 	const originalDiscordUtils = {
 		getGuild: utils.discord.getGuild,

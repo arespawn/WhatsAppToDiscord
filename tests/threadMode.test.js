@@ -125,6 +125,28 @@ test("utils.discord.safeWebhookSend forwards threadId for thread-backed chats", 
 	}
 });
 
+test("utils.discord.safeWebhookSend sanitizes Discord-reserved webhook usernames", async () => {
+	const sends = [];
+
+	await utils.discord.safeWebhookSend(
+		{
+			async send(payload) {
+				sends.push(payload);
+				return { id: "dc-1" };
+			},
+		},
+		{
+			content: "hello from whatsapp",
+			username: "B Welcomehost Discord Whatsapp",
+		},
+		"123@s.whatsapp.net",
+	);
+
+	assert.equal(sends.length, 1);
+	assert.equal(sends[0]?.username, "B Welcomehost Disc Whatsapp");
+	assert.doesNotMatch(sends[0]?.username, /discord/iu);
+});
+
 test("utils.discord.getOrCreateChannel creates a managed forum thread when thread mode is enabled", async () => {
 	const originalDiscordUtils = {
 		getGuild: utils.discord.getGuild,

@@ -5,6 +5,12 @@ import pretty from "pino-pretty";
 import packageInfo from "../package.json" with { type: "json" };
 import discordHandler from "./discordHandler.js";
 import { isRecoverableUnhandledRejection } from "./processErrors.js";
+import {
+	buildProcessExitReportContent,
+	getProcessExitCode,
+	getProcessReportFileName,
+	isShutdownEvent,
+} from "./processExitReporting.js";
 import state from "./state.js";
 import storage from "./storage.js";
 import utils from "./utils.js";
@@ -72,7 +78,11 @@ suppressSecretBearingDependencyConsoleLogs();
 				shuttingDown = true;
 				clearInterval(autoSaver);
 				if (err != null) {
-					state.logger.error(err);
+					if (isShutdownEvent(eventName)) {
+						state.logger.info(err);
+					} else {
+						state.logger.error(err);
+					}
 				}
 				state.logger.info("Exiting!");
 				let logs = "";
@@ -82,11 +92,13 @@ suppressSecretBearingDependencyConsoleLogs();
 				} catch (readErr) {
 					void readErr;
 				}
-				const content =
-					`Bot crashed: \n\n\u0060\u0060\u0060\n${err?.stack || err}\n\u0060\u0060\u0060` +
-					(logs
-						? `\nRecent logs:\n\u0060\u0060\u0060\n${logs}\n\u0060\u0060\u0060`
-						: "");
+				const content = buildProcessExitReportContent({
+					eventName,
+					reason: err,
+					logs,
+				});
+				const isShutdown = isShutdownEvent(eventName);
+				const reportFileName = getProcessReportFileName(eventName);
 				let sent = false;
 				try {
 					const ctrl = await utils.discord.getControlChannel();
@@ -97,7 +109,7 @@ suppressSecretBearingDependencyConsoleLogs();
 								files: [
 									{
 										attachment: Buffer.from(content, "utf8"),
-										name: "crash.txt",
+										name: reportFileName,
 									},
 								],
 							});
@@ -107,10 +119,10 @@ suppressSecretBearingDependencyConsoleLogs();
 						sent = true;
 					}
 				} catch (e) {
-					state.logger.error("Failed to send crash info to Discord");
+					state.logger.error("Failed to send process exit info to Discord");
 					state.logger.error(e);
 				}
-				if (!sent) {
+				if (!sent && !isShutdown) {
 					try {
 						await fs.promises.writeFile("crash-report.txt", content, "utf8");
 					} catch (e) {
@@ -124,7 +136,7 @@ suppressSecretBearingDependencyConsoleLogs();
 					state.logger.error("Failed to save storage");
 					state.logger.error(e);
 				}
-				process.exit(["SIGINT", "SIGTERM"].includes(eventName) ? 0 : 1);
+				process.exit(getProcessExitCode(eventName));
 			});
 		},
 	);

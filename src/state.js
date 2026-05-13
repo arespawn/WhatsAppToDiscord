@@ -7,6 +7,7 @@ const state = {
 		DiscordPrefix: false,
 		WAGroupPrefix: false,
 		WASenderPlatformSuffix: false,
+		WhatsAppAudioConversionFormat: "original",
 		DiscordEmbedsToWhatsApp: false,
 		UploadAttachments: true,
 		NewsletterMediaUrlFallback: false,

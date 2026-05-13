@@ -1599,3 +1599,65 @@ test("/setwamediaburstsize updates WhatsApp to Discord media burst size", async 
 		resetClientFactoryOverrides();
 	}
 });
+
+test("/waaudiomp3 toggles WhatsApp audio MP3 conversion", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+		WhatsAppAudioConversionFormat:
+			state.settings.WhatsAppAudioConversionFormat,
+	};
+	const originalDcClient = state.dcClient;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+		state.settings.WhatsAppAudioConversionFormat = "original";
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler("wa-audio-mp3");
+		state.dcClient = await discordHandler.start();
+		await delay(0);
+
+		const interaction = createInteraction({
+			channelId: "control",
+			commandName: "waaudiomp3",
+			booleanOptions: {
+				enabled: true,
+			},
+		});
+		fakeClient.emit("interactionCreate", interaction);
+		await delay(0);
+
+		assert.equal(state.settings.WhatsAppAudioConversionFormat, "mp3");
+		assert.equal(interaction.records.editReply.length, 1);
+		assert.equal(
+			interaction.records.editReply[0]?.content,
+			"WhatsApp audio MP3 conversion is enabled. Install ffmpeg on the host for conversion.",
+		);
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+		state.settings.WhatsAppAudioConversionFormat =
+			originalSettings.WhatsAppAudioConversionFormat;
+
+		state.dcClient = originalDcClient;
+		resetClientFactoryOverrides();
+	}
+});

@@ -4877,6 +4877,29 @@ const commandHandlers = {
 			);
 		},
 	},
+	waaudiomp3: {
+		description: "Toggle MP3 conversion for WhatsApp audio sent to Discord.",
+		options: [
+			{
+				name: "enabled",
+				description:
+					"Whether WhatsApp audio should be converted to MP3 before Discord upload.",
+				type: ApplicationCommandOptionTypes.BOOLEAN,
+				required: true,
+			},
+		],
+		async execute(ctx) {
+			const enabled = Boolean(ctx.getBooleanOption("enabled"));
+			state.settings.WhatsAppAudioConversionFormat = enabled
+				? "mp3"
+				: "original";
+			await ctx.reply(
+				enabled
+					? "WhatsApp audio MP3 conversion is enabled. Install ffmpeg on the host for conversion."
+					: "WhatsApp audio MP3 conversion is disabled. WhatsApp audio will be mirrored in its original format.",
+			);
+		},
+	},
 	hidephonenumbers: {
 		description:
 			"Hide WhatsApp phone numbers on Discord (use pseudonyms when needed).",

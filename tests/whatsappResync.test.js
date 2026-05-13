@@ -72,10 +72,10 @@ test("resyncWhatsAppContactsAndGroups refreshes app state and persists light gro
 	let appStatePayload = null;
 	let resyncedCollections = null;
 
-		try {
-			groupMetadataCache.clear();
-			restoreObject(state.contacts, {});
-			state.logger = { warn() {}, error() {}, info() {}, debug() {} };
+	try {
+		groupMetadataCache.clear();
+		restoreObject(state.contacts, {});
+		state.logger = { warn() {}, error() {}, info() {}, debug() {} };
 		state.startTime = 123;
 		const client = {
 			contacts: state.contacts,

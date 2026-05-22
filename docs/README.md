@@ -43,18 +43,18 @@ Originally created by [Fatih Kilic](https://github.com/FKLC), now maintained by 
 
 ## Baileys 7 migration
 
-This repository currently pins the published npm package `@whiskeysockets/baileys@7.0.0-rc11`. Upstream outlines every breaking change in their migration article: [https://whiskey.so/migrate-latest](https://whiskey.so/migrate-latest). Notes and common workarounds:
+This repository currently pins the published npm package `@whiskeysockets/baileys@7.0.0-rc13`. Upstream outlines every breaking change in their migration article: [https://whiskey.so/migrate-latest](https://whiskey.so/migrate-latest). Notes and common workarounds:
 
 **Notes**
 
 - Local Identifiers (LIDs) are now preferred over PN-based JIDs. The bot listens for `lid-mapping.update` events, migrates stored chats/whitelists as WhatsApp reveals PN↔LID pairs, and always talks to the chat using the identifier WhatsApp considers canonical.
-- WA2DC applies a small postinstall patch for upstream PR 2201 so `Browsers.android('13')` remains available while running rc11.
+- WA2DC applies a small postinstall patch for upstream PR 2201 so `Browsers.android('13')` remains available while running rc13.
 - Fresh WhatsApp startup uses the Android Baileys browser profile by default for view-once media support. The `/pairwithcode` flow can temporarily restart into `macos-chrome` because pairing codes are more reliable with that profile.
 - When WA2DC sees registered WhatsApp auth without a matching saved browser-profile marker, it clears only the WhatsApp auth state and asks you to pair again. This prevents older sessions from being reused blindly under a different browser profile.
-- WA2DC also keeps rc11 reconnects on the initial-sync wait path when history sync is enabled, but skips Baileys startup buffering when history sync is disabled; this avoids packaged-startup heap spikes seen after switching existing sessions to the Android browser profile.
-- WA2DC keeps `markOnlineOnConnect: false` so your phone can keep receiving WhatsApp notifications, but patches rc11 so inbound non-newsletter messages still send normal delivered receipts instead of the downgraded `inactive` receipt.
-- WA2DC logs bounded WhatsApp startup memory probes and patches rc11 LID migration/tctoken pruning paths, so large auth stores do not trigger single huge heap allocations while the socket is coming online.
-- The Signal auth store seeds the newly required `lid-mapping`, `tctoken`, `device-list`, and `device-index` namespaces so rc11 can write those blobs safely.
+- WA2DC also keeps rc13 reconnects on the initial-sync wait path when history sync is enabled, but skips Baileys startup buffering when history sync is disabled; this avoids packaged-startup heap spikes seen after switching existing sessions to the Android browser profile.
+- WA2DC keeps `markOnlineOnConnect: false` so your phone can keep receiving WhatsApp notifications, but patches rc13 so inbound non-newsletter messages still send normal delivered receipts instead of the downgraded `inactive` receipt.
+- WA2DC logs bounded WhatsApp startup memory probes and patches rc13 LID migration/tctoken pruning paths, so large auth stores do not trigger single huge heap allocations while the socket is coming online.
+- The Signal auth store seeds the newly required `lid-mapping`, `tctoken`, `device-list`, and `device-index` namespaces so rc13 can write those blobs safely.
 
 **Common issues & workarounds**
 

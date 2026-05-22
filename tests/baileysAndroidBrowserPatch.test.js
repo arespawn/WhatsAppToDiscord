@@ -5,7 +5,7 @@ import test from "node:test";
 import { Browsers, proto } from "@whiskeysockets/baileys";
 import { generateLoginNode } from "@whiskeysockets/baileys/lib/Utils/validate-connection.js";
 
-test("Baileys rc11 carries WA2DC Android browser patch", () => {
+test("Baileys rc13 carries WA2DC Android browser patch", () => {
 	assert.equal(typeof Browsers.android, "function");
 	assert.deepEqual(Browsers.android("13"), ["13", "Android", ""]);
 
@@ -22,7 +22,7 @@ test("Baileys rc11 carries WA2DC Android browser patch", () => {
 	);
 });
 
-test("Baileys rc11 waits for initial sync on reconnects", () => {
+test("Baileys rc13 waits for initial sync on reconnects", () => {
 	const chatsSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/chats.js",
 		"utf8",
@@ -38,7 +38,7 @@ test("Baileys rc11 waits for initial sync on reconnects", () => {
 	);
 });
 
-test("Baileys rc11 skips startup buffering when history sync is disabled", () => {
+test("Baileys rc13 skips startup buffering when history sync is disabled", () => {
 	const socketSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/socket.js",
 		"utf8",
@@ -72,7 +72,7 @@ test("Baileys rc11 skips startup buffering when history sync is disabled", () =>
 	assert.doesNotMatch(chatsSource, /setTimeout\(\(\) => ev\.flush\(\), 0\)/u);
 });
 
-test("Baileys rc11 logs summarized own LID migration probes", () => {
+test("Baileys rc13 logs summarized own LID migration probes", () => {
 	const socketSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/socket.js",
 		"utf8",
@@ -88,7 +88,7 @@ test("Baileys rc11 logs summarized own LID migration probes", () => {
 	);
 });
 
-test("Baileys rc11 tctoken prune is bounded during startup", () => {
+test("Baileys rc13 tctoken prune is bounded during startup", () => {
 	const messagesRecvSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",
 		"utf8",
@@ -107,7 +107,7 @@ test("Baileys rc11 tctoken prune is bounded during startup", () => {
 	);
 });
 
-test("Baileys rc11 preserves delivered receipts while WA2DC stays unavailable", () => {
+test("Baileys rc13 preserves delivered receipts while WA2DC stays unavailable", () => {
 	const messagesRecvSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",
 		"utf8",

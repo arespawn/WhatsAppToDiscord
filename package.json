@@ -24,7 +24,6 @@
 		"node": ">=24"
 	},
 	"dependencies": {
-		"@adiwajshing/keyed-db": "^0.2.4",
 		"@whiskeysockets/baileys": "7.0.0-rc13",
 		"canvas": "^3.2.3",
 		"discord.js": "^14.25.1",

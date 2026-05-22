@@ -15,16 +15,6 @@ const DISCORD_STICKER_LOTTIE_FORMAT = 3;
 let packagedRuntimeRequire = null;
 let stickerDependencyPromise = null;
 let lottiePlayerSourcePromise = null;
-let stickerSendTestOverrides = null;
-
-export const resetStickerSendTestOverrides = () => {
-	stickerSendTestOverrides = null;
-};
-
-export const setStickerSendTestOverrides = (overrides = null) => {
-	stickerSendTestOverrides =
-		overrides && typeof overrides === "object" ? overrides : null;
-};
 
 const normalizeMimeType = (value = "") => {
 	if (typeof value !== "string") return "";
@@ -113,9 +103,6 @@ const getStickerRuntimeRequire = () => {
 };
 
 const loadStickerDependencies = async () => {
-	if (typeof stickerSendTestOverrides?.loadStickerDependencies === "function") {
-		return stickerSendTestOverrides.loadStickerDependencies();
-	}
 	if (!stickerDependencyPromise) {
 		stickerDependencyPromise = (async () => {
 			try {
@@ -148,9 +135,6 @@ const loadStickerDependencies = async () => {
 };
 
 const loadLottiePlayerSource = async (lottiePlayerPath) => {
-	if (typeof stickerSendTestOverrides?.loadLottiePlayerSource === "function") {
-		return stickerSendTestOverrides.loadLottiePlayerSource(lottiePlayerPath);
-	}
 	if (!lottiePlayerSourcePromise) {
 		lottiePlayerSourcePromise = fs.promises.readFile(lottiePlayerPath, "utf8");
 	}
@@ -230,14 +214,6 @@ return window.lottie;`,
 };
 
 const renderLottieStickerFrameBuffers = async (animationData) => {
-	if (
-		typeof stickerSendTestOverrides?.renderLottieStickerFrameBuffers ===
-		"function"
-	) {
-		return stickerSendTestOverrides.renderLottieStickerFrameBuffers(
-			animationData,
-		);
-	}
 	const renderer = await buildLottieAnimationRenderer(animationData);
 	if (!renderer) {
 		return null;
@@ -295,15 +271,6 @@ const encodePngSequenceToAnimatedSticker = async ({
 	frameRate = DISCORD_STICKER_TARGET_FPS,
 	getImageSharp,
 } = {}) => {
-	if (
-		typeof stickerSendTestOverrides?.encodePngSequenceToAnimatedSticker ===
-		"function"
-	) {
-		return stickerSendTestOverrides.encodePngSequenceToAnimatedSticker({
-			frameBuffers,
-			frameRate,
-		});
-	}
 	if (!frameBuffers.length) {
 		return null;
 	}
@@ -343,14 +310,6 @@ const convertRasterStickerBufferToWebp = async ({
 	sourceBuffer,
 	getImageSharp,
 } = {}) => {
-	if (
-		typeof stickerSendTestOverrides?.convertRasterStickerBufferToWebp ===
-		"function"
-	) {
-		return stickerSendTestOverrides.convertRasterStickerBufferToWebp({
-			sourceBuffer,
-		});
-	}
 	if (!sourceBuffer?.length || typeof getImageSharp !== "function") {
 		return null;
 	}

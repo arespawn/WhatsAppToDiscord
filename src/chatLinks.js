@@ -4,7 +4,7 @@ const normalizeDiscordChannelId = (value) => {
 	return trimmed ? trimmed : null;
 };
 
-export const normalizeChatLink = (rawLink = {}) => {
+const normalizeChatLink = (rawLink = {}) => {
 	if (typeof rawLink === "string") {
 		const channelId = normalizeDiscordChannelId(rawLink);
 		return channelId ? { channelId } : null;

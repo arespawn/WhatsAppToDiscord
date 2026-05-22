@@ -33,4 +33,4 @@ const createGroupRefreshScheduler = ({
 	return { schedule, clearAll, _size: () => timers.size };
 };
 
-export { createGroupRefreshScheduler, DEFAULT_DELAY_MS };
+export { createGroupRefreshScheduler };

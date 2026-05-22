@@ -265,7 +265,7 @@ const WHATSAPP_BROWSER_PROFILE_HEALTHY_STORAGE_KEY =
 const WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY =
 	"whatsapp-pairing-code-browser-profile";
 export const WHATSAPP_BROWSER_PROFILE_ENV = "WA2DC_WHATSAPP_BROWSER";
-export const DEFAULT_WHATSAPP_BROWSER_PROFILE = "android";
+const DEFAULT_WHATSAPP_BROWSER_PROFILE = "android";
 export const PAIRING_CODE_BROWSER_PROFILE = "macos-chrome";
 const getBaileysBrowserProfile = (preset, args, fallback) => {
 	const factory = Browsers?.[preset];
@@ -314,8 +314,6 @@ export const resolveWhatsAppBrowserProfile = (
 };
 let currentWhatsAppBrowser = resolveWhatsAppBrowserProfile();
 let browserProfileHealthyTimer = null;
-
-export const getCurrentWhatsAppBrowserProfile = () => currentWhatsAppBrowser;
 
 export const serializeWhatsAppBrowserProfile = (browser = []) =>
 	Array.isArray(browser) ? browser.map((part) => String(part ?? "")) : [];

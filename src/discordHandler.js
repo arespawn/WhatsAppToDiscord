@@ -2205,39 +2205,7 @@ const requireNewsletterMethod = async (ctx, methodName) => {
 	return method.bind(state.waClient);
 };
 
-const getStringOrNumberOptionValue = (ctx, optionName) => {
-	try {
-		const stringValue = ctx.getStringOption(optionName);
-		if (stringValue !== null && stringValue !== undefined) {
-			return stringValue;
-		}
-	} catch {}
-
-	try {
-		const numberValue = ctx.getNumberOption(optionName);
-		if (numberValue !== null && numberValue !== undefined) {
-			return numberValue;
-		}
-	} catch {}
-
-	try {
-		const integerValue = ctx.getIntegerOption(optionName);
-		if (integerValue !== null && integerValue !== undefined) {
-			return integerValue;
-		}
-	} catch {}
-
-	return null;
-};
-
 const normalizePairingPhoneNumber = (value) => {
-	if (
-		typeof value === "number" &&
-		(!Number.isFinite(value) || !Number.isInteger(value))
-	) {
-		return null;
-	}
-
 	const raw = String(value ?? "").trim();
 	if (!raw || !/^\+?[\d\s().-]+$/.test(raw)) {
 		return null;
@@ -2386,9 +2354,7 @@ const commandHandlers = {
 			},
 		],
 		async execute(ctx) {
-			const rawNumber =
-				getStringOrNumberOptionValue(ctx, "phone") ??
-				getStringOrNumberOptionValue(ctx, "number");
+			const rawNumber = ctx.getStringOption("phone");
 			const number = normalizePairingPhoneNumber(rawNumber);
 			if (!number) {
 				await ctx.reply(

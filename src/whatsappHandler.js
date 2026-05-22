@@ -575,10 +575,6 @@ const isBroadcastJid = (jid = "") =>
 	typeof jid === "string" && jid.endsWith("@broadcast");
 const isNewsletterJid = (jid = "") =>
 	typeof jid === "string" && jid.endsWith("@newsletter");
-const NEWSLETTER_SPECIAL_FLOW_ENABLED =
-	process.env.WA2DC_NEWSLETTER_SPECIAL_FLOW === "1";
-const useNewsletterSpecialFlowForJid = (jid = "") =>
-	NEWSLETTER_SPECIAL_FLOW_ENABLED && isNewsletterJid(jid);
 const normalizeSendJid = (jid) => utils.whatsapp.formatJid(jid) || jid;
 const NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS = 8000;
 const NEWSLETTER_SERVER_ID_WAIT_POLL_MS = 150;
@@ -592,8 +588,6 @@ const NEWSLETTER_SUBSCRIPTION_DEFAULT_TTL_MS = 15 * 60 * 1000;
 const NEWSLETTER_SUBSCRIPTION_RETRY_TTL_MS = 2 * 60 * 1000;
 const NEWSLETTER_MEDIA_STANZA_DEBUG_TTL_MS = 5 * 60 * 1000;
 const NEWSLETTER_MEDIA_STANZA_DEBUG_MAX = 256;
-const NEWSLETTER_MEDIA_STANZA_DEBUG_ENABLED =
-	process.env.WA2DC_NEWSLETTER_MEDIA_DEBUG !== "0";
 const NEWSLETTER_IMAGE_NORMALIZATION_MAX_BYTES = 25 * 1024 * 1024;
 const NEWSLETTER_IMAGE_JPEG_MIME_TYPES = new Set(["image/jpeg", "image/jpg"]);
 const WHATSAPP_MEDIA_ALBUM_MAX_ITEMS = 10;
@@ -1271,22 +1265,12 @@ const buildAttachmentCaptionText = ({
 	text,
 	hasOnlyCustomEmoji,
 	isForwardedFromDiscord,
-	useNewsletterSpecialFlow,
-	hasReplyReference,
-	options,
-	ensureNewsletterReplyFallbackContext,
-	prependReplyFallbackContext,
 } = {}) => {
 	let captionText = hasOnlyCustomEmoji ? "" : text;
 	if (isForwardedFromDiscord) {
 		captionText = captionText ? `Forwarded\n${captionText}` : "Forwarded";
 	}
-	if (useNewsletterSpecialFlow && hasReplyReference && !options?.quoted) {
-		return ensureNewsletterReplyFallbackContext().then((replyContext) =>
-			prependReplyFallbackContext(captionText, replyContext),
-		);
-	}
-	return Promise.resolve(captionText);
+	return captionText;
 };
 
 const buildAlbumRelayOptions = ({ client, jid, messageId } = {}) => {
@@ -2263,7 +2247,6 @@ const DISCORD_ROLE_MENTION_REGEX = /<@&(\d+)>/g;
 const DISCORD_EVERYONE_MENTION_REGEX =
 	/@(everyone|here)(?=$|\s|[\p{P}\p{S}])/giu;
 const DISCORD_REPLY_PREFIX_REGEX = /^(<@!?\d+>|@\S+)\s*/;
-const DISCORD_REPLY_FALLBACK_MAX_CHARS = 160;
 const DISCORD_MESSAGE_TYPE_REPLY = 19;
 
 const isDiscordReplyReference = (message = {}) => {
@@ -2284,63 +2267,6 @@ const isDiscordReplyReference = (message = {}) => {
 		);
 	}
 	return false;
-};
-
-const formatReplyFallbackText = (value = "") =>
-	String(value || "")
-		.replace(/\s+/g, " ")
-		.trim()
-		.slice(0, DISCORD_REPLY_FALLBACK_MAX_CHARS);
-
-const prependReplyFallbackContext = (text, replyContext) => {
-	if (!replyContext) return text || "";
-	if (!text) return replyContext;
-	return `${replyContext}\n${text}`;
-};
-
-const buildNewsletterReplyFallbackContext = async (message) => {
-	const channelId = message?.reference?.channelId;
-	const messageId = message?.reference?.messageId;
-	if (!channelId || !messageId) {
-		return null;
-	}
-	try {
-		const channel = await message?.client?.channels?.fetch?.(channelId);
-		const repliedMessage = await channel?.messages?.fetch?.(messageId);
-		const author =
-			repliedMessage?.member?.displayName ||
-			repliedMessage?.author?.globalName ||
-			repliedMessage?.author?.username ||
-			"Unknown";
-		const rawText =
-			repliedMessage?.cleanContent || repliedMessage?.content || "";
-		const fallbackText =
-			formatReplyFallbackText(rawText) ||
-			(repliedMessage?.attachments?.size ? "[attachment]" : "[message]");
-		return `Replying to ${author}: ${fallbackText}`;
-	} catch {
-		return `Replying to message ${messageId}`;
-	}
-};
-
-const cloneNewsletterSendContentWithReplyFallback = (
-	content = {},
-	replyContext = "",
-) => {
-	if (!replyContext || !content || typeof content !== "object") {
-		return content;
-	}
-	const next = { ...content };
-	if (typeof next.text === "string") {
-		next.text = prependReplyFallbackContext(next.text, replyContext);
-		return next;
-	}
-	if (typeof next.caption === "string") {
-		next.caption = prependReplyFallbackContext(next.caption, replyContext);
-		return next;
-	}
-	next.caption = prependReplyFallbackContext("", replyContext);
-	return next;
 };
 
 const notifyLinkedDiscordChannel = async (jid, text) => {
@@ -3086,8 +3012,7 @@ const patchSendNodeForNewsletterMessages = (client) => {
 			const outboundId = normalizeBridgeMessageId(frame?.attrs?.id);
 			const needsMediaType =
 				frame?.attrs?.type === "media" && !frame?.attrs?.mediatype;
-			const shouldInspectMedia =
-				NEWSLETTER_MEDIA_STANZA_DEBUG_ENABLED && frame?.attrs?.type === "media";
+			const shouldInspectMedia = frame?.attrs?.type === "media";
 			const contentNodes = Array.isArray(frame?.content) ? frame.content : [];
 			const hasMeta = (predicate) =>
 				contentNodes.some((node) => predicate(node));
@@ -4164,7 +4089,6 @@ const connectToWhatsApp = async (retry = 1) => {
 
 		const targetJid = normalizeSendJid(jid);
 		const newsletterChat = isNewsletterJid(targetJid);
-		const useNewsletterSpecialFlow = useNewsletterSpecialFlowForJid(targetJid);
 		const isForwardedFromDiscord = Boolean(forwardContext?.isForwarded);
 		const hasReplyReference =
 			!isForwardedFromDiscord && isDiscordReplyReference(message);
@@ -4176,7 +4100,6 @@ const connectToWhatsApp = async (retry = 1) => {
 		const snapshotEmbeds = Array.isArray(forwardSnapshot?.embeds)
 			? forwardSnapshot.embeds
 			: [];
-		let newsletterReplyFallbackContext = "";
 
 		if (hasReplyReference) {
 			options.quoted = await utils.whatsapp.createQuoteMessage(
@@ -4184,14 +4107,9 @@ const connectToWhatsApp = async (retry = 1) => {
 				targetJid,
 			);
 			if (options.quoted == null) {
-				if (useNewsletterSpecialFlow) {
-					newsletterReplyFallbackContext =
-						(await buildNewsletterReplyFallbackContext(message)) || "";
-				} else {
-					message.channel.send(
-						`Couldn't find the message quoted. You can only reply to last ${state.settings.lastMessageStorage} messages. Sending the message without the quoted message.`,
-					);
-				}
+				message.channel.send(
+					`Couldn't find the message quoted. You can only reply to last ${state.settings.lastMessageStorage} messages. Sending the message without the quoted message.`,
+				);
 			}
 		}
 
@@ -4401,49 +4319,12 @@ const connectToWhatsApp = async (retry = 1) => {
 		text = mentionResolution.text;
 		const mentionJids = mentionResolution.mentionJids;
 		const mentionAll = mentionResolution.mentionAll;
-		const ensureNewsletterReplyFallbackContext = async () => {
-			if (!useNewsletterSpecialFlow || !hasReplyReference) return "";
-			if (newsletterReplyFallbackContext) return newsletterReplyFallbackContext;
-			newsletterReplyFallbackContext =
-				(await buildNewsletterReplyFallbackContext(message)) || "";
-			return newsletterReplyFallbackContext;
-		};
-		const sendWithNewsletterQuoteFallback = async (content, sendOptions) => {
-			try {
-				return await client.sendMessage(targetJid, content, sendOptions);
-			} catch (err) {
-				if (!useNewsletterSpecialFlow || !sendOptions?.quoted) {
-					throw err;
-				}
-				const replyContext = await ensureNewsletterReplyFallbackContext();
-				const retryContent = cloneNewsletterSendContentWithReplyFallback(
-					content,
-					replyContext,
-				);
-				const retryOptions = { ...sendOptions };
-				delete retryOptions.quoted;
-				state.logger?.warn?.(
-					{
-						err,
-						jid: targetJid,
-						discordMessageId: message?.id,
-					},
-					"Retrying newsletter send without quoted context",
-				);
-				return await client.sendMessage(
-					targetJid,
-					retryContent,
-					Object.keys(retryOptions).length ? retryOptions : undefined,
-				);
-			}
-		};
 		const sendTrackedMessage = async (
 			content,
 			sendOptions,
 			{
 				ackContext = "Newsletter send",
 				notifyAckFailure = false,
-				retryWithoutQuotedOnAck = true,
 				forceNewsletterAck = false,
 				watchNewsletterAck = false,
 			} = {},
@@ -4461,7 +4342,8 @@ const connectToWhatsApp = async (retry = 1) => {
 				});
 				await ensureNewsletterLiveUpdatesSubscription(client, targetJid);
 			}
-			const sentMessage = await sendWithNewsletterQuoteFallback(
+			const sentMessage = await client.sendMessage(
+				targetJid,
 				content,
 				sendOptions,
 			);
@@ -4508,8 +4390,7 @@ const connectToWhatsApp = async (retry = 1) => {
 				});
 			}
 			storeMessage(sentMessage);
-			const shouldTrackNewsletterAck =
-				newsletterChat && (useNewsletterSpecialFlow || forceNewsletterAck);
+			const shouldTrackNewsletterAck = newsletterChat && forceNewsletterAck;
 			const notifyNewsletterAckFailure = async (ackErrorCode) => {
 				const ackStanzaDebug = getNewsletterMediaStanzaDebug(
 					sentMessage?.key?.id,
@@ -4588,43 +4469,6 @@ const connectToWhatsApp = async (retry = 1) => {
 				return { sentMessage, ackErrorCode: null };
 			}
 
-			if (
-				useNewsletterSpecialFlow &&
-				retryWithoutQuotedOnAck &&
-				sendOptions?.quoted
-			) {
-				clearFailedNewsletterMapping({
-					discordMessageId: message.id,
-					sentMessage,
-				});
-				const replyContext = await ensureNewsletterReplyFallbackContext();
-				const retryContent = cloneNewsletterSendContentWithReplyFallback(
-					content,
-					replyContext,
-				);
-				const retryOptions = { ...sendOptions };
-				delete retryOptions.quoted;
-				state.logger?.warn?.(
-					{
-						jid: targetJid,
-						discordMessageId: message.id,
-						outboundId: sentMessage?.key?.id,
-						serverId: getNewsletterServerIdFromMessage(sentMessage),
-						error: ackErrorCode,
-						ackWaitMs,
-					},
-					`${ackContext} was rejected by WhatsApp ack; retrying without quoted context`,
-				);
-				return await sendTrackedMessage(
-					retryContent,
-					Object.keys(retryOptions).length ? retryOptions : undefined,
-					{
-						ackContext,
-						notifyAckFailure,
-						retryWithoutQuotedOnAck: false,
-					},
-				);
-			}
 			await notifyNewsletterAckFailure(ackErrorCode);
 			return { sentMessage, ackErrorCode };
 		};
@@ -4678,11 +4522,6 @@ const connectToWhatsApp = async (retry = 1) => {
 				text,
 				hasOnlyCustomEmoji,
 				isForwardedFromDiscord,
-				useNewsletterSpecialFlow,
-				hasReplyReference,
-				options,
-				ensureNewsletterReplyFallbackContext,
-				prependReplyFallbackContext,
 			});
 
 			const albumEligibleAttachments = preparedAttachments.filter(
@@ -4868,10 +4707,6 @@ const connectToWhatsApp = async (retry = 1) => {
 		if (isForwardedFromDiscord) {
 			finalText = finalText ? `Forwarded\n${finalText}` : "Forwarded";
 		}
-		if (useNewsletterSpecialFlow && hasReplyReference && !options.quoted) {
-			const replyContext = await ensureNewsletterReplyFallbackContext();
-			finalText = prependReplyFallbackContext(finalText, replyContext);
-		}
 		if (!finalText) {
 			return;
 		}
@@ -4916,25 +4751,6 @@ const connectToWhatsApp = async (retry = 1) => {
 			}
 		} catch (err) {
 			state.logger?.error(err);
-			if (useNewsletterSpecialFlow) {
-				const metadata =
-					typeof client.newsletterMetadata === "function"
-						? await client
-								.newsletterMetadata("jid", targetJid)
-								.catch(() => null)
-						: null;
-				const role =
-					metadata?.viewer_metadata?.role || metadata?.viewerMetadata?.role;
-				const roleHint =
-					role && !["OWNER", "ADMIN"].includes(role)
-						? ` Current account role: ${role}.`
-						: "";
-				await message.channel
-					?.send(
-						`Couldn't send to WhatsApp channel ${targetJid}.${roleHint} Newsletters require OWNER/ADMIN posting rights and may reject some media types.`,
-					)
-					.catch(() => {});
-			}
 		}
 	});
 

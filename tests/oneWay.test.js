@@ -5,7 +5,7 @@ import {
 	ONE_WAY_MODES,
 	oneWayAllowsDiscordToWhatsApp,
 	oneWayAllowsWhatsAppToDiscord,
-} from "../src/oneWay.js";
+} from "../src/contracts.js";
 
 test("oneWay mode presets use canonical string values", () => {
 	assert.equal(ONE_WAY_MODES.TO_DISCORD_ONLY, "to-discord");

@@ -13,6 +13,9 @@ import {
 	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
 	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
+	ONE_WAY_MODES,
+	oneWayAllowsDiscordToWhatsApp,
+	oneWayAllowsWhatsAppToDiscord,
 } from "./contracts.js";
 import messageStore from "./messageStore.js";
 import {
@@ -26,11 +29,6 @@ import {
 	waitForNewsletterAckError,
 	waitForNewsletterServerId,
 } from "./newsletterBridge.js";
-import {
-	ONE_WAY_MODES,
-	oneWayAllowsDiscordToWhatsApp,
-	oneWayAllowsWhatsAppToDiscord,
-} from "./oneWay.js";
 import { resolveRestartFlagPath } from "./runnerLogic.js";
 import state from "./state.js";
 import storage from "./storage.js";

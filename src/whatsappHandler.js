@@ -22,6 +22,8 @@ import {
 	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
 	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
+	oneWayAllowsDiscordToWhatsApp,
+	oneWayAllowsWhatsAppToDiscord,
 	WHATSAPP_BROWSER_PROFILE_ENV,
 	WHATSAPP_BROWSER_PROFILES,
 } from "./contracts.js";
@@ -45,10 +47,6 @@ import {
 	waitForNewsletterAckError,
 	waitForNewsletterServerId,
 } from "./newsletterBridge.js";
-import {
-	oneWayAllowsDiscordToWhatsApp,
-	oneWayAllowsWhatsAppToDiscord,
-} from "./oneWay.js";
 import { getPollEncKey, getPollOptions } from "./pollUtils.js";
 import { UPDATE_VALIDATION_WINDOW_MS } from "./runnerLogic.js";
 import state from "./state.js";

@@ -17,6 +17,16 @@
 		"check": "biome check src tests scripts --error-on-warnings",
 		"format": "biome format --write src tests scripts"
 	},
+	"knip": {
+		"ignoreBinaries": [
+			"ffmpeg"
+		],
+		"ignoreDependencies": [
+			"canvas",
+			"jsdom",
+			"lottie-web"
+		]
+	},
 	"author": "arespawn (forked from Fatih Kilic)",
 	"repository": "https://github.com/arespawn/WhatsAppToDiscord",
 	"license": "MIT",

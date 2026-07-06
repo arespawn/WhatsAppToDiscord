@@ -1,54 +1,21 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import runCommand from "./helpers/runCommand.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const ROOT = path.resolve(__dirname, "..");
-
-const run = async (command, args, { cwd, env, timeoutMs = 120_000 } = {}) =>
-	new Promise((resolve) => {
-		const child = spawn(command, args, {
-			cwd,
-			env,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-
-		let stdout = "";
-		let stderr = "";
-
-		child.stdout.setEncoding("utf8");
-		child.stderr.setEncoding("utf8");
-		child.stdout.on("data", (chunk) => {
-			stdout += chunk;
-		});
-		child.stderr.on("data", (chunk) => {
-			stderr += chunk;
-		});
-
-		const timeout = setTimeout(() => {
-			child.kill("SIGKILL");
-		}, timeoutMs);
-		if (typeof timeout.unref === "function") {
-			timeout.unref();
-		}
-
-		child.on("close", (code, signal) => {
-			clearTimeout(timeout);
-			resolve({ code, signal, stdout, stderr });
-		});
-	});
 
 test("Smoke boots successfully via watchdog runner (WA2DC_SMOKE_TEST)", async () => {
 	const tempDir = await fs.mkdtemp(
 		path.join(os.tmpdir(), "wa2dc-runner-smoke-"),
 	);
 	try {
-		const result = await run(
+		const result = await runCommand(
 			process.execPath,
 			[path.join(ROOT, "src", "runner.js")],
 			{

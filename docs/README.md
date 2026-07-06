@@ -36,8 +36,7 @@ Originally created by [Fatih Kilic](https://github.com/FKLC), now maintained by 
 ## Persistence
 
 - WA2DC stores app state and WhatsApp auth state in `storage/wa2dc.sqlite` (embedded SQLite; no external DB required).
-- On first startup after upgrading, WA2DC automatically migrates legacy files from `storage/settings`, `storage/chats`, `storage/contacts`, `storage/lastMessages`, `storage/lastTimestamp`, and `storage/baileys/*`.
-- After successful migration, legacy files are moved to `storage/legacy-backup-<timestamp>/`.
+- Legacy flat-file storage is no longer migrated at startup; keep or restore `storage/wa2dc.sqlite` when moving installs.
 - Optional encryption-at-rest for SQLite payloads is available with `WA2DC_DB_PASSPHRASE` (set it before first DB creation).
 - If an encrypted DB is detected and `WA2DC_DB_PASSPHRASE` is missing or wrong, WA2DC exits during startup.
 
@@ -63,7 +62,7 @@ This repository currently pins the published npm package `@whiskeysockets/bailey
 - **Prerelease rolls back after an out-of-memory crash** – Packaged updates automatically roll back after two startup crashes before the 120-second health window. Check `terminal.log` for `WhatsApp startup memory probe` entries. As a temporary isolation step, set `WA2DC_WHATSAPP_BROWSER=macos-chrome` or `WA2DC_WHATSAPP_BROWSER=baileys` before starting the same build; Android remains the default unless this variable is set.
 - **Repeated "Connection was lost" logs** – WhatsApp occasionally drops the socket with timeout errors. The bot now keeps retrying with exponential backoff instead of deleting the session, so expect control-channel status messages while it reconnects. If the retries never succeed, rescan the QR code to refresh the session.
 - **Startup fails with encrypted DB/passphrase errors** – If you enabled `WA2DC_DB_PASSPHRASE`, keep using the same passphrase for that `storage/wa2dc.sqlite`. If you lose it, restore from backup and migrate again.
-- **Startup fails during migration** – Check file ownership/permissions under `storage/` and available disk space, then restart. Migration is transactional and won’t partially apply broken auth key writes.
+- **Startup cannot find existing state** – Confirm `storage/wa2dc.sqlite` was copied with the install and that the runtime user can read/write `storage/`.
 - **Docker logs show `unable to open database file`** – The mounted `./storage` directory is not writable by the runtime user. The official image now auto-fixes ownership on startup when running as root. If you run with a custom non-root user, fix host ownership first (for example `sudo chown -R 1000:1000 ./WA2DC`).
 
 ## Running

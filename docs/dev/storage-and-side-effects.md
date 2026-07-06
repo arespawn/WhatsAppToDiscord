@@ -7,16 +7,14 @@
 ## Persistence contract
 
 Persisted app/auth state lives under `storage/wa2dc.sqlite` (embedded SQLite).
-Do not make breaking format changes casually; preserve upgrade compatibility.
+Legacy flat-file storage is no longer migrated at startup; installs must already have `storage/wa2dc.sqlite`.
 
-Startup automatically migrates legacy files (`storage/settings`, `storage/chats`, `storage/contacts`, `storage/lastMessages`, `storage/lastTimestamp`, `storage/baileys/*`) into SQLite and moves originals into `storage/legacy-backup-<timestamp>/`.
-
-Settings defaults come from `src/state.js`, while persisted values are loaded/merged by `src/storage.js`.
+Settings defaults and validation live in `src/contracts.js`, while persisted values are loaded by `src/storage.js`.
 Optional encryption-at-rest is enabled by `WA2DC_DB_PASSPHRASE`; passphrase handling is implemented in `src/persistence/sqliteStore.js`.
 
 Chat-link records in persisted `chats` state now store the webhook host `channelId` plus an optional `threadId` for thread-mode links.
-Legacy channel-only records must continue to load without migration steps.
-Thread-mode settings such as `DefaultChatType`, `DefaultThreadHostName`, `ThreadNotificationsEnabled`, `ThreadNotificationRoles`, and `ThreadNotificationUsers` are regular persisted settings and must keep backward-compatible defaults.
+Channel-only string records are unsupported and ignored.
+Thread-mode settings such as `DefaultChatType`, `DefaultThreadHostName`, `ThreadNotificationsEnabled`, `ThreadNotificationRoles`, and `ThreadNotificationUsers` are regular persisted settings.
 
 ## Runtime artifacts
 

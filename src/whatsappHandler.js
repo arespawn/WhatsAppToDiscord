@@ -17,6 +17,14 @@ import { decryptPollVote } from "@whiskeysockets/baileys/lib/Utils/process-messa
 import useSQLiteAuthState from "./auth/sqliteAuthState.js";
 import { getChatTargetChannelId } from "./chatLinks.js";
 import { createWhatsAppClient, getBaileysVersion } from "./clientFactories.js";
+import {
+	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
+	NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS,
+	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
+	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
+	WHATSAPP_BROWSER_PROFILE_ENV,
+	WHATSAPP_BROWSER_PROFILES,
+} from "./contracts.js";
 import groupMetadataCache from "./groupMetadataCache.js";
 import { createGroupRefreshScheduler } from "./groupMetadataRefresh.js";
 import { getImageSharp } from "./imageLibs.js";
@@ -46,6 +54,8 @@ import { UPDATE_VALIDATION_WINDOW_MS } from "./runnerLogic.js";
 import state from "./state.js";
 import storage from "./storage.js";
 import utils from "./utils.js";
+
+export { WHATSAPP_BROWSER_PROFILE_ENV } from "./contracts.js";
 
 let authState;
 let saveState;
@@ -264,12 +274,15 @@ const WHATSAPP_BROWSER_PROFILE_HEALTHY_STORAGE_KEY =
 	"whatsapp-browser-profile-healthy";
 const WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY =
 	"whatsapp-pairing-code-browser-profile";
-export const WHATSAPP_BROWSER_PROFILE_ENV = "WA2DC_WHATSAPP_BROWSER";
-const DEFAULT_WHATSAPP_BROWSER_PROFILE = "android";
-export const PAIRING_CODE_BROWSER_PROFILE = "macos-chrome";
-const getBaileysBrowserProfile = (preset, args, fallback) => {
+const DEFAULT_WHATSAPP_BROWSER_PROFILE = WHATSAPP_BROWSER_PROFILES.ANDROID;
+export const PAIRING_CODE_BROWSER_PROFILE =
+	WHATSAPP_BROWSER_PROFILES.MACOS_CHROME;
+const getBaileysBrowserProfile = (preset, args) => {
 	const factory = Browsers?.[preset];
-	return typeof factory === "function" ? factory(...args) : fallback;
+	if (typeof factory !== "function") {
+		throw new Error(`Baileys browser profile is unavailable: ${preset}`);
+	}
+	return factory(...args);
 };
 export const resolveWhatsAppBrowserProfile = (
 	value = DEFAULT_WHATSAPP_BROWSER_PROFILE,
@@ -279,37 +292,18 @@ export const resolveWhatsAppBrowserProfile = (
 			.trim()
 			.toLowerCase()
 	) {
-		case "android":
-			return getBaileysBrowserProfile("android", ["13"], ["13", "Android", ""]);
-		case "macos-chrome":
-		case "macos":
-			return getBaileysBrowserProfile(
-				"macOS",
-				["Chrome"],
-				["Mac OS", "Chrome", "14.4.1"],
-			);
-		case "windows-chrome":
-		case "windows":
-			return getBaileysBrowserProfile(
-				"windows",
-				["Chrome"],
-				["Windows", "Chrome", "10.0.22631"],
-			);
-		case "ubuntu-chrome":
-		case "ubuntu":
-			return getBaileysBrowserProfile(
-				"ubuntu",
-				["Chrome"],
-				["Ubuntu", "Chrome", "22.04.4"],
-			);
-		case "baileys":
-			return getBaileysBrowserProfile(
-				"baileys",
-				["Chrome"],
-				["Baileys", "Chrome", "6.5.0"],
-			);
+		case WHATSAPP_BROWSER_PROFILES.ANDROID:
+			return getBaileysBrowserProfile("android", ["13"]);
+		case WHATSAPP_BROWSER_PROFILES.MACOS_CHROME:
+			return getBaileysBrowserProfile("macOS", ["Chrome"]);
+		case WHATSAPP_BROWSER_PROFILES.WINDOWS_CHROME:
+			return getBaileysBrowserProfile("windows", ["Chrome"]);
+		case WHATSAPP_BROWSER_PROFILES.UBUNTU_CHROME:
+			return getBaileysBrowserProfile("ubuntu", ["Chrome"]);
+		case WHATSAPP_BROWSER_PROFILES.BAILEYS:
+			return getBaileysBrowserProfile("baileys", ["Chrome"]);
 		default:
-			return resolveWhatsAppBrowserProfile(DEFAULT_WHATSAPP_BROWSER_PROFILE);
+			throw new Error(`Unsupported WhatsApp browser profile: ${value}`);
 	}
 };
 let currentWhatsAppBrowser = resolveWhatsAppBrowserProfile();
@@ -576,11 +570,7 @@ const isBroadcastJid = (jid = "") =>
 const isNewsletterJid = (jid = "") =>
 	typeof jid === "string" && jid.endsWith("@newsletter");
 const normalizeSendJid = (jid) => utils.whatsapp.formatJid(jid) || jid;
-const NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS = 8000;
-const NEWSLETTER_SERVER_ID_WAIT_POLL_MS = 150;
 const NEWSLETTER_SERVER_ID_WAIT_WITHOUT_PENDING_MS = 300;
-const NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS = 2500;
-const NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS = 8000;
 const NEWSLETTER_SERVER_ID_FETCH_FALLBACK_COUNT = 30;
 const NEWSLETTER_SERVER_ID_FETCH_WINDOW_SECONDS = 12 * 60;
 const NEWSLETTER_SERVER_ID_FETCH_FALLBACK_WINDOW_SECONDS = 3 * 60;
@@ -2258,13 +2248,6 @@ const isDiscordReplyReference = (message = {}) => {
 	}
 	if (typeof type === "number") {
 		return type === DISCORD_MESSAGE_TYPE_REPLY;
-	}
-	if (typeof type === "string") {
-		const normalizedType = type.trim().toUpperCase();
-		return (
-			normalizedType === "REPLY" ||
-			normalizedType === String(DISCORD_MESSAGE_TYPE_REPLY)
-		);
 	}
 	return false;
 };

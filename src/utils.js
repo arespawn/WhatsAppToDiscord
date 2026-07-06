@@ -1,4 +1,3 @@
-import childProcess from "node:child_process";
 import crypto from "node:crypto";
 import dns from "node:dns";
 import fs from "node:fs";
@@ -128,7 +127,7 @@ const LINK_PREVIEW_MAX_REDIRECTS = 5;
 const LINK_PREVIEW_FETCH_OPTS = { timeout: LINK_PREVIEW_FETCH_TIMEOUT_MS };
 const LINK_PREVIEW_MAX_BYTES = 1024 * 1024;
 const LINK_PREVIEW_THUMB_MAX_BYTES = 8 * 1024 * 1024;
-const FORUM_CHANNEL_TYPES = [ChannelType.GuildForum, "GUILD_FORUM"];
+const FORUM_CHANNEL_TYPES = [ChannelType.GuildForum];
 const MANAGED_THREAD_HOST_BASE_NAME = "whatsapp-threads";
 const MANAGED_THREAD_HOST_OWNER_PREFIX = "WA2DC managed thread host for bot ";
 const MANAGED_THREAD_HOST_SOFT_LIMIT = 500;
@@ -2417,178 +2416,6 @@ const updater = {
 		"-----END PUBLIC KEY-----",
 };
 
-const sqliteToJson = {
-	get defaultExeName() {
-		let name = "stj_";
-		const osPlatform = os.platform();
-
-		switch (osPlatform) {
-			case "linux":
-			case "darwin":
-			case "freebsd":
-				name += `${osPlatform}_`;
-				break;
-			case "win32":
-				name += "windows_";
-				break;
-			default:
-				return "";
-		}
-
-		switch (process.arch) {
-			case "arm":
-			case "arm64":
-				name += process.arch;
-				break;
-			case "x64":
-				name += "amd64";
-				break;
-			default:
-				return "";
-		}
-
-		if (osPlatform === "win32") {
-			name += ".exe";
-		}
-		return name;
-	},
-
-	async downloadLatestVersion(defaultExeName) {
-		return requests.downloadFile(
-			defaultExeName,
-			`https://github.com/arespawn/sqlite-to-json/releases/latest/download/${defaultExeName}`,
-		);
-	},
-
-	async downloadSignature(defaultExeName) {
-		const signature = await requests.fetchBuffer(
-			`https://github.com/arespawn/sqlite-to-json/releases/latest/download/${defaultExeName}.sig`,
-		);
-		if ("error" in signature) {
-			state.logger?.error("Couldn't fetch the signature of the update.");
-			return false;
-		}
-		return signature;
-	},
-
-	_storageDir: "./storage/",
-	_dbPath: "./storage.db",
-	isConverted() {
-		return fs.existsSync(this._storageDir) || !fs.existsSync(this._dbPath);
-	},
-
-	async downloadAndVerify() {
-		const exeName = this.defaultExeName;
-		if (exeName === "") {
-			state.logger?.error(
-				`Automatic conversion of database is not supported on this platform and arch ${os.platform()}/${process.arch}. Please convert database manually`,
-			);
-			return false;
-		}
-
-		const downloadStatus = await this.downloadLatestVersion(exeName);
-		if (!downloadStatus) {
-			state.logger?.error("Download failed! Please convert database manually.");
-			return false;
-		}
-		if (os.platform() !== "win32") {
-			try {
-				await fs.promises.chmod(exeName, 0o755);
-			} catch (err) {
-				state.logger?.error(
-					{ err },
-					"Failed to mark the database converter as executable.",
-				);
-				fs.unlinkSync(exeName);
-				return false;
-			}
-		}
-
-		const signature = await this.downloadSignature(exeName);
-		if (!signature) {
-			state.logger?.error(
-				"Couldn't fetch the signature of the database converter. Please convert database manually",
-			);
-			fs.unlinkSync(exeName);
-			return false;
-		}
-		if (!updater.validateSignature(signature.result, exeName)) {
-			state.logger?.error(
-				"Couldn't verify the signature of the database converter. Please convert database manually",
-			);
-			fs.unlinkSync(exeName);
-			return false;
-		}
-
-		return exeName;
-	},
-
-	runStj(exeName) {
-		fs.mkdirSync(this._storageDir, { recursive: true, mode: 0o700 });
-		const exePath = path.resolve(exeName);
-
-		const child = childProcess.spawnSync(
-			exePath,
-			[this._dbPath, "SELECT * FROM WA2DC"],
-			{ shell: false },
-		);
-		if (child.error) {
-			throw child.error;
-		}
-		if (typeof child.status === "number" && child.status !== 0) {
-			const stderr = child.stderr ? child.stderr.toString() : "";
-			throw new Error(
-				`Database converter failed (exit ${child.status})${stderr ? `: ${stderr}` : ""}`,
-			);
-		}
-
-		const allowedKeys = new Set([
-			"settings",
-			"chats",
-			"contacts",
-			"lastMessages",
-			"lastTimestamp",
-		]);
-		const raw = child.stdout ? child.stdout.toString().trim() : "";
-		if (!raw) {
-			return;
-		}
-
-		const rows = raw.split("\n");
-		for (const line of rows) {
-			if (!line) continue;
-			const row = JSON.parse(line);
-			const key = sanitizePathSegment(row?.[0] ?? "", "");
-			if (!key || !allowedKeys.has(key)) {
-				state.logger?.warn(
-					{ key: row?.[0] },
-					"Skipping unexpected storage key during database migration",
-				);
-				continue;
-			}
-			fs.writeFileSync(path.join(this._storageDir, key), row?.[1] ?? "", {
-				mode: 0o600,
-			});
-		}
-	},
-
-	async convert() {
-		if (this.isConverted()) {
-			return true;
-		}
-
-		const stjName = await this.downloadAndVerify();
-		if (!stjName) {
-			return false;
-		}
-
-		this.runStj(stjName);
-		fs.unlinkSync(stjName);
-
-		return true;
-	},
-};
-
 const isForumChannelType = (type) => FORUM_CHANNEL_TYPES.includes(type);
 const normalizeDiscordId = (value) => {
 	if (value == null) return null;
@@ -3700,9 +3527,6 @@ const discord = {
 		const guild = await this.getGuild();
 		await guild.channels.fetch();
 
-		if (state.settings.Categories == null) {
-			state.settings.Categories = [state.settings.CategoryID];
-		}
 		const categoryExists = await guild.channels
 			.fetch(state.settings.Categories?.[0])
 			.catch(() => null);
@@ -5783,7 +5607,6 @@ const utils = {
 	discord,
 	requests,
 	whatsapp,
-	sqliteToJson,
 	ensureDownloadServer,
 	stopDownloadServer,
 };

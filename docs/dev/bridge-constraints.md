@@ -51,7 +51,7 @@ Respect transport constraints when emitting output:
 
 Routing may be restricted by deployment settings. Message-flow changes must preserve:
 
-- `state.settings.oneWay`
+- `state.settings.oneWay` (`bidirectional`, `to-discord`, or `to-whatsapp`)
 - whitelist checks via `state.settings.Whitelist`
 - helper checks via `utils.whatsapp.inWhitelist(...)`
 - broadcast delivery mode for WhatsApp `@broadcast` chats (`sendMessage(..., ..., { broadcast: true })`

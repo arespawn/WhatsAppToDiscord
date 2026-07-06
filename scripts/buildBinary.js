@@ -63,10 +63,26 @@ function buildOutputPath(pkgOs, pkgArch) {
 	throw new Error(`Unsupported pkg OS: ${pkgOs}`);
 }
 
+function readInstalledPackageJson(packageName) {
+	let currentDir = path.dirname(require.resolve(packageName));
+	while (true) {
+		const packageJsonPath = path.join(currentDir, "package.json");
+		if (fs.existsSync(packageJsonPath)) {
+			return JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+		}
+
+		const parentDir = path.dirname(currentDir);
+		if (parentDir === currentDir) {
+			throw new Error(`Unable to locate package.json for ${packageName}`);
+		}
+		currentDir = parentDir;
+	}
+}
+
 function getRuntimeSidecarPackageSpecs() {
 	return RUNTIME_SIDECAR_DEPENDENCIES.map((packageName) => {
 		try {
-			const packageJson = require(`${packageName}/package.json`);
+			const packageJson = readInstalledPackageJson(packageName);
 			return `${packageName}@${packageJson.version}`;
 		} catch (err) {
 			throw new Error(

@@ -40,10 +40,26 @@ const run = (command, args, options = {}) => {
 
 const getBin = (name) => (process.platform === "win32" ? `${name}.cmd` : name);
 
+const readInstalledPackageJson = (packageName) => {
+	let currentDir = path.dirname(require.resolve(packageName));
+	while (true) {
+		const packageJsonPath = path.join(currentDir, "package.json");
+		if (fs.existsSync(packageJsonPath)) {
+			return JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+		}
+
+		const parentDir = path.dirname(currentDir);
+		if (parentDir === currentDir) {
+			throw new Error(`Unable to locate package.json for ${packageName}`);
+		}
+		currentDir = parentDir;
+	}
+};
+
 const getRuntimeSidecarPackageSpecs = () =>
 	RUNTIME_SIDECAR_DEPENDENCIES.map((packageName) => {
 		try {
-			const packageJson = require(`${packageName}/package.json`);
+			const packageJson = readInstalledPackageJson(packageName);
 			return `${packageName}@${packageJson.version}`;
 		} catch (err) {
 			throw new Error(

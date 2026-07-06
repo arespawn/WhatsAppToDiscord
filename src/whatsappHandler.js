@@ -18,8 +18,8 @@ import useSQLiteAuthState from "./auth/sqliteAuthState.js";
 import { getChatTargetChannelId } from "./chatLinks.js";
 import { createWhatsAppClient, getBaileysVersion } from "./clientFactories.js";
 import {
-	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS,
+	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
 	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
 	WHATSAPP_BROWSER_PROFILE_ENV,
@@ -209,7 +209,8 @@ const createStartupProbeBaileysLogger = (baseLogger) => {
 					milestone: "after-lid-session-migration",
 				},
 				{
-					match: "Timeout in AwaitingInitialSync, forcing state to Online and flushing buffer",
+					match:
+						"Timeout in AwaitingInitialSync, forcing state to Online and flushing buffer",
 					milestone: "after-first-event-buffer-flush",
 					deferMs: 25,
 				},
@@ -391,7 +392,9 @@ const clearBrowserProfileHealthyTimer = () => {
 const scheduleWhatsAppBrowserProfileHealthyMarker = (browser) => {
 	clearBrowserProfileHealthyTimer();
 	const browserProfile = serializeWhatsAppBrowserProfile(browser);
-	if (!isWhatsAppBrowserProfile(browserProfile, DEFAULT_WHATSAPP_BROWSER_PROFILE)) {
+	if (
+		!isWhatsAppBrowserProfile(browserProfile, DEFAULT_WHATSAPP_BROWSER_PROFILE)
+	) {
 		return;
 	}
 	browserProfileHealthyTimer = setTimeout(() => {
@@ -3362,7 +3365,9 @@ const connectToWhatsApp = async (retry = 1) => {
 
 				retry = 1;
 				logWhatsAppStartupMemoryProbe("after-connection-update-open", {
-					browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
+					browserProfile: serializeWhatsAppBrowserProfile(
+						currentWhatsAppBrowser,
+					),
 				});
 				await saveWhatsAppBrowserProfile(currentWhatsAppBrowser).catch(
 					(err) => {

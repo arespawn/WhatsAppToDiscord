@@ -381,7 +381,8 @@ const replacements = [
 	},
 	{
 		file: "lib/Socket/messages-recv.js",
-		marker: "WA2DC stays unavailable on connect so the phone keeps getting notifications",
+		marker:
+			"WA2DC stays unavailable on connect so the phone keeps getting notifications",
 		before: preserveDeliveredReceiptWhileUnavailableBefore,
 		after: preserveDeliveredReceiptWhileUnavailableAfter,
 	},

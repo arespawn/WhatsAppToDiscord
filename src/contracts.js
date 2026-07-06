@@ -11,7 +11,11 @@ const uniqueDiscordIds = (value) =>
 
 const normalizeStringArray = (value) =>
 	Array.isArray(value)
-		? [...new Set(value.map((entry) => String(entry || "").trim()).filter(Boolean))]
+		? [
+				...new Set(
+					value.map((entry) => String(entry || "").trim()).filter(Boolean),
+				),
+			]
 		: [];
 
 const ONE_WAY_MODES = Object.freeze({
@@ -94,7 +98,8 @@ const SETTINGS_KEYS = new Set(Object.keys(createDefaultSettings()));
 
 const normalizeSettings = (raw = {}, { logger = null } = {}) => {
 	const defaults = createDefaultSettings();
-	const source = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+	const source =
+		raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
 	const settings = { ...defaults };
 
 	for (const [key, value] of Object.entries(source)) {
@@ -155,11 +160,10 @@ const NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS = 8000;
 export {
 	createDefaultSettings,
 	DISCORD_BOT_PERMISSIONS,
-	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS,
+	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
 	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
-	normalizeOneWayMode,
 	normalizeSettings,
 	ONE_WAY_MODES,
 	oneWayAllowsDiscordToWhatsApp,

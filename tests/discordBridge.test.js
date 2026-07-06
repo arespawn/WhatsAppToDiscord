@@ -296,7 +296,10 @@ test("WhatsApp call notification send failures do not crash discordHandler", asy
 		process.removeListener("unhandledRejection", onUnhandled);
 
 		assert.equal(unhandled, undefined);
-		assert.equal(errors[0]?.[1], "Failed to process WhatsApp call notification");
+		assert.equal(
+			errors[0]?.[1],
+			"Failed to process WhatsApp call notification",
+		);
 	} finally {
 		utils.discord.getGuild = originalDiscordUtils.getGuild;
 		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
@@ -349,7 +352,10 @@ test("WhatsApp view once media is sent to Discord as a spoiler attachment", asyn
 		const sent = [];
 		utils.discord.safeWebhookSend = async (_webhook, args) => {
 			sent.push(args);
-			return { id: `dc-${sent.length}`, channel: { type: discordJs.ChannelType.GuildText } };
+			return {
+				id: `dc-${sent.length}`,
+				channel: { type: discordJs.ChannelType.GuildText },
+			};
 		};
 
 		class FakeDiscordClient extends EventEmitter {
@@ -469,7 +475,10 @@ test("WhatsApp spoiler files are uploaded to Discord with spoiler filenames", as
 		const sent = [];
 		utils.discord.safeWebhookSend = async (_webhook, args) => {
 			sent.push(args);
-			return { id: `dc-${sent.length}`, channel: { type: discordJs.ChannelType.GuildText } };
+			return {
+				id: `dc-${sent.length}`,
+				channel: { type: discordJs.ChannelType.GuildText },
+			};
 		};
 
 		class FakeDiscordClient extends EventEmitter {
@@ -666,7 +675,10 @@ test("WhatsApp sender platform suffix appends to mirrored Discord messages", asy
 		const sent = [];
 		utils.discord.safeWebhookSend = async (_webhook, args) => {
 			sent.push(args);
-			return { id: `dc-${sent.length}`, channel: { type: discordJs.ChannelType.GuildText } };
+			return {
+				id: `dc-${sent.length}`,
+				channel: { type: discordJs.ChannelType.GuildText },
+			};
 		};
 
 		class FakeDiscordClient extends EventEmitter {
@@ -754,7 +766,10 @@ test("WhatsApp @all payload allows Discord @everyone mention", async () => {
 		const sent = [];
 		utils.discord.safeWebhookSend = async (_webhook, args) => {
 			sent.push(args);
-			return { id: `dc-${sent.length}`, channel: { type: discordJs.ChannelType.GuildText } };
+			return {
+				id: `dc-${sent.length}`,
+				channel: { type: discordJs.ChannelType.GuildText },
+			};
 		};
 
 		class FakeDiscordClient extends EventEmitter {

@@ -1,5 +1,4 @@
 export {
-	normalizeOneWayMode,
 	ONE_WAY_MODES,
 	oneWayAllowsDiscordToWhatsApp,
 	oneWayAllowsWhatsAppToDiscord,

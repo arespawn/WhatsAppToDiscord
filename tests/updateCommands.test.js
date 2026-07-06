@@ -1531,8 +1531,7 @@ test("/waaudiomp3 toggles WhatsApp audio MP3 conversion", async () => {
 		Token: state.settings.Token,
 		GuildID: state.settings.GuildID,
 		ControlChannelID: state.settings.ControlChannelID,
-		WhatsAppAudioConversionFormat:
-			state.settings.WhatsAppAudioConversionFormat,
+		WhatsAppAudioConversionFormat: state.settings.WhatsAppAudioConversionFormat,
 	};
 	const originalDcClient = state.dcClient;
 

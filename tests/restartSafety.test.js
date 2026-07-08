@@ -387,6 +387,152 @@ test("restartRequired reconnects without logging raw Baileys payloads", async ()
 	}
 });
 
+test("QR ref timeout clears stale partial WhatsApp auth before reconnecting", async () => {
+	const originalLogger = state.logger;
+	const originalShutdownRequested = state.shutdownRequested;
+	const originalContacts = snapshotObject(state.contacts);
+	const originalGetControlChannel = utils.discord.getControlChannel;
+	const originalWhatsappUtils = utils.whatsapp;
+
+	try {
+		state.logger = { info() {}, error() {}, warn() {}, debug() {} };
+		state.shutdownRequested = false;
+		restoreObject(state.contacts, {});
+
+		const controlMessages = [];
+		const controlChannel = {
+			send: async (message) => {
+				controlMessages.push(message);
+			},
+		};
+		utils.discord.getControlChannel = async () => controlChannel;
+		let deleteSessionCalls = 0;
+		utils.whatsapp = {
+			...stubWhatsappUtils(),
+			deleteSession: async () => {
+				deleteSessionCalls += 1;
+			},
+		};
+
+		const createdClients = [];
+		setClientFactoryOverrides({
+			createWhatsAppClient: () => {
+				const client = new FakeWhatsAppClient();
+				createdClients.push(client);
+				return client;
+			},
+			getBaileysVersion: async () => ({ version: [1, 0, 0] }),
+		});
+
+		const { connectToWhatsApp } = await import("../src/whatsappHandler.js");
+		const client = await connectToWhatsApp(1);
+		client.authState = {
+			creds: {
+				registered: false,
+				me: { id: "123@s.whatsapp.net" },
+				account: { details: "present" },
+			},
+		};
+		const error = new Error("QR refs attempts ended");
+		error.output = { statusCode: 408 };
+
+		client.ev.emit("connection.update", {
+			connection: "close",
+			lastDisconnect: { error },
+		});
+
+		const reconnected = await waitFor(() => createdClients.length >= 2, {
+			timeoutMs: 1500,
+		});
+
+		assert.equal(reconnected, true);
+		assert.equal(deleteSessionCalls, 1);
+		assert.deepEqual(controlMessages, [
+			"WhatsApp pairing ended with a stale partial session. WA2DC cleared the WhatsApp auth state; scan the next fresh QR code or request a fresh pairing code.",
+		]);
+	} finally {
+		state.logger = originalLogger;
+		state.shutdownRequested = originalShutdownRequested;
+		restoreObject(state.contacts, originalContacts);
+		utils.discord.getControlChannel = originalGetControlChannel;
+		utils.whatsapp = originalWhatsappUtils;
+		resetClientFactoryOverrides();
+	}
+});
+
+test("transient timeout keeps registered WhatsApp auth", async () => {
+	const originalLogger = state.logger;
+	const originalShutdownRequested = state.shutdownRequested;
+	const originalContacts = snapshotObject(state.contacts);
+	const originalGetControlChannel = utils.discord.getControlChannel;
+	const originalWhatsappUtils = utils.whatsapp;
+
+	try {
+		state.logger = { info() {}, error() {}, warn() {}, debug() {} };
+		state.shutdownRequested = false;
+		restoreObject(state.contacts, {});
+
+		const controlMessages = [];
+		const controlChannel = {
+			send: async (message) => {
+				controlMessages.push(message);
+			},
+		};
+		utils.discord.getControlChannel = async () => controlChannel;
+		let deleteSessionCalls = 0;
+		utils.whatsapp = {
+			...stubWhatsappUtils(),
+			deleteSession: async () => {
+				deleteSessionCalls += 1;
+			},
+		};
+
+		const createdClients = [];
+		setClientFactoryOverrides({
+			createWhatsAppClient: () => {
+				const client = new FakeWhatsAppClient();
+				createdClients.push(client);
+				return client;
+			},
+			getBaileysVersion: async () => ({ version: [1, 0, 0] }),
+		});
+
+		const { connectToWhatsApp } = await import("../src/whatsappHandler.js");
+		const client = await connectToWhatsApp(1);
+		client.authState = {
+			creds: {
+				registered: true,
+				me: { id: "123@s.whatsapp.net" },
+				account: { details: "present" },
+			},
+		};
+		const error = new Error("Connection was lost");
+		error.output = { statusCode: 408 };
+
+		client.ev.emit("connection.update", {
+			connection: "close",
+			lastDisconnect: { error },
+		});
+
+		const reconnected = await waitFor(() => createdClients.length >= 2, {
+			timeoutMs: 1500,
+		});
+
+		assert.equal(reconnected, true);
+		assert.equal(deleteSessionCalls, 0);
+		assert.deepEqual(controlMessages, [
+			"WhatsApp connection failed (timedOut (408)). Trying to reconnect! Retry #1",
+		]);
+	} finally {
+		state.logger = originalLogger;
+		state.shutdownRequested = originalShutdownRequested;
+		restoreObject(state.contacts, originalContacts);
+		utils.discord.getControlChannel = originalGetControlChannel;
+		utils.whatsapp = originalWhatsappUtils;
+		resetClientFactoryOverrides();
+	}
+});
+
 test("connection.update no-ops during shutdown", async () => {
 	const originalLogger = state.logger;
 	const originalShutdownRequested = state.shutdownRequested;

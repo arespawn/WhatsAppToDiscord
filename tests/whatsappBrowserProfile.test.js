@@ -4,6 +4,7 @@ import test from "node:test";
 import { Browsers } from "@whiskeysockets/baileys";
 
 import {
+	isPartialUnregisteredWhatsAppAuth,
 	resolveWhatsAppBrowserProfile,
 	selectWhatsAppBrowserProfile,
 	serializeWhatsAppBrowserProfile,
@@ -38,6 +39,31 @@ test("fresh WhatsApp auth is not reset for browser marker checks", () => {
 			creds: { registered: false },
 			storedProfile: [],
 			currentProfile: ["13", "Android", ""],
+		}),
+		false,
+	);
+});
+
+test("partial unregistered WhatsApp auth requires identity or account material", () => {
+	assert.equal(isPartialUnregisteredWhatsAppAuth({ registered: false }), false);
+	assert.equal(
+		isPartialUnregisteredWhatsAppAuth({
+			registered: false,
+			me: { id: "123@s.whatsapp.net" },
+		}),
+		true,
+	);
+	assert.equal(
+		isPartialUnregisteredWhatsAppAuth({
+			registered: false,
+			account: { details: "present" },
+		}),
+		true,
+	);
+	assert.equal(
+		isPartialUnregisteredWhatsAppAuth({
+			registered: true,
+			me: { id: "123@s.whatsapp.net" },
 		}),
 		false,
 	);

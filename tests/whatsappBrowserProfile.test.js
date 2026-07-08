@@ -67,22 +67,20 @@ test("WhatsApp browser profile override supports pairing-code experiments", () =
 		"Chrome",
 		"10.0.22631",
 	]);
-	assert.deepEqual(resolveWhatsAppBrowserProfile("unknown"), [
-		"13",
-		"Android",
-		"",
-	]);
+	assert.throws(
+		() => resolveWhatsAppBrowserProfile("unknown"),
+		/Unsupported WhatsApp browser profile/,
+	);
 });
 
-test("WhatsApp Android browser profile has a local fallback when Baileys is unpatched", () => {
+test("WhatsApp Android browser profile requires patched Baileys support", () => {
 	const originalAndroid = Browsers.android;
 	try {
 		Browsers.android = undefined;
-		assert.deepEqual(resolveWhatsAppBrowserProfile("android"), [
-			"13",
-			"Android",
-			"",
-		]);
+		assert.throws(
+			() => resolveWhatsAppBrowserProfile("android"),
+			/Baileys browser profile is unavailable/,
+		);
 	} finally {
 		Browsers.android = originalAndroid;
 	}

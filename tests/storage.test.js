@@ -80,12 +80,13 @@ test("parseSettings merges defaults when older settings are missing keys", async
 	restoreObject(state.settings, settingsSnapshot);
 });
 
-test("parseChats normalizes legacy chat links and thread metadata", async () => {
+test("parseChats accepts only object chat links with canonical channel metadata", async () => {
 	const chatsSnapshot = snapshotObject(state.chats);
 	await withTempStorage(async () => {
 		await storage.upsert(
 			"chats",
 			JSON.stringify({
+				"ignored@s.whatsapp.net": "legacy-channel",
 				"123@s.whatsapp.net": {
 					id: " wh-1 ",
 					token: " tok-1 ",
@@ -101,6 +102,7 @@ test("parseChats normalizes legacy chat links and thread metadata", async () => 
 		);
 
 		const chats = await storage.parseChats();
+		assert.equal(chats["ignored@s.whatsapp.net"], undefined);
 		assert.deepEqual(chats["123@s.whatsapp.net"], {
 			id: "wh-1",
 			token: "tok-1",

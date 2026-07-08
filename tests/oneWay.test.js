@@ -2,19 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-	hasOneWayDirection,
-	ONE_WAY_DIRECTIONS,
+	normalizeSettings,
 	ONE_WAY_MODES,
 	oneWayAllowsDiscordToWhatsApp,
 	oneWayAllowsWhatsAppToDiscord,
-} from "../src/oneWay.js";
+} from "../src/contracts.js";
 
-test("oneWay mode presets match expected direction masks", () => {
-	assert.equal(ONE_WAY_DIRECTIONS.WHATSAPP_TO_DISCORD, 0b01);
-	assert.equal(ONE_WAY_DIRECTIONS.DISCORD_TO_WHATSAPP, 0b10);
-	assert.equal(ONE_WAY_MODES.TO_DISCORD_ONLY, 0b01);
-	assert.equal(ONE_WAY_MODES.TO_WHATSAPP_ONLY, 0b10);
-	assert.equal(ONE_WAY_MODES.TWO_WAY, 0b11);
+test("oneWay mode presets use canonical string values", () => {
+	assert.equal(ONE_WAY_MODES.TO_DISCORD_ONLY, "to-discord");
+	assert.equal(ONE_WAY_MODES.TO_WHATSAPP_ONLY, "to-whatsapp");
+	assert.equal(ONE_WAY_MODES.TWO_WAY, "bidirectional");
 });
 
 test("oneWay direction helpers gate flows correctly", () => {
@@ -40,13 +37,16 @@ test("oneWay direction helpers gate flows correctly", () => {
 	assert.equal(oneWayAllowsWhatsAppToDiscord(ONE_WAY_MODES.TWO_WAY), true);
 });
 
-test("hasOneWayDirection treats invalid values as disabled", () => {
-	assert.equal(
-		hasOneWayDirection(undefined, ONE_WAY_DIRECTIONS.DISCORD_TO_WHATSAPP),
-		false,
-	);
-	assert.equal(
-		hasOneWayDirection("invalid", ONE_WAY_DIRECTIONS.WHATSAPP_TO_DISCORD),
-		false,
-	);
+test("invalid oneWay values normalize to bidirectional", () => {
+	assert.equal(oneWayAllowsDiscordToWhatsApp(undefined), true);
+	assert.equal(oneWayAllowsWhatsAppToDiscord("invalid"), true);
+});
+
+test("legacy numeric oneWay values normalize to string modes", () => {
+	assert.equal(normalizeSettings({ oneWay: 1 }).oneWay, "to-discord");
+	assert.equal(normalizeSettings({ oneWay: "1" }).oneWay, "to-discord");
+	assert.equal(normalizeSettings({ oneWay: 2 }).oneWay, "to-whatsapp");
+	assert.equal(normalizeSettings({ oneWay: "2" }).oneWay, "to-whatsapp");
+	assert.equal(normalizeSettings({ oneWay: 3 }).oneWay, "bidirectional");
+	assert.equal(normalizeSettings({ oneWay: "3" }).oneWay, "bidirectional");
 });

@@ -146,7 +146,7 @@ test("oneWay gating blocks WhatsApp -> Discord forwards in discordHandler", asyn
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b10;
+		state.settings.oneWay = "to-whatsapp";
 
 		utils.discord.getGuild = async () => ({
 			commands: { set: async () => {} },
@@ -191,7 +191,7 @@ test("oneWay gating blocks WhatsApp -> Discord forwards in discordHandler", asyn
 		await delay(0);
 		assert.equal(getOrCreateCalls.length, 0);
 
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		fakeClient.emit("whatsappMessage", {
 			id: "wa-2",
 			name: "Tester",
@@ -242,7 +242,7 @@ test("WhatsApp call notification send failures do not crash discordHandler", asy
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 
 		const errors = [];
 		state.logger = {
@@ -296,7 +296,10 @@ test("WhatsApp call notification send failures do not crash discordHandler", asy
 		process.removeListener("unhandledRejection", onUnhandled);
 
 		assert.equal(unhandled, undefined);
-		assert.equal(errors[0]?.[1], "Failed to process WhatsApp call notification");
+		assert.equal(
+			errors[0]?.[1],
+			"Failed to process WhatsApp call notification",
+		);
 	} finally {
 		utils.discord.getGuild = originalDiscordUtils.getGuild;
 		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
@@ -333,7 +336,7 @@ test("WhatsApp view once media is sent to Discord as a spoiler attachment", asyn
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.lastMessages = {};
 
 		utils.discord.getGuild = async () => ({
@@ -343,13 +346,16 @@ test("WhatsApp view once media is sent to Discord as a spoiler attachment", asyn
 		utils.discord.getOrCreateChannel = async () => ({
 			id: "hook-1",
 			token: "token",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 		});
 
 		const sent = [];
 		utils.discord.safeWebhookSend = async (_webhook, args) => {
 			sent.push(args);
-			return { id: `dc-${sent.length}`, channel: { type: "GUILD_TEXT" } };
+			return {
+				id: `dc-${sent.length}`,
+				channel: { type: discordJs.ChannelType.GuildText },
+			};
 		};
 
 		class FakeDiscordClient extends EventEmitter {
@@ -453,7 +459,7 @@ test("WhatsApp spoiler files are uploaded to Discord with spoiler filenames", as
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.lastMessages = {};
 
 		utils.discord.getGuild = async () => ({
@@ -463,13 +469,16 @@ test("WhatsApp spoiler files are uploaded to Discord with spoiler filenames", as
 		utils.discord.getOrCreateChannel = async () => ({
 			id: "hook-1",
 			token: "token",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 		});
 
 		const sent = [];
 		utils.discord.safeWebhookSend = async (_webhook, args) => {
 			sent.push(args);
-			return { id: `dc-${sent.length}`, channel: { type: "GUILD_TEXT" } };
+			return {
+				id: `dc-${sent.length}`,
+				channel: { type: discordJs.ChannelType.GuildText },
+			};
 		};
 
 		class FakeDiscordClient extends EventEmitter {
@@ -545,7 +554,7 @@ test("WhatsApp newsletter reactions resolve Discord message via value-side mappi
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.lastMessages = {
 			"dc-news-1": "137",
 		};
@@ -649,7 +658,7 @@ test("WhatsApp sender platform suffix appends to mirrored Discord messages", asy
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.settings.WASenderPlatformSuffix = true;
 		state.lastMessages = {};
 
@@ -660,13 +669,16 @@ test("WhatsApp sender platform suffix appends to mirrored Discord messages", asy
 		utils.discord.getOrCreateChannel = async () => ({
 			id: "hook-1",
 			token: "token",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 		});
 
 		const sent = [];
 		utils.discord.safeWebhookSend = async (_webhook, args) => {
 			sent.push(args);
-			return { id: `dc-${sent.length}`, channel: { type: "GUILD_TEXT" } };
+			return {
+				id: `dc-${sent.length}`,
+				channel: { type: discordJs.ChannelType.GuildText },
+			};
 		};
 
 		class FakeDiscordClient extends EventEmitter {
@@ -738,7 +750,7 @@ test("WhatsApp @all payload allows Discord @everyone mention", async () => {
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.lastMessages = {};
 
 		utils.discord.getGuild = async () => ({
@@ -748,13 +760,16 @@ test("WhatsApp @all payload allows Discord @everyone mention", async () => {
 		utils.discord.getOrCreateChannel = async () => ({
 			id: "hook-1",
 			token: "token",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 		});
 
 		const sent = [];
 		utils.discord.safeWebhookSend = async (_webhook, args) => {
 			sent.push(args);
-			return { id: `dc-${sent.length}`, channel: { type: "GUILD_TEXT" } };
+			return {
+				id: `dc-${sent.length}`,
+				channel: { type: discordJs.ChannelType.GuildText },
+			};
 		};
 
 		class FakeDiscordClient extends EventEmitter {
@@ -948,11 +963,11 @@ test("Discord messageDelete in newsletter channels notifies manual WhatsApp dele
 			token: "tok",
 			type: "incoming",
 			channelId: "chan-1",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 		});
 		utils.discord.safeWebhookSend = async () => ({
 			id: "dc-news-1",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 			channelId: "chan-1",
 			guildId: "guild",
 			url: "https://discord.com/channels/guild/chan-1/dc-news-1",
@@ -1455,7 +1470,7 @@ test("WhatsApp forwarded message includes bridged source channel and jump link w
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.lastMessages = {};
 
 		utils.discord.getGuild = async () => ({
@@ -1465,7 +1480,7 @@ test("WhatsApp forwarded message includes bridged source channel and jump link w
 		utils.discord.getOrCreateChannel = async (jid) => ({
 			id: `wh-${jid}`,
 			token: "token",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 			channelId:
 				jid === "source@s.whatsapp.net" ? "source-channel" : "target-channel",
 		});
@@ -1477,7 +1492,7 @@ test("WhatsApp forwarded message includes bridged source channel and jump link w
 			sent.push({ webhook, args, messageId });
 			return {
 				id: messageId,
-				channel: { type: "GUILD_TEXT" },
+				channel: { type: discordJs.ChannelType.GuildText },
 				channelId: webhook.channelId,
 				guildId: "guild",
 				url: `https://discord.com/channels/guild/${webhook.channelId}/${messageId}`,
@@ -1574,7 +1589,7 @@ test("WhatsApp forwarded message without resolvable source keeps clean forwarded
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.lastMessages = {};
 
 		utils.discord.getGuild = async () => ({
@@ -1584,7 +1599,7 @@ test("WhatsApp forwarded message without resolvable source keeps clean forwarded
 		utils.discord.getOrCreateChannel = async () => ({
 			id: "wh-1",
 			token: "token",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 			channelId: "target-channel",
 		});
 
@@ -1593,7 +1608,7 @@ test("WhatsApp forwarded message without resolvable source keeps clean forwarded
 			sent.push(args);
 			return {
 				id: `dc-${sent.length}`,
-				channel: { type: "GUILD_TEXT" },
+				channel: { type: discordJs.ChannelType.GuildText },
 				channelId: "target-channel",
 				guildId: "guild",
 				url: `https://discord.com/channels/guild/target-channel/dc-${sent.length}`,
@@ -1671,7 +1686,7 @@ test("WhatsApp forwarded message links source channel when quote sourceJid is br
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.lastMessages = {};
 		restoreObject(state.chats, {
 			"source@s.whatsapp.net": {
@@ -1695,7 +1710,7 @@ test("WhatsApp forwarded message links source channel when quote sourceJid is br
 		utils.discord.getOrCreateChannel = async () => ({
 			id: "wh-1",
 			token: "token",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 			channelId: "target-channel",
 		});
 
@@ -1704,7 +1719,7 @@ test("WhatsApp forwarded message links source channel when quote sourceJid is br
 			sent.push(args);
 			return {
 				id: `dc-${sent.length}`,
-				channel: { type: "GUILD_TEXT" },
+				channel: { type: discordJs.ChannelType.GuildText },
 				channelId: "target-channel",
 				guildId: "guild",
 				url: `https://discord.com/channels/guild/target-channel/dc-${sent.length}`,
@@ -1784,7 +1799,7 @@ test("WhatsApp forwarded message links source channel when quote sourceJid resol
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
-		state.settings.oneWay = 0b11;
+		state.settings.oneWay = "bidirectional";
 		state.lastMessages = {};
 		restoreObject(state.chats, {
 			"14155550123@s.whatsapp.net": {
@@ -1816,7 +1831,7 @@ test("WhatsApp forwarded message links source channel when quote sourceJid resol
 		utils.discord.getOrCreateChannel = async () => ({
 			id: "wh-1",
 			token: "token",
-			channel: { type: "GUILD_TEXT" },
+			channel: { type: discordJs.ChannelType.GuildText },
 			channelId: "target-channel",
 		});
 
@@ -1825,7 +1840,7 @@ test("WhatsApp forwarded message links source channel when quote sourceJid resol
 			sent.push(args);
 			return {
 				id: `dc-${sent.length}`,
-				channel: { type: "GUILD_TEXT" },
+				channel: { type: discordJs.ChannelType.GuildText },
 				channelId: "target-channel",
 				guildId: "guild",
 				url: `https://discord.com/channels/guild/target-channel/dc-${sent.length}`,
@@ -2056,7 +2071,7 @@ test("Discord broadcast/crosspost webhooks require redirectannouncements when re
 			webhookId: "bridge-wh-1",
 			type: "DEFAULT",
 			flags: { bitfield: 1 },
-			channel: { id: "chan-1", type: "GUILD_TEXT" },
+			channel: { id: "chan-1", type: discordJs.ChannelType.GuildText },
 		});
 		await delay(0);
 		assert.equal(waEvents.length, 0);
@@ -2067,7 +2082,7 @@ test("Discord broadcast/crosspost webhooks require redirectannouncements when re
 			webhookId: "external-news-webhook",
 			type: "DEFAULT",
 			flags: { bitfield: 1 },
-			channel: { id: "chan-1", type: "GUILD_TEXT" },
+			channel: { id: "chan-1", type: discordJs.ChannelType.GuildText },
 		});
 		await delay(0);
 		assert.equal(waEvents.length, 0);
@@ -2079,7 +2094,7 @@ test("Discord broadcast/crosspost webhooks require redirectannouncements when re
 			webhookId: "external-news-webhook",
 			type: "DEFAULT",
 			flags: { bitfield: 1 },
-			channel: { id: "chan-1", type: "GUILD_TEXT" },
+			channel: { id: "chan-1", type: discordJs.ChannelType.GuildText },
 		});
 		await delay(0);
 		assert.equal(waEvents.length, 1);

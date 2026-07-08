@@ -128,7 +128,11 @@ export const createWhatsAppAudioToDiscordFileNormalizer = ({
 			if (!mp3Buffer?.length) {
 				return fallback;
 			}
-			if (Number.isFinite(maxBytes) && maxBytes > 0 && mp3Buffer.length > maxBytes) {
+			if (
+				Number.isFinite(maxBytes) &&
+				maxBytes > 0 &&
+				mp3Buffer.length > maxBytes
+			) {
 				logger?.debug?.(
 					{
 						jid,

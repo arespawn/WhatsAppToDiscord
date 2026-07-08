@@ -253,7 +253,9 @@ test("Baileys logger bounds bundled traces and binary payloads", async () => {
 			"connection errored",
 		);
 
-		const baileysLogCall = calls.find((call) => call[1] === "connection errored");
+		const baileysLogCall = calls.find(
+			(call) => call[1] === "connection errored",
+		);
 		assert.ok(baileysLogCall);
 		assert.ok(
 			JSON.stringify(baileysLogCall).length < 4000,

@@ -147,13 +147,6 @@ suppressSecretBearingDependencyConsoleLogs();
 		await utils.updater.ensureRuntimeSidecar(version);
 	}
 
-	const conversion = await utils.sqliteToJson.convert();
-	if (!conversion) {
-		state.logger.error("Conversion failed!");
-		process.exit(1);
-	}
-	state.logger.info("Conversion completed.");
-
 	try {
 		await storage.ensureInitialized();
 		state.logger.info("SQLite storage initialized.");

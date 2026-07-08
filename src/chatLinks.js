@@ -4,11 +4,7 @@ const normalizeDiscordChannelId = (value) => {
 	return trimmed ? trimmed : null;
 };
 
-export const normalizeChatLink = (rawLink = {}) => {
-	if (typeof rawLink === "string") {
-		const channelId = normalizeDiscordChannelId(rawLink);
-		return channelId ? { channelId } : null;
-	}
+const normalizeChatLink = (rawLink = {}) => {
 	if (!rawLink || typeof rawLink !== "object" || Array.isArray(rawLink)) {
 		return null;
 	}
@@ -31,7 +27,7 @@ export const normalizeChatLink = (rawLink = {}) => {
 	if (threadId) normalized.threadId = threadId;
 	else delete normalized.threadId;
 
-	return normalized;
+	return channelId ? normalized : null;
 };
 
 export const normalizeChatLinks = (rawLinks = {}) => {

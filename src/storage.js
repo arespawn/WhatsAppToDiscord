@@ -1,11 +1,10 @@
 import fs from "node:fs/promises";
-import net from "node:net";
 import path from "node:path";
 import readline from "node:readline";
-import { BufferJSON } from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
 import { normalizeChatLinks } from "./chatLinks.js";
 import { createDiscordClient } from "./clientFactories.js";
+import { normalizeSettings } from "./contracts.js";
 import sqliteStore from "./persistence/sqliteStore.js";
 import state from "./state.js";
 
@@ -44,43 +43,6 @@ const bidirectionalMap = (capacity, data) => {
 	});
 };
 
-const normalizeAuthJson = (raw) =>
-	JSON.stringify(JSON.parse(raw, BufferJSON.reviver), BufferJSON.replacer);
-
-const existsAs = async (targetPath, type) => {
-	try {
-		const stat = await fs.stat(targetPath);
-		return type === "dir" ? stat.isDirectory() : stat.isFile();
-	} catch {
-		return false;
-	}
-};
-
-const normalizeDiscordIdArray = (value) => {
-	if (!Array.isArray(value)) return [];
-	return [...new Set(value.map(sanitizeDiscordId).filter(Boolean))];
-};
-
-const sanitizeDiscordId = (value) => {
-	if (value == null) return null;
-	const trimmed = String(value).trim();
-	return /^\d+$/.test(trimmed) ? trimmed : null;
-};
-
-const movePath = async (from, to) => {
-	try {
-		await fs.rename(from, to);
-		return;
-	} catch (err) {
-		if (err?.code !== "EXDEV") {
-			throw err;
-		}
-	}
-
-	await fs.cp(from, to, { recursive: true });
-	await fs.rm(from, { recursive: true, force: true });
-};
-
 const storage = {
 	_storageDir: "./storage/",
 	_initialized: false,
@@ -100,139 +62,6 @@ const storage = {
 		}
 	},
 
-	async _readLegacyFile(filePath) {
-		try {
-			return await fs.readFile(filePath, "utf8");
-		} catch {
-			return null;
-		}
-	},
-
-	async _collectLegacyMigrationPayload() {
-		const base = this._storageDir;
-		const appFiles = [
-			this._settingsName,
-			this._chatsName,
-			this._contactsName,
-			this._lastMessagesName,
-			this._startTimeName,
-		];
-
-		const appState = {};
-		const backupSources = [];
-
-		for (const name of appFiles) {
-			const filePath = path.join(base, name);
-			if (!(await existsAs(filePath, "file"))) continue;
-			const raw = await this._readLegacyFile(filePath);
-			if (raw == null) continue;
-			appState[name] = raw;
-			backupSources.push({ name, sourcePath: filePath, type: "file" });
-		}
-
-		const authDirPath = path.join(base, "baileys");
-		const authCreds = null;
-		const authKeys = {};
-		let creds = authCreds;
-
-		if (await existsAs(authDirPath, "dir")) {
-			const entries = await fs.readdir(authDirPath, { withFileTypes: true });
-			for (const entry of entries) {
-				if (!entry.isFile()) continue;
-				const fileName = path.basename(entry.name);
-				const raw = await this._readLegacyFile(
-					path.join(authDirPath, fileName),
-				);
-				if (raw == null) continue;
-				if (fileName === "creds.json") {
-					creds = normalizeAuthJson(raw);
-				} else {
-					authKeys[fileName] = normalizeAuthJson(raw);
-				}
-			}
-
-			backupSources.push({
-				name: "baileys",
-				sourcePath: authDirPath,
-				type: "dir",
-			});
-		}
-
-		const hasLegacyData =
-			Object.keys(appState).length > 0 ||
-			creds != null ||
-			Object.keys(authKeys).length > 0;
-
-		return {
-			hasLegacyData,
-			appState,
-			authCreds: creds,
-			authKeys,
-			backupSources,
-		};
-	},
-
-	async _backupLegacySources(backupSources = []) {
-		if (!backupSources.length) {
-			return;
-		}
-
-		const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-		const backupDir = path.join(this._storageDir, `legacy-backup-${timestamp}`);
-		await fs.mkdir(backupDir, { recursive: true, mode: STORAGE_DIR_MODE });
-		if (process.platform !== "win32") {
-			await fs.chmod(backupDir, STORAGE_DIR_MODE).catch(() => {});
-		}
-
-		for (const source of backupSources) {
-			try {
-				const exists = await existsAs(source.sourcePath, source.type);
-				if (!exists) continue;
-				await movePath(source.sourcePath, path.join(backupDir, source.name));
-			} catch (err) {
-				state.logger?.warn?.(
-					{ err, source: source.sourcePath },
-					"Failed to move migrated legacy source into backup directory",
-				);
-			}
-		}
-	},
-
-	async _migrateLegacyToSqliteIfNeeded() {
-		const done = sqliteStore.getMeta("legacy_migration_done");
-		if (done === "1") {
-			return;
-		}
-
-		const payload = await this._collectLegacyMigrationPayload();
-		const migratedAt = String(Date.now());
-
-		if (!payload.hasLegacyData) {
-			sqliteStore.transaction(() => {
-				sqliteStore.setMeta("legacy_migration_done", "1");
-				sqliteStore.setMeta("migrated_at", migratedAt);
-			});
-			return;
-		}
-
-		sqliteStore.transaction(() => {
-			for (const [key, value] of Object.entries(payload.appState)) {
-				sqliteStore.setAppState(key, value);
-			}
-			if (payload.authCreds != null) {
-				sqliteStore.setAuthCreds(payload.authCreds);
-			}
-			if (Object.keys(payload.authKeys).length > 0) {
-				sqliteStore.setAuthKeys(payload.authKeys);
-			}
-			sqliteStore.setMeta("legacy_migration_done", "1");
-			sqliteStore.setMeta("migrated_at", migratedAt);
-		});
-
-		await this._backupLegacySources(payload.backupSources);
-		state.logger?.info?.("Legacy storage was migrated to SQLite.");
-	},
-
 	async init() {
 		if (this._initialized) {
 			return;
@@ -241,7 +70,6 @@ const storage = {
 		await this.ensureStorageDir();
 		sqliteStore.setStorageDir(this._storageDir);
 		await sqliteStore.init({ logger: state.logger });
-		await this._migrateLegacyToSqliteIfNeeded();
 		this._initialized = true;
 	},
 
@@ -282,7 +110,7 @@ const storage = {
 				Publish: false,
 				LocalDownloadServer: false,
 			};
-			return Object.assign(state.settings, smokeDefaults);
+			return Object.assign(state.settings, normalizeSettings(smokeDefaults));
 		}
 
 		await this.ensureInitialized();
@@ -292,57 +120,10 @@ const storage = {
 		}
 
 		try {
-			const parsed = JSON.parse(result);
-
-			delete parsed.LocalDownloadServerBasicAuthEnabled;
-			delete parsed.LocalDownloadServerBasicAuthUsername;
-			delete parsed.LocalDownloadServerBasicAuthPassword;
-
-			if (!Object.hasOwn(parsed, "LocalDownloadServerBindHost")) {
-				const hostRaw = parsed.LocalDownloadServerHost;
-				const host = typeof hostRaw === "string" ? hostRaw.trim() : "";
-				if (host) {
-					const lower = host.toLowerCase();
-					if (host === "0.0.0.0" || host === "::") {
-						parsed.LocalDownloadServerBindHost = host;
-						parsed.LocalDownloadServerHost = "localhost";
-					} else if (
-						lower === "localhost" ||
-						lower === "127.0.0.1" ||
-						lower === "::1"
-					) {
-						parsed.LocalDownloadServerBindHost = host;
-					} else if (net.isIP(host)) {
-						parsed.LocalDownloadServerBindHost = host;
-					} else {
-						parsed.LocalDownloadServerBindHost = "0.0.0.0";
-					}
-				}
-			}
-
-			if (parsed.DefaultChatType !== "thread") {
-				parsed.DefaultChatType = "channel";
-			}
-			parsed.DefaultThreadHostName =
-				typeof parsed.DefaultThreadHostName === "string"
-					? parsed.DefaultThreadHostName.trim()
-					: "";
-			if (Object.hasOwn(parsed, "ThreadNotificationsEnabled")) {
-				parsed.ThreadNotificationsEnabled = Boolean(
-					parsed.ThreadNotificationsEnabled,
-				);
-			}
-			if (parsed.WhatsAppAudioConversionFormat !== "mp3") {
-				parsed.WhatsAppAudioConversionFormat = "original";
-			}
-			parsed.ThreadNotificationRoles = normalizeDiscordIdArray(
-				parsed.ThreadNotificationRoles,
+			const settings = Object.assign(
+				state.settings,
+				normalizeSettings(JSON.parse(result), { logger: state.logger }),
 			);
-			parsed.ThreadNotificationUsers = normalizeDiscordIdArray(
-				parsed.ThreadNotificationUsers,
-			);
-
-			const settings = Object.assign(state.settings, parsed);
 			if (settings.Token === "") return setup.firstRun();
 			return settings;
 		} catch {

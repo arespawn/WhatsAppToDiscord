@@ -1,11 +1,13 @@
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import {
+	getBin,
+	getRuntimeSidecarPackageSpecs,
+	prepareRuntimeSidecar,
+	run,
+} from "./runtimeSidecar.js";
 
-const require = createRequire(import.meta.url);
-const RUNTIME_SIDECAR_DEPENDENCIES = ["sharp", "canvas", "jsdom", "lottie-web"];
 const PKG_PACKAGE_SPEC = process.env.WA2DC_PKG_PACKAGE || "@yao-pkg/pkg@6.19.0";
 
 function platformToPkgOs(platform) {
@@ -19,24 +21,6 @@ function archToPkgArch(arch) {
 	if (arch === "x64") return "x64";
 	if (arch === "arm64") return "arm64";
 	return null;
-}
-
-function run(command, args, options = {}) {
-	const result = spawnSync(command, args, {
-		stdio: "inherit",
-		...(process.platform === "win32" ? { shell: true } : null),
-		...options,
-	});
-	if (result.error) throw result.error;
-	if (typeof result.status === "number" && result.status !== 0) {
-		throw new Error(
-			`Command failed (${result.status}): ${command} ${args.join(" ")}`,
-		);
-	}
-}
-
-function getBin(name) {
-	return process.platform === "win32" ? `${name}.cmd` : name;
 }
 
 function buildOutputPath(pkgOs, pkgArch) {
@@ -61,46 +45,6 @@ function buildOutputPath(pkgOs, pkgArch) {
 	}
 
 	throw new Error(`Unsupported pkg OS: ${pkgOs}`);
-}
-
-function getRuntimeSidecarPackageSpecs() {
-	return RUNTIME_SIDECAR_DEPENDENCIES.map((packageName) => {
-		try {
-			const packageJson = require(`${packageName}/package.json`);
-			return `${packageName}@${packageJson.version}`;
-		} catch (err) {
-			throw new Error(
-				`Unable to resolve ${packageName} for packaged runtime sidecar: ${err?.message || err}`,
-			);
-		}
-	});
-}
-
-function prepareRuntimeSidecar(runtimeDir, packageSpecs) {
-	fs.rmSync(runtimeDir, { recursive: true, force: true });
-	fs.mkdirSync(runtimeDir, { recursive: true });
-	fs.writeFileSync(
-		path.join(runtimeDir, "package.json"),
-		`${JSON.stringify(
-			{
-				private: true,
-				description: "WA2DC packaged runtime sidecar",
-			},
-			null,
-			2,
-		)}\n`,
-	);
-	run(
-		getBin("npm"),
-		[
-			"install",
-			"--omit=dev",
-			"--no-package-lock",
-			"--no-save",
-			...packageSpecs,
-		],
-		{ cwd: runtimeDir },
-	);
 }
 
 const args = new Set(process.argv.slice(2));

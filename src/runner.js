@@ -2,8 +2,6 @@ import { spawn } from "node:child_process";
 import cluster from "node:cluster";
 import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 import pino from "pino";
 import pretty from "pino-pretty";
 
@@ -32,29 +30,8 @@ const CURRENT_EXE_NAME = process.argv0.split(/[/\\]/).pop();
 
 const WORKER_ENV_FLAG = "WA2DC_WORKER";
 
-const overrideChildUrl = process.env.WA2DC_CHILD_PATH
-	? pathToFileURL(path.resolve(process.env.WA2DC_CHILD_PATH))
-	: null;
-
-const chmodAsync = promisify(fs.chmod);
-
 async function runWorker() {
-	if (overrideChildUrl) {
-		const childPath = overrideChildUrl.pathname;
-		try {
-			await chmodAsync(childPath, 0o755);
-		} catch (err) {
-			if (err?.code !== "ENOENT") {
-				console.warn(
-					{ err, childPath },
-					"Failed to ensure child binary is executable",
-				);
-			}
-		}
-		await import(overrideChildUrl.href);
-	} else {
-		await import("./index.js");
-	}
+	await import("./index.js");
 }
 
 function setupSupervisorLogging() {

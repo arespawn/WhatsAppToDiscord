@@ -1174,84 +1174,6 @@ test("/pairwithcode accepts E.164 input and sends digits to Baileys", async () =
 	}
 });
 
-test("/pairwithcode still accepts legacy number option interactions", async () => {
-	const originalDiscordUtils = {
-		getGuild: utils.discord.getGuild,
-		getControlChannel: utils.discord.getControlChannel,
-	};
-	const originalSettings = {
-		Token: state.settings.Token,
-		GuildID: state.settings.GuildID,
-		ControlChannelID: state.settings.ControlChannelID,
-	};
-	const originalDcClient = state.dcClient;
-	const originalWaClient = state.waClient;
-	const originalWaConnection = state.waConnection;
-
-	try {
-		state.settings.Token = "TEST_TOKEN";
-		state.settings.GuildID = "guild";
-		state.settings.ControlChannelID = "control";
-
-		utils.discord.getGuild = async () => ({
-			commands: { set: async () => {} },
-		});
-		utils.discord.getControlChannel = async () => ({ send: async () => {} });
-
-		const pairingRequests = [];
-		state.waClient = {
-			ev: new EventEmitter(),
-			async requestPairingCode(phoneNumber) {
-				pairingRequests.push(phoneNumber);
-				return "WXYZ-9876";
-			},
-		};
-		state.waConnection = {
-			browserProfile: ["Mac OS", "Chrome", "14.4.1"],
-			connection: "connecting",
-			hasQr: false,
-			qrAt: 0,
-			registered: false,
-			updatedAt: Date.now() - 6000,
-		};
-
-		const fakeClient = new FakeDiscordClient();
-		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
-		const discordHandler = await importDiscordHandler("pairwithcode-legacy");
-		state.dcClient = await discordHandler.start();
-		await delay(0);
-
-		const interaction = createInteraction({
-			channelId: "control",
-			commandName: "pairwithcode",
-			stringOptions: {
-				number: "+1 202 555 0123",
-			},
-		});
-		fakeClient.emit("interactionCreate", interaction);
-		await delay(0);
-
-		assert.deepEqual(pairingRequests, ["12025550123"]);
-		assert.equal(interaction.records.editReply.length, 1);
-		assert.equal(
-			interaction.records.editReply[0]?.content,
-			"Your pairing code is: WXYZ-9876\nEnter it immediately in WhatsApp. If it is rejected, wait for the next QR/pairing prompt and request a fresh code.",
-		);
-	} finally {
-		utils.discord.getGuild = originalDiscordUtils.getGuild;
-		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
-
-		state.settings.Token = originalSettings.Token;
-		state.settings.GuildID = originalSettings.GuildID;
-		state.settings.ControlChannelID = originalSettings.ControlChannelID;
-
-		state.dcClient = originalDcClient;
-		state.waClient = originalWaClient;
-		state.waConnection = originalWaConnection;
-		resetClientFactoryOverrides();
-	}
-});
-
 test("/pairwithcode refuses to request codes after WhatsApp is connected", async () => {
 	const originalDiscordUtils = {
 		getGuild: utils.discord.getGuild,
@@ -1609,8 +1531,7 @@ test("/waaudiomp3 toggles WhatsApp audio MP3 conversion", async () => {
 		Token: state.settings.Token,
 		GuildID: state.settings.GuildID,
 		ControlChannelID: state.settings.ControlChannelID,
-		WhatsAppAudioConversionFormat:
-			state.settings.WhatsAppAudioConversionFormat,
+		WhatsAppAudioConversionFormat: state.settings.WhatsAppAudioConversionFormat,
 	};
 	const originalDcClient = state.dcClient;
 

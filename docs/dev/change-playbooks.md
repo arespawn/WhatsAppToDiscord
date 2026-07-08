@@ -25,11 +25,11 @@ Additional requirements:
 
 When introducing a setting:
 
-1. Add default value in `src/state.js`.
-2. Ensure loading older persisted settings still works through fallback defaults in `src/storage.js`.
+1. Add the default and validation in `src/contracts.js`.
+2. Ensure `normalizeSettings(...)` accepts only the intended persisted shape.
 3. Document user-facing behavior in docs.
 
 ## Rename or remove a setting
 
-Never silently break legacy settings.
-Add migration/compat logic so existing `storage` state continues to load.
+Remove the old key from `src/contracts.js` and document the breaking change.
+Do not add parallel read/write paths or hidden aliases.

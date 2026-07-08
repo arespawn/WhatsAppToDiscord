@@ -7,6 +7,16 @@ import {
 	isThreadChatLink,
 } from "./chatLinks.js";
 import { createDiscordClient } from "./clientFactories.js";
+import {
+	DISCORD_BOT_PERMISSIONS,
+	NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS,
+	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
+	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
+	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
+	ONE_WAY_MODES,
+	oneWayAllowsDiscordToWhatsApp,
+	oneWayAllowsWhatsAppToDiscord,
+} from "./contracts.js";
 import messageStore from "./messageStore.js";
 import {
 	getNewsletterAckError,
@@ -19,11 +29,6 @@ import {
 	waitForNewsletterAckError,
 	waitForNewsletterServerId,
 } from "./newsletterBridge.js";
-import {
-	ONE_WAY_MODES,
-	oneWayAllowsDiscordToWhatsApp,
-	oneWayAllowsWhatsAppToDiscord,
-} from "./oneWay.js";
 import { resolveRestartFlagPath } from "./runnerLogic.js";
 import state from "./state.js";
 import storage from "./storage.js";
@@ -63,30 +68,16 @@ const normalizeManagedThreadHostNameOption = (value) =>
 		.replace(/-+/gu, "-")
 		.replace(/^[-_]+|[-_]+$/gu, "")
 		.slice(0, 80);
-const AnnouncementChannelTypes = [ChannelType.GuildAnnouncement, "GUILD_NEWS"];
+const AnnouncementChannelTypes = [ChannelType.GuildAnnouncement];
 const TextBridgeChannelTypes = [
 	ChannelType.GuildText,
 	ChannelType.GuildAnnouncement,
-	"GUILD_TEXT",
-	"GUILD_NEWS",
 ];
 const ThreadBridgeChannelTypes = [
 	ChannelType.PublicThread,
 	ChannelType.AnnouncementThread,
-	"PUBLIC_THREAD",
-	"ANNOUNCEMENT_THREAD",
 ];
-const ForumChannelTypes = [ChannelType.GuildForum, "GUILD_FORUM"];
-const ApplicationCommandOptionTypes = {
-	STRING: ApplicationCommandOptionType.String,
-	INTEGER: ApplicationCommandOptionType.Integer,
-	NUMBER: ApplicationCommandOptionType.Number,
-	BOOLEAN: ApplicationCommandOptionType.Boolean,
-	CHANNEL: ApplicationCommandOptionType.Channel,
-	ROLE: ApplicationCommandOptionType.Role,
-	USER: ApplicationCommandOptionType.User,
-};
-
+const ForumChannelTypes = [ChannelType.GuildForum];
 const client = createDiscordClient({
 	intents: [
 		GatewayIntentBits.Guilds,
@@ -100,7 +91,6 @@ let controlChannel;
 let slashRegisterWarned = false;
 const pendingAlbums = {};
 const deliveredMessages = new Set();
-const BOT_PERMISSIONS = 536879120;
 const UPDATE_BUTTON_IDS = utils.discord.updateButtonIds;
 const ROLLBACK_BUTTON_ID = utils.discord.rollbackButtonId;
 const bridgePinnedMessages = new Set();
@@ -108,10 +98,6 @@ const pinExpiryTimers = new Map();
 const DISCORD_FORWARD_CONTEXT_TTL_MS = 5 * 60 * 1000;
 const DISCORD_MESSAGE_LOCATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DISCORD_MESSAGE_LOCATION_MISS_TTL_MS = 10 * 1000;
-const NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS = 8000;
-const NEWSLETTER_SERVER_ID_WAIT_POLL_MS = 150;
-const NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS = 2500;
-const NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS = 8000;
 const newsletterAckWaitMsForSentMessage = (sentMessage) =>
 	getNewsletterServerIdFromMessage(sentMessage)
 		? NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS
@@ -620,8 +606,7 @@ const cacheQuotedWhatsAppMessageLocation = ({
 };
 
 const buildForwardContext = (message, rawContext = null) => {
-	const isReplyMessage =
-		message.type === MessageType.Reply || message.type === "REPLY";
+	const isReplyMessage = message.type === MessageType.Reply;
 	const fallbackIsForwarded = Boolean(message.reference && !isReplyMessage);
 	const sourceChannelId =
 		rawContext?.sourceChannelId || message.reference?.channelId || null;
@@ -2205,39 +2190,7 @@ const requireNewsletterMethod = async (ctx, methodName) => {
 	return method.bind(state.waClient);
 };
 
-const getStringOrNumberOptionValue = (ctx, optionName) => {
-	try {
-		const stringValue = ctx.getStringOption(optionName);
-		if (stringValue !== null && stringValue !== undefined) {
-			return stringValue;
-		}
-	} catch {}
-
-	try {
-		const numberValue = ctx.getNumberOption(optionName);
-		if (numberValue !== null && numberValue !== undefined) {
-			return numberValue;
-		}
-	} catch {}
-
-	try {
-		const integerValue = ctx.getIntegerOption(optionName);
-		if (integerValue !== null && integerValue !== undefined) {
-			return integerValue;
-		}
-	} catch {}
-
-	return null;
-};
-
 const normalizePairingPhoneNumber = (value) => {
-	if (
-		typeof value === "number" &&
-		(!Number.isFinite(value) || !Number.isInteger(value))
-	) {
-		return null;
-	}
-
 	const raw = String(value ?? "").trim();
 	if (!raw || !/^\+?[\d\s().-]+$/.test(raw)) {
 		return null;
@@ -2381,14 +2334,12 @@ const commandHandlers = {
 			{
 				name: "phone",
 				description: "Phone number with country code, such as +12025550123.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
 		async execute(ctx) {
-			const rawNumber =
-				getStringOrNumberOptionValue(ctx, "phone") ??
-				getStringOrNumberOptionValue(ctx, "number");
+			const rawNumber = ctx.getStringOption("phone");
 			const number = normalizePairingPhoneNumber(rawNumber);
 			if (!number) {
 				await ctx.reply(
@@ -2473,7 +2424,7 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -2520,13 +2471,13 @@ const commandHandlers = {
 			{
 				name: "name",
 				description: "Newsletter name/title.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "description",
 				description: "Newsletter description.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2614,19 +2565,19 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "name",
 				description: "New newsletter name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "description",
 				description: "New newsletter description.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2688,7 +2639,7 @@ const commandHandlers = {
 			{
 				name: "mode",
 				description: "Set a new picture or remove the current one.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "set", value: "set" },
@@ -2698,14 +2649,14 @@ const commandHandlers = {
 			{
 				name: "url",
 				description: "Image URL (required for mode:set).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2777,7 +2728,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2827,7 +2778,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2877,14 +2828,14 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "invite",
 				description:
 					"Newsletter invite code or link (optional alternative to jid).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2926,7 +2877,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2962,7 +2913,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2997,7 +2948,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3031,14 +2982,14 @@ const commandHandlers = {
 			{
 				name: "name",
 				description: "New newsletter name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3085,14 +3036,14 @@ const commandHandlers = {
 			{
 				name: "description",
 				description: "New newsletter description.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3139,25 +3090,25 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "count",
 				description: "How many messages to fetch (1-50, default 10).",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: false,
 			},
 			{
 				name: "before",
 				description: "Optional upper timestamp bound (unix seconds).",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: false,
 			},
 			{
 				name: "after",
 				description: "Optional lower timestamp bound (unix seconds).",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: false,
 			},
 		],
@@ -3241,14 +3192,14 @@ const commandHandlers = {
 			{
 				name: "messageid",
 				description: "Discord message ID to inspect.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3417,7 +3368,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3467,7 +3418,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3535,7 +3486,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3588,14 +3539,14 @@ const commandHandlers = {
 			{
 				name: "user",
 				description: "New owner WhatsApp JID/number.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3642,14 +3593,14 @@ const commandHandlers = {
 			{
 				name: "user",
 				description: "Admin WhatsApp JID/number to demote.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3693,14 +3644,14 @@ const commandHandlers = {
 			{
 				name: "confirm",
 				description: "Set to true to confirm deletion.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3751,25 +3702,25 @@ const commandHandlers = {
 			{
 				name: "question",
 				description: "Poll question/title.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "options",
 				description: "Comma-separated options (min 2).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "select",
 				description: "How many options can be selected.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: false,
 			},
 			{
 				name: "announcement",
 				description: "Send as an announcement-group poll.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: false,
 			},
 		],
@@ -3902,7 +3853,7 @@ const commandHandlers = {
 			{
 				name: "duration",
 				description: "How long pins last by default.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "24 hours", value: "24h" },
@@ -3929,7 +3880,7 @@ const commandHandlers = {
 			{
 				name: "mode",
 				description: "Default Discord target type for new WhatsApp chats.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "Channel", value: "channel" },
@@ -3940,7 +3891,7 @@ const commandHandlers = {
 				name: "host_name",
 				description:
 					"Optional forum-channel name for new thread-mode WhatsApp chats.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3973,7 +3924,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether new WA-created threads should ping configured users/roles.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -3994,7 +3945,7 @@ const commandHandlers = {
 				name: "action",
 				description:
 					"Add, remove, or list configured thread-notification targets.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "Add", value: "add" },
@@ -4005,13 +3956,13 @@ const commandHandlers = {
 			{
 				name: "user",
 				description: "Discord user to notify on new thread creation.",
-				type: ApplicationCommandOptionTypes.USER,
+				type: ApplicationCommandOptionType.User,
 				required: false,
 			},
 			{
 				name: "role",
 				description: "Discord role to notify on new thread creation.",
-				type: ApplicationCommandOptionTypes.ROLE,
+				type: ApplicationCommandOptionType.Role,
 				required: false,
 			},
 		],
@@ -4090,19 +4041,19 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "channel",
 				description: "Target Discord channel.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 			{
 				name: "force",
 				description: "Override an existing link.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: false,
 			},
 		],
@@ -4248,19 +4199,19 @@ const commandHandlers = {
 			{
 				name: "from",
 				description: "Current channel.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 			{
 				name: "to",
 				description: "Destination channel.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 			{
 				name: "force",
 				description: "Override any existing link on the destination.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: false,
 			},
 		],
@@ -4430,7 +4381,7 @@ const commandHandlers = {
 			{
 				name: "query",
 				description: "Optional search text.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -4460,13 +4411,13 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "user",
 				description: "Target Discord user to mention.",
-				type: ApplicationCommandOptionTypes.USER,
+				type: ApplicationCommandOptionType.User,
 				required: true,
 			},
 		],
@@ -4511,7 +4462,7 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4613,7 +4564,7 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4732,7 +4683,7 @@ const commandHandlers = {
 			{
 				name: "channel",
 				description: "Channel linked to a WhatsApp chat.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 		],
@@ -4764,7 +4715,7 @@ const commandHandlers = {
 			{
 				name: "channel",
 				description: "Channel linked to a WhatsApp chat.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 		],
@@ -4806,7 +4757,7 @@ const commandHandlers = {
 			{
 				name: "prefix",
 				description: "Prefix text. Leave empty to reset to username.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -4827,7 +4778,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether Discord username prefixes should be used.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4846,7 +4797,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether WhatsApp sender names should be prepended inside Discord messages.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4865,7 +4816,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether WhatsApp messages mirrored to Discord should include a sender platform suffix.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4884,7 +4835,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether WhatsApp audio should be converted to MP3 before Discord upload.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4907,7 +4858,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether phone numbers should be hidden on Discord.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4929,7 +4880,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether Discord attachments should be uploaded to WhatsApp (vs sending as links).",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4949,7 +4900,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Temporary Baileys workaround: send newsletter image/video attachments as plain links.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4970,7 +4921,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether Discord embed text/media should be mirrored to WhatsApp.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4989,7 +4940,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether message deletions should be mirrored between Discord and WhatsApp.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5007,7 +4958,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether read receipts are enabled.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5054,7 +5005,7 @@ const commandHandlers = {
 			{
 				name: "rename",
 				description: "Rename channels to match WhatsApp names.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: false,
 			},
 		],
@@ -5082,7 +5033,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether large WhatsApp attachments should be downloaded locally.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5108,7 +5059,7 @@ const commandHandlers = {
 			{
 				name: "message",
 				description: "Template text.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -5134,7 +5085,7 @@ const commandHandlers = {
 			{
 				name: "path",
 				description: "Directory path for downloads.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -5150,7 +5101,7 @@ const commandHandlers = {
 			{
 				name: "size",
 				description: "Size limit in gigabytes.",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: true,
 			},
 		],
@@ -5170,7 +5121,7 @@ const commandHandlers = {
 			{
 				name: "bytes",
 				description: "Maximum size in bytes.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -5192,7 +5143,7 @@ const commandHandlers = {
 				name: "count",
 				description:
 					"Attachment count per Discord upload batch for WhatsApp media bursts (1-10).",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -5216,7 +5167,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether the local download server should be running.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5241,7 +5192,7 @@ const commandHandlers = {
 			{
 				name: "port",
 				description: "Port number.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -5263,7 +5214,7 @@ const commandHandlers = {
 			{
 				name: "host",
 				description: "Hostname or IP for the download server.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -5281,7 +5232,7 @@ const commandHandlers = {
 			{
 				name: "host",
 				description: "Bind host (e.g., 127.0.0.1 or 0.0.0.0).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -5299,7 +5250,7 @@ const commandHandlers = {
 			{
 				name: "seconds",
 				description: "Seconds until links expire.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -5322,7 +5273,7 @@ const commandHandlers = {
 			{
 				name: "days",
 				description: "Maximum age in days.",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: true,
 			},
 		],
@@ -5343,7 +5294,7 @@ const commandHandlers = {
 			{
 				name: "gb",
 				description: "Minimum free space in gigabytes.",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: true,
 			},
 		],
@@ -5368,7 +5319,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether HTTPS should be enabled for the local download server.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5388,13 +5339,13 @@ const commandHandlers = {
 			{
 				name: "key_path",
 				description: "Path to the TLS key.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "cert_path",
 				description: "Path to the TLS certificate.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -5414,7 +5365,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether messages sent to news channels should be cross-posted automatically.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5434,7 +5385,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether change notifications and WhatsApp Status mirroring are enabled.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5453,7 +5404,7 @@ const commandHandlers = {
 			{
 				name: "seconds",
 				description: "Number of seconds between saves.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -5469,7 +5420,7 @@ const commandHandlers = {
 			{
 				name: "size",
 				description: "Number of messages to keep.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -5485,7 +5436,7 @@ const commandHandlers = {
 			{
 				name: "direction",
 				description: "Choose direction or disable one-way.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "discord", value: "discord" },
@@ -5515,7 +5466,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether bot messages should be redirected.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5533,7 +5484,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether webhook messages should be redirected.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5553,7 +5504,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether announcement/crosspost webhook messages should be redirected.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5587,7 +5538,7 @@ const commandHandlers = {
 			{
 				name: "channel",
 				description: "Release channel.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "stable", value: "stable" },
@@ -5745,7 +5696,7 @@ const slashCommands = Object.entries(commandHandlers)
 
 const buildInviteLink = () =>
 	client?.user?.id
-		? `https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=${BOT_PERMISSIONS}`
+		? `https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=${DISCORD_BOT_PERMISSIONS}`
 		: null;
 
 const registerSlashCommands = async () => {
@@ -5939,10 +5890,7 @@ client.on("messageCreate", async (message) => {
 		return;
 	}
 
-	if (
-		message.type === MessageType.ChannelPinnedMessage ||
-		message.type === "CHANNEL_PINNED_MESSAGE"
-	) {
+	if (message.type === MessageType.ChannelPinnedMessage) {
 		return;
 	}
 

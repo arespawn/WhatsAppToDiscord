@@ -59,7 +59,7 @@ Usage: `/setpinduration duration:<24h|7d|30d>`
 
 Thread mode notes:
 
-- `channel` remains the default for backward compatibility.
+- `channel` is the default.
 - In `thread` mode, WA2DC creates forum threads under auto-managed forum channels named `whatsapp-threads`, `whatsapp-threads-2`, and so on, unless you provide `host_name`.
 - `host_name` is sanitized into a Discord channel name and only affects newly created managed forum channels.
 - Existing channel links continue working unchanged after you switch the default.

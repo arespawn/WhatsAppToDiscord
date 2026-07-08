@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+	normalizeSettings,
 	ONE_WAY_MODES,
 	oneWayAllowsDiscordToWhatsApp,
 	oneWayAllowsWhatsAppToDiscord,
@@ -39,4 +40,13 @@ test("oneWay direction helpers gate flows correctly", () => {
 test("invalid oneWay values normalize to bidirectional", () => {
 	assert.equal(oneWayAllowsDiscordToWhatsApp(undefined), true);
 	assert.equal(oneWayAllowsWhatsAppToDiscord("invalid"), true);
+});
+
+test("legacy numeric oneWay values normalize to string modes", () => {
+	assert.equal(normalizeSettings({ oneWay: 1 }).oneWay, "to-discord");
+	assert.equal(normalizeSettings({ oneWay: "1" }).oneWay, "to-discord");
+	assert.equal(normalizeSettings({ oneWay: 2 }).oneWay, "to-whatsapp");
+	assert.equal(normalizeSettings({ oneWay: "2" }).oneWay, "to-whatsapp");
+	assert.equal(normalizeSettings({ oneWay: 3 }).oneWay, "bidirectional");
+	assert.equal(normalizeSettings({ oneWay: "3" }).oneWay, "bidirectional");
 });

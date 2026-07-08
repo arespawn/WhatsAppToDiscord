@@ -26,8 +26,19 @@ const ONE_WAY_MODES = Object.freeze({
 
 const VALID_ONE_WAY_MODES = new Set(Object.values(ONE_WAY_MODES));
 
-const normalizeOneWayMode = (value) =>
-	VALID_ONE_WAY_MODES.has(value) ? value : ONE_WAY_MODES.TWO_WAY;
+const LEGACY_ONE_WAY_MODES = Object.freeze({
+	1: ONE_WAY_MODES.TO_DISCORD_ONLY,
+	2: ONE_WAY_MODES.TO_WHATSAPP_ONLY,
+	3: ONE_WAY_MODES.TWO_WAY,
+});
+
+const normalizeOneWayMode = (value) => {
+	if (VALID_ONE_WAY_MODES.has(value)) return value;
+	if (Object.hasOwn(LEGACY_ONE_WAY_MODES, value)) {
+		return LEGACY_ONE_WAY_MODES[value];
+	}
+	return ONE_WAY_MODES.TWO_WAY;
+};
 
 const oneWayAllowsWhatsAppToDiscord = (mode) =>
 	normalizeOneWayMode(mode) !== ONE_WAY_MODES.TO_WHATSAPP_ONLY;

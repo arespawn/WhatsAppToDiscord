@@ -126,3 +126,19 @@ test("Baileys rc13 preserves delivered receipts while WA2DC stays unavailable", 
 		/await sendReceipt\(msg\.key\.remoteJid, participant, \[msg\.key\.id\], type\)/u,
 	);
 });
+
+test("Baileys rc13 notification ack tolerates pre-auth pairing notifications", () => {
+	const messagesRecvSource = fs.readFileSync(
+		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",
+		"utf8",
+	);
+
+	assert.match(
+		messagesRecvSource,
+		/buildAckStanza\(node, errorCode, authState\.creds\.me\?\.id\)/u,
+	);
+	assert.doesNotMatch(
+		messagesRecvSource,
+		/buildAckStanza\(node, errorCode, authState\.creds\.me\.id\)/u,
+	);
+});

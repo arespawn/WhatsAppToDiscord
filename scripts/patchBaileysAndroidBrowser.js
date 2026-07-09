@@ -270,6 +270,18 @@ const preserveDeliveredReceiptWhileUnavailableAfter = `                        e
                             // but inbound messages should still acknowledge delivery to the sender.
                         }`;
 
+const toleratePreAuthNotificationAckBefore = `    const sendMessageAck = async (node, errorCode) => {
+        const stanza = buildAckStanza(node, errorCode, authState.creds.me.id);
+        logger.debug({ recv: { tag: node.tag, attrs: node.attrs }, sent: stanza.attrs }, 'sent ack');
+        await sendNode(stanza);
+    };`;
+
+const toleratePreAuthNotificationAckAfter = `    const sendMessageAck = async (node, errorCode) => {
+        const stanza = buildAckStanza(node, errorCode, authState.creds.me?.id);
+        logger.debug({ recv: { tag: node.tag, attrs: node.attrs }, sent: stanza.attrs }, 'sent ack');
+        await sendNode(stanza);
+    };`;
+
 const replacements = [
 	{
 		file: "lib/Utils/browser-utils.js",
@@ -385,6 +397,12 @@ const replacements = [
 			"WA2DC stays unavailable on connect so the phone keeps getting notifications",
 		before: preserveDeliveredReceiptWhileUnavailableBefore,
 		after: preserveDeliveredReceiptWhileUnavailableAfter,
+	},
+	{
+		file: "lib/Socket/messages-recv.js",
+		marker: "buildAckStanza(node, errorCode, authState.creds.me?.id)",
+		before: toleratePreAuthNotificationAckBefore,
+		after: toleratePreAuthNotificationAckAfter,
 	},
 ];
 

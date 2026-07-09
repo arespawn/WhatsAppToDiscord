@@ -259,6 +259,37 @@ const summarizeDisconnectError = (error) => {
 		stack: summarizeBaileysErrorStack(error.stack),
 	};
 };
+export const isPartialUnregisteredWhatsAppAuth = (creds = {}) => {
+	if (!creds || creds.registered === true) {
+		return false;
+	}
+	return Boolean(creds.me || creds.account);
+};
+const getDisconnectStatusCode = (error) =>
+	typeof error?.output?.statusCode === "number"
+		? error.output.statusCode
+		: typeof error?.statusCode === "number"
+			? error.statusCode
+			: undefined;
+const getDisconnectMessage = (error) => String(error?.message || error || "");
+const shouldResetPartialWhatsAppAuth = ({ creds, error } = {}) => {
+	if (!isPartialUnregisteredWhatsAppAuth(creds)) {
+		return false;
+	}
+	const statusCode = getDisconnectStatusCode(error);
+	if (
+		statusCode === DisconnectReason.loggedOut ||
+		statusCode === DisconnectReason.badSession ||
+		statusCode === DisconnectReason.forbidden ||
+		statusCode === DisconnectReason.multideviceMismatch
+	) {
+		return true;
+	}
+	return (
+		statusCode === DisconnectReason.timedOut &&
+		getDisconnectMessage(error).includes("QR refs attempts ended")
+	);
+};
 const getReconnectDelayMs = (retry) => {
 	if (retry <= 3) {
 		return 0;
@@ -3315,6 +3346,19 @@ const connectToWhatsApp = async (retry = 1) => {
 					},
 					"WhatsApp connection closed.",
 				);
+				if (
+					shouldResetPartialWhatsAppAuth({
+						creds: client.authState?.creds || authState?.creds,
+						error: lastDisconnect?.error,
+					})
+				) {
+					await sendControlMessage(
+						"WhatsApp pairing ended with a stale partial session. WA2DC cleared the WhatsApp auth state; scan the next fresh QR code or request a fresh pairing code.",
+					);
+					await utils.whatsapp.deleteSession();
+					await actions.start(true);
+					return;
+				}
 				if (
 					statusCode === DisconnectReason.loggedOut ||
 					statusCode === DisconnectReason.badSession

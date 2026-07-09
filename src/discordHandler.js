@@ -51,7 +51,7 @@ const {
 	MessageFlags,
 	MessageType,
 } = discordJs;
-const { getDevice } = baileys;
+const { DisconnectReason, getDevice } = baileys;
 
 const DEFAULT_AVATAR_URL = "https://cdn.discordapp.com/embed/avatars/0.png";
 const PIN_DURATION_PRESETS = {
@@ -2234,6 +2234,25 @@ const waitBeforePairingCodeRequest = async () => {
 		await sleep(waitMs);
 	}
 };
+const getBaileysErrorStatusCode = (err) =>
+	typeof err?.output?.statusCode === "number"
+		? err.output.statusCode
+		: typeof err?.statusCode === "number"
+			? err.statusCode
+			: undefined;
+const getPairingCodeFailureReply = (err) => {
+	const statusCode = getBaileysErrorStatusCode(err);
+	if (
+		statusCode === DisconnectReason.connectionClosed ||
+		statusCode === DisconnectReason.timedOut
+	) {
+		return "WhatsApp closed the current pairing window before a code could be requested. Wait for the next fresh QR/pairing prompt, then run `/pairwithcode` again.";
+	}
+	if (statusCode === DisconnectReason.loggedOut) {
+		return "WhatsApp rejected the current saved session while requesting a pairing code. Wait for WA2DC to show a fresh QR/pairing prompt, then run `/pairwithcode` again.";
+	}
+	return null;
+};
 const waitForWhatsAppPairingReady = async (client) => {
 	if (!client?.ev || typeof client.ev.on !== "function") {
 		return { ok: false, reason: "unavailable" };
@@ -2412,7 +2431,21 @@ const commandHandlers = {
 				return;
 			}
 
-			const code = await state.waClient.requestPairingCode(number);
+			let code;
+			try {
+				code = await state.waClient.requestPairingCode(number);
+			} catch (err) {
+				const message = getPairingCodeFailureReply(err);
+				if (!message) {
+					throw err;
+				}
+				state.logger?.warn?.(
+					{ err },
+					"WhatsApp pairing code request failed because the pairing window closed.",
+				);
+				await ctx.reply(message);
+				return;
+			}
 			await ctx.reply(
 				`Your pairing code is: ${code}\nEnter it immediately in WhatsApp. If it is rejected, wait for the next QR/pairing prompt and request a fresh code.`,
 			);

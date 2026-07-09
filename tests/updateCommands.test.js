@@ -1174,6 +1174,127 @@ test("/pairwithcode accepts E.164 input and sends digits to Baileys", async () =
 	}
 });
 
+test("/pairwithcode reports closed pairing windows without escaping command handling", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+	};
+	const originalDcClient = state.dcClient;
+	const originalWaClient = state.waClient;
+	const originalWaConnection = state.waConnection;
+	const originalLogger = state.logger;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+		const warnings = [];
+		const errors = [];
+		state.logger = {
+			warn(entry, message) {
+				warnings.push({ entry, message });
+			},
+			error(entry, message) {
+				errors.push({ entry, message });
+			},
+		};
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+
+		const failures = [
+			{ statusCode: 428, message: "Connection Closed" },
+			{ statusCode: 408, message: "QR refs attempts ended" },
+			{ statusCode: 401, message: "Connection Failure" },
+		];
+		const pairingRequests = [];
+		state.waClient = {
+			ev: new EventEmitter(),
+			async requestPairingCode(phoneNumber) {
+				pairingRequests.push(phoneNumber);
+				const failure = failures.shift();
+				const error = new Error(failure.message);
+				error.output = { statusCode: failure.statusCode };
+				throw error;
+			},
+		};
+		state.waConnection = {
+			browserProfile: ["Mac OS", "Chrome", "14.4.1"],
+			connection: "connecting",
+			hasQr: false,
+			qrAt: 0,
+			registered: false,
+			updatedAt: Date.now() - 6000,
+		};
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler(
+			"pairwithcode-closed-window",
+		);
+		state.dcClient = await discordHandler.start();
+		await delay(0);
+
+		const interactions = [428, 408, 401].map((statusCode) =>
+			createInteraction({
+				channelId: "control",
+				commandName: "pairwithcode",
+				stringOptions: {
+					phone: `+1 202 555 0${statusCode}`,
+				},
+			}),
+		);
+
+		for (const interaction of interactions) {
+			fakeClient.emit("interactionCreate", interaction);
+			assert.equal(
+				await waitFor(() => interaction.records.editReply.length === 1),
+				true,
+			);
+		}
+
+		assert.deepEqual(pairingRequests, [
+			"12025550428",
+			"12025550408",
+			"12025550401",
+		]);
+		assert.match(
+			interactions[0].records.editReply[0]?.content,
+			/closed the current pairing window/,
+		);
+		assert.match(
+			interactions[1].records.editReply[0]?.content,
+			/closed the current pairing window/,
+		);
+		assert.match(
+			interactions[2].records.editReply[0]?.content,
+			/rejected the current saved session/,
+		);
+		assert.equal(errors.length, 0);
+		assert.equal(warnings.length, 3);
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+
+		state.dcClient = originalDcClient;
+		state.waClient = originalWaClient;
+		state.waConnection = originalWaConnection;
+		state.logger = originalLogger;
+		resetClientFactoryOverrides();
+	}
+});
+
 test("/pairwithcode refuses to request codes after WhatsApp is connected", async () => {
 	const originalDiscordUtils = {
 		getGuild: utils.discord.getGuild,

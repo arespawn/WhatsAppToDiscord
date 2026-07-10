@@ -282,6 +282,37 @@ const toleratePreAuthNotificationAckAfter = `    const sendMessageAck = async (n
         await sendNode(stanza);
     };`;
 
+const skipIncompleteLinkCodePairingBefore = `            case 'link_code_companion_reg':
+                const linkCodeCompanionReg = getBinaryNodeChild(node, 'link_code_companion_reg');
+                const ref = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_ref'));
+                const primaryIdentityPublicKey = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'primary_identity_pub'));
+                const primaryEphemeralPublicKeyWrapped = toRequiredBuffer(getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_wrapped_primary_ephemeral_pub'));`;
+
+const skipIncompleteLinkCodePairingAfter = `            case 'link_code_companion_reg':
+                const linkCodeCompanionReg = getBinaryNodeChild(node, 'link_code_companion_reg');
+                const requiredPairingBuffers = {
+                    link_code_pairing_ref: getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_ref'),
+                    primary_identity_pub: getBinaryNodeChildBuffer(linkCodeCompanionReg, 'primary_identity_pub'),
+                    link_code_pairing_wrapped_primary_ephemeral_pub: getBinaryNodeChildBuffer(linkCodeCompanionReg, 'link_code_pairing_wrapped_primary_ephemeral_pub')
+                };
+                const missingFields = Object.entries(requiredPairingBuffers)
+                    .filter(([, value]) => value === undefined)
+                    .map(([field]) => field);
+                if (missingFields.length > 0) {
+                    const childTags = Array.isArray(linkCodeCompanionReg?.content)
+                        ? linkCodeCompanionReg.content.map(child => child.tag)
+                        : [];
+                    logger.warn({
+                        missingFields,
+                        stage: linkCodeCompanionReg?.attrs?.stage ?? null,
+                        childTags
+                    }, 'skipping incomplete link code companion registration notification');
+                    break;
+                }
+                const ref = toRequiredBuffer(requiredPairingBuffers.link_code_pairing_ref);
+                const primaryIdentityPublicKey = toRequiredBuffer(requiredPairingBuffers.primary_identity_pub);
+                const primaryEphemeralPublicKeyWrapped = toRequiredBuffer(requiredPairingBuffers.link_code_pairing_wrapped_primary_ephemeral_pub);`;
+
 const replacements = [
 	{
 		file: "lib/Utils/browser-utils.js",
@@ -397,6 +428,12 @@ const replacements = [
 			"WA2DC stays unavailable on connect so the phone keeps getting notifications",
 		before: preserveDeliveredReceiptWhileUnavailableBefore,
 		after: preserveDeliveredReceiptWhileUnavailableAfter,
+	},
+	{
+		file: "lib/Socket/messages-recv.js",
+		marker: "skipping incomplete link code companion registration notification",
+		before: skipIncompleteLinkCodePairingBefore,
+		after: skipIncompleteLinkCodePairingAfter,
 	},
 	{
 		file: "lib/Socket/messages-recv.js",

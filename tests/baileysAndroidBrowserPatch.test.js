@@ -142,3 +142,60 @@ test("Baileys rc13 notification ack tolerates pre-auth pairing notifications", (
 		/buildAckStanza\(node, errorCode, authState\.creds\.me\.id\)/u,
 	);
 });
+
+test("Baileys rc13 skips incomplete link code pairing notifications safely", () => {
+	const messagesRecvSource = fs.readFileSync(
+		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",
+		"utf8",
+	);
+	const guardStart = messagesRecvSource.indexOf(
+		"const requiredPairingBuffers = {",
+	);
+	const completePairingStart = messagesRecvSource.indexOf(
+		"const ref = toRequiredBuffer(requiredPairingBuffers.link_code_pairing_ref);",
+		guardStart,
+	);
+	const registeredIndex = messagesRecvSource.indexOf(
+		"authState.creds.registered = true;",
+		completePairingStart,
+	);
+
+	assert.notEqual(guardStart, -1);
+	assert.ok(completePairingStart > guardStart);
+	assert.ok(registeredIndex > completePairingStart);
+
+	const guardSource = messagesRecvSource.slice(
+		guardStart,
+		completePairingStart,
+	);
+	assert.match(guardSource, /link_code_pairing_ref/u);
+	assert.match(guardSource, /primary_identity_pub/u);
+	assert.match(guardSource, /link_code_pairing_wrapped_primary_ephemeral_pub/u);
+	assert.match(guardSource, /missingFields\.length > 0/u);
+	assert.match(guardSource, /break;/u);
+	assert.match(
+		guardSource,
+		/logger\.warn\(\{\s*missingFields,\s*stage: linkCodeCompanionReg\?\.attrs\?\.stage \?\? null,\s*childTags\s*\}/u,
+	);
+	assert.doesNotMatch(guardSource, /toRequiredBuffer/u);
+	assert.doesNotMatch(guardSource, /logger\.warn\(\{\s*node/u);
+	assert.doesNotMatch(guardSource, /node\.attrs/u);
+
+	const completePairingSource = messagesRecvSource.slice(
+		completePairingStart,
+		registeredIndex + "authState.creds.registered = true;".length,
+	);
+	assert.match(
+		completePairingSource,
+		/toRequiredBuffer\(requiredPairingBuffers\.link_code_pairing_ref\)/u,
+	);
+	assert.match(
+		completePairingSource,
+		/toRequiredBuffer\(requiredPairingBuffers\.primary_identity_pub\)/u,
+	);
+	assert.match(
+		completePairingSource,
+		/toRequiredBuffer\(requiredPairingBuffers\.link_code_pairing_wrapped_primary_ephemeral_pub\)/u,
+	);
+	assert.match(completePairingSource, /authState\.creds\.registered = true/u);
+});

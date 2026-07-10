@@ -30,7 +30,8 @@ Release pipeline builds packaged binaries from a pkg-safe CJS runtime bundle:
 - release builds publish a signed `${binary}.runtime.tar.gz` archive for each packaged binary so `/update` can refresh the sidecar automatically
 - packaged startup may download that signed runtime archive on demand when a packaged install is missing `runtime/`
 - runtime may branch on `process.pkg` for packaged-vs-source behavior
-- `postinstall` patches Baileys rc13 for the Android browser profile, disabled-history startup buffering, inbound delivered receipts while unavailable, pre-auth notification ACKs during pairing, LID migration probes, and bounded tctoken pruning; release builds must run after that patch has been applied
+- `postinstall` patches Baileys rc13 for the Android browser profile, disabled-history startup buffering, inbound delivered receipts while unavailable, pre-auth notification ACKs during pairing, incomplete link-code pairing notifications, LID migration probes, and bounded tctoken pruning; release builds must run after that patch has been applied
+- WhatsApp may send an empty `link_code_companion_reg` notice before the complete pairing payload; the patch checks all three required cryptographic fields before decoding, ACKs and skips incomplete notices, and logs only missing field names, stage, and child tags (see [Baileys issue #2600](https://github.com/WhiskeySockets/Baileys/issues/2600))
 
 ## Packaging-safe dependency rules
 

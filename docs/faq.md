@@ -47,6 +47,9 @@ Discord stickers are now mirrored as real WhatsApp stickers when possible. Stati
 ## Can I bridge WhatsApp calls to Discord?
 No. The WhatsApp Web protocol used by the bot does not expose the real-time audio or video streams of a call. Incoming and missed calls are only sent as notifications to Discord, so the bot cannot relay or receive live WhatsApp calls.
 
+## How do I change the log verbosity?
+Set the `WA2DC_LOG_LEVEL` environment variable to one of `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent` (default: `info`). Setting it to `debug` is useful for diagnosing connection or pairing issues. If you set an invalid value, the bot will fail to start.
+
 ## Is it possible to run on Docker?
 Yes. You can build the image manually or use the provided `docker-compose.yml`. Copy `.env.example` to `.env`, set your Discord token inside and run `docker compose up -d` to start the container.
 

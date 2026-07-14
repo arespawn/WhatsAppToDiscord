@@ -1,5 +1,6 @@
 import makeWASocket, {
 	fetchLatestBaileysVersion,
+	fetchLatestWaWebVersion,
 } from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
 
@@ -39,6 +40,10 @@ export const createWhatsAppClient = (config) => {
 export const getBaileysVersion = async () => {
 	if (typeof overrides.getBaileysVersion === "function") {
 		return overrides.getBaileysVersion();
+	}
+	const waWebVersion = await fetchLatestWaWebVersion();
+	if (waWebVersion.isLatest) {
+		return waWebVersion;
 	}
 	return fetchLatestBaileysVersion();
 };

@@ -56,6 +56,9 @@ No. The WhatsApp Web protocol used by the bot does not expose the real-time audi
 ## How do I change the log verbosity?
 Set the `WA2DC_LOG_LEVEL` environment variable to one of `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent` (default: `info`). Setting it to `debug` is useful for diagnosing connection or pairing issues. If you set an invalid value, the bot will fail to start.
 
+## Can the standalone executable read `.env`?
+Yes. Put `.env` beside the packaged executable and restart it. Source runs read `.env` from the working directory instead. Operating-system environment variables override values from the file, a missing file is ignored, and unreadable files stop startup. The file can contain secrets, so restrict it to the runtime account (for example, `chmod 600 .env` on macOS/Linux) and never share it.
+
 ## Is it possible to run on Docker?
 Yes. You can build the image manually or use the provided `docker-compose.yml`. Copy `.env.example` to `.env`, set your Discord token inside and run `docker compose up -d` to start the container.
 
@@ -70,4 +73,5 @@ The bot is built publicly on [GitHub actions](https://github.com/arespawn/WhatsA
 1. Run `npm run build:bin` to bundle + package for your current OS/CPU (output goes to `build/`)
     - Optional smoke test: `npm run build:bin:smoke`
 1. Keep the generated `runtime/` folder next to the executable. Packaged builds use that sidecar for native modules such as `sharp`.
+1. Optionally copy `.env.example` to `.env` beside the executable. Values set by the operating system take precedence.
 1. That's it. You will have your executable in the `build` folder.

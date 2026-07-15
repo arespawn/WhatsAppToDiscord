@@ -5,6 +5,7 @@ import path from "node:path";
 import pino from "pino";
 import pretty from "pino-pretty";
 
+import { resolveLogLevel } from "./logLevel.js";
 import {
 	consumeRestartFlagSync,
 	createUpdateValidationState,
@@ -36,7 +37,7 @@ async function runWorker() {
 
 function setupSupervisorLogging() {
 	const logger = pino(
-		{},
+		{ level: resolveLogLevel() },
 		pino.multistream([
 			{ stream: pino.destination("logs.txt") },
 			{ stream: pretty({ colorize: true }) },

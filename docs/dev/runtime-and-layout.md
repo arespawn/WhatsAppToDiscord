@@ -12,6 +12,7 @@ WA2DC bridges WhatsApp and Discord:
 - Discord side: Discord bot (`discord.js`)
 - State: local persistence in `storage/`
 - Process supervision: watchdog runner in `src/runner.js`
+- Runtime logging: `WA2DC_LOG_LEVEL` sets the Pino threshold for both the watchdog and worker loggers. Supported values are `trace`, `debug`, `info`, `warn`, `error`, `fatal`, and `silent`; the default is `info`, and invalid values prevent startup. It controls structured `logs.txt` entries and pretty Pino console output, while raw process warnings or dependency `console` output can still reach `terminal.log`. Debug logs can contain operational identifiers such as WhatsApp JIDs and Discord channel/message IDs, so treat diagnostic logs as sensitive.
 
 Primary flow:
 

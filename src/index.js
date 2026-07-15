@@ -4,6 +4,7 @@ import pino from "pino";
 import pretty from "pino-pretty";
 import packageInfo from "../package.json" with { type: "json" };
 import discordHandler from "./discordHandler.js";
+import { resolveLogLevel } from "./logLevel.js";
 import { isRecoverableUnhandledRejection } from "./processErrors.js";
 import {
 	buildProcessExitReportContent,
@@ -54,6 +55,7 @@ suppressSecretBearingDependencyConsoleLogs();
 	];
 	state.logger = pino(
 		{
+			level: resolveLogLevel(),
 			mixin() {
 				return { version };
 			},

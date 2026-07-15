@@ -37,3 +37,33 @@ test("Smoke boots successfully (WA2DC_SMOKE_TEST)", async () => {
 		await fs.rm(tempDir, { recursive: true, force: true });
 	}
 });
+
+test("direct startup loads .env before configuring the worker logger", async () => {
+	const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "wa2dc-smoke-env-"));
+	try {
+		await fs.writeFile(path.join(tempDir, ".env"), "WA2DC_LOG_LEVEL=silent\n", {
+			mode: 0o600,
+		});
+		const env = { ...process.env, WA2DC_SMOKE_TEST: "1" };
+		delete env.WA2DC_LOG_LEVEL;
+		const result = await runCommand(
+			process.execPath,
+			[path.join(ROOT, "src", "index.js")],
+			{
+				cwd: tempDir,
+				env,
+				timeoutMs: 120_000,
+			},
+		);
+
+		assert.equal(result.code, 0, result.stderr);
+		const combined = `${result.stdout}\n${result.stderr}`;
+		assert.ok(
+			!combined.includes("Smoke test completed successfully."),
+			combined,
+		);
+		await fs.stat(path.join(tempDir, "storage", "wa2dc.sqlite"));
+	} finally {
+		await fs.rm(tempDir, { recursive: true, force: true });
+	}
+});

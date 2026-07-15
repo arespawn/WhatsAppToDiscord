@@ -72,6 +72,8 @@ This repository currently pins the published npm package `@whiskeysockets/bailey
 
 Start the bot with `npm start` or run the executable from the releases page. The start script watches the process and brings it back up if it crashes. Running `node src/index.js` directly skips this behaviour, so crashes will stop the bot.
 
+Source runs optionally load `.env` from the working directory. Packaged executables load `.env` from the directory containing the executable, which makes the same configuration available when launching a binary directly. Operating-system environment variables take precedence; missing files are ignored. Because `.env` can contain tokens or the database passphrase, restrict it to the runtime account (for example, `chmod 600 .env` on macOS/Linux).
+
 Runtime logs are written to `logs.txt`. Everything printed to the terminal is also saved to `terminal.log`, which can help diagnose issues when running on a headless server.
 
 Alternatively, you can run the bot using Docker. Copy `.env.example` to `.env`, put your Discord bot token in it and execute:

@@ -1,3 +1,5 @@
+import "./loadRuntimeEnvironment.js";
+
 import { spawn } from "node:child_process";
 import cluster from "node:cluster";
 import fs from "node:fs";

@@ -1,3 +1,5 @@
+import "./loadRuntimeEnvironment.js";
+
 import nodeCrypto from "node:crypto";
 import fs from "node:fs";
 import pino from "pino";

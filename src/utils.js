@@ -1865,7 +1865,7 @@ const updater = {
 				sortedReleases.find((rel) => !rel.prerelease) || sortedReleases[0];
 		}
 
-		if (!release || !release.tag_name) {
+		if (!release?.tag_name) {
 			state.logger.error("Tag name wasn't in result");
 			return null;
 		}
@@ -2705,7 +2705,7 @@ const discord = {
 		const attachments = [];
 		const seen = new Set();
 		for (const sticker of stickers.values()) {
-			if (!sticker || !sticker.id || seen.has(sticker.id)) continue;
+			if (!sticker?.id || seen.has(sticker.id)) continue;
 			const attachment = this._buildStickerAttachment(sticker);
 			if (attachment) {
 				seen.add(sticker.id);
@@ -2905,9 +2905,10 @@ const discord = {
 		const name = whatsapp.jidToName(jid);
 		const roleIds = uniqueDiscordIds(state.settings?.ThreadNotificationRoles);
 		const userIds = uniqueDiscordIds(state.settings?.ThreadNotificationUsers);
-		const mentionTokens = [];
-		roleIds.forEach((id) => mentionTokens.push(`<@&${id}>`));
-		userIds.forEach((id) => mentionTokens.push(`<@${id}>`));
+		const mentionTokens = [
+			...roleIds.map((id) => `<@&${id}>`),
+			...userIds.map((id) => `<@${id}>`),
+		];
 
 		const lines = [];
 		if (notifyTargets && mentionTokens.length) {

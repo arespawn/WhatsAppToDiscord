@@ -74,3 +74,4 @@ Examples:
 - Linux auto-bootstrap in `install_script.sh` currently supports Debian/Ubuntu-based distributions.
 - Existing non-fast-forward git branches are preserved (the script warns and keeps the current checkout).
 - If `node`, `npm`, or `git` are installed but not in `PATH` yet, open a new terminal and rerun.
+- If `npm ci` is printed as `Killed` or exits with code 137, the OS likely killed it for low memory. Free RAM, add swap, or install on a larger host, then rerun the installer.

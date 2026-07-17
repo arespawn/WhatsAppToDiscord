@@ -17,7 +17,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -32,10 +32,10 @@ jobs:
       - name: Generate binaries
         run: |
           mkdir -p build
-          npx -y @yao-pkg/pkg out.cjs -t node24-linux-x64   --options no-warnings --no-bytecode --public --public-packages "*" -o build/WA2DC-Linux
-          npx -y @yao-pkg/pkg out.cjs -t node24-linux-arm64 --options no-warnings --no-bytecode --public --public-packages "*" -o build/WA2DC-Linux-arm64
-          npx -y @yao-pkg/pkg out.cjs -t node24-macos-x64   --options no-warnings --no-bytecode --public --public-packages "*" -o build/WA2DC-macOS
-          npx -y @yao-pkg/pkg out.cjs -t node24-win-x64     --options no-warnings --no-bytecode --public --public-packages "*" -o build/WA2DC.exe
+          npx -y @yao-pkg/pkg@6.19.0 out.cjs -t node24-linux-x64   --options no-warnings --no-bytecode --public --public-packages "*" -o build/WA2DC-Linux
+          npx -y @yao-pkg/pkg@6.19.0 out.cjs -t node24-linux-arm64 --options no-warnings --no-bytecode --public --public-packages "*" -o build/WA2DC-Linux-arm64
+          npx -y @yao-pkg/pkg@6.19.0 out.cjs -t node24-macos-x64   --options no-warnings --no-bytecode --public --public-packages "*" -o build/WA2DC-macOS
+          npx -y @yao-pkg/pkg@6.19.0 out.cjs -t node24-win-x64     --options no-warnings --no-bytecode --public --public-packages "*" -o build/WA2DC.exe
 
       - name: Generate runtime sidecar archives
         run: |

@@ -1,4 +1,5 @@
 import {
+	Browsers,
 	DisconnectReason,
 	generateWAMessageFromContent,
 	getAggregateVotesInPollMessage,
@@ -14,7 +15,18 @@ import {
 } from "@whiskeysockets/baileys/lib/Utils/generics.js";
 import { decryptPollVote } from "@whiskeysockets/baileys/lib/Utils/process-message.js";
 import useSQLiteAuthState from "./auth/sqliteAuthState.js";
+import { getChatTargetChannelId } from "./chatLinks.js";
 import { createWhatsAppClient, getBaileysVersion } from "./clientFactories.js";
+import {
+	NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS,
+	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
+	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
+	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
+	oneWayAllowsDiscordToWhatsApp,
+	oneWayAllowsWhatsAppToDiscord,
+	WHATSAPP_BROWSER_PROFILE_ENV,
+	WHATSAPP_BROWSER_PROFILES,
+} from "./contracts.js";
 import groupMetadataCache from "./groupMetadataCache.js";
 import { createGroupRefreshScheduler } from "./groupMetadataRefresh.js";
 import { getImageSharp } from "./imageLibs.js";
@@ -35,13 +47,13 @@ import {
 	waitForNewsletterAckError,
 	waitForNewsletterServerId,
 } from "./newsletterBridge.js";
-import {
-	oneWayAllowsDiscordToWhatsApp,
-	oneWayAllowsWhatsAppToDiscord,
-} from "./oneWay.js";
 import { getPollEncKey, getPollOptions } from "./pollUtils.js";
+import { UPDATE_VALIDATION_WINDOW_MS } from "./runnerLogic.js";
 import state from "./state.js";
+import storage from "./storage.js";
 import utils from "./utils.js";
+
+export { WHATSAPP_BROWSER_PROFILE_ENV } from "./contracts.js";
 
 let authState;
 let saveState;
@@ -51,10 +63,232 @@ const allowsDiscordToWhatsApp = () =>
 const allowsWhatsAppToDiscord = () =>
 	oneWayAllowsWhatsAppToDiscord(state.settings.oneWay);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MAX_BAILEYS_LOG_STRING_LENGTH = 2000;
+const MAX_BAILEYS_LOG_ARRAY_LENGTH = 25;
+const MAX_BAILEYS_LOG_DEPTH = 4;
+const BYTES_PER_MIB = 1024 * 1024;
+const HISTORY_SYNC_TYPES_TO_SKIP = new Set([
+	proto.HistorySync.HistorySyncType.INITIAL_BOOTSTRAP,
+	proto.HistorySync.HistorySyncType.INITIAL_STATUS_V3,
+	proto.HistorySync.HistorySyncType.FULL,
+	proto.HistorySync.HistorySyncType.RECENT,
+	proto.HistorySync.HistorySyncType.NON_BLOCKING_DATA,
+	proto.HistorySync.HistorySyncType.ON_DEMAND,
+]);
 const formatDisconnectReason = (statusCode) => {
 	if (typeof statusCode !== "number") return "unknown";
 	const label = DisconnectReason[statusCode];
 	return label ? `${label} (${statusCode})` : `code ${statusCode}`;
+};
+const sanitizeBaileysLogString = (value) => {
+	if (value.length <= MAX_BAILEYS_LOG_STRING_LENGTH) {
+		return value;
+	}
+	if (value.includes("data:text/javascript;base64")) {
+		return `[omitted ${value.length} character bundled stack trace]`;
+	}
+	return `${value.slice(0, MAX_BAILEYS_LOG_STRING_LENGTH)}... [truncated ${value.length - MAX_BAILEYS_LOG_STRING_LENGTH} chars]`;
+};
+const sanitizeBaileysLogValue = (
+	value,
+	{ depth = 0, seen = new WeakSet() } = {},
+) => {
+	if (typeof value === "string") {
+		return sanitizeBaileysLogString(value);
+	}
+	if (
+		value == null ||
+		typeof value === "number" ||
+		typeof value === "boolean"
+	) {
+		return value;
+	}
+	if (typeof value === "bigint") {
+		return `${value}n`;
+	}
+	if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
+		return {
+			type: Buffer.isBuffer(value) ? "Buffer" : value.constructor.name,
+			byteLength: value.byteLength,
+		};
+	}
+	if (value instanceof Error) {
+		return summarizeDisconnectError(value);
+	}
+	if (typeof value !== "object") {
+		return String(value);
+	}
+	if (seen.has(value)) {
+		return "[Circular]";
+	}
+	if (depth >= MAX_BAILEYS_LOG_DEPTH) {
+		return `[${Array.isArray(value) ? "Array" : "Object"}]`;
+	}
+	seen.add(value);
+	if (Array.isArray(value)) {
+		const entries = value
+			.slice(0, MAX_BAILEYS_LOG_ARRAY_LENGTH)
+			.map((entry) =>
+				sanitizeBaileysLogValue(entry, { depth: depth + 1, seen }),
+			);
+		if (value.length > MAX_BAILEYS_LOG_ARRAY_LENGTH) {
+			entries.push(
+				`[truncated ${value.length - MAX_BAILEYS_LOG_ARRAY_LENGTH} items]`,
+			);
+		}
+		return entries;
+	}
+	return Object.fromEntries(
+		Object.entries(value).map(([key, entry]) => [
+			key,
+			sanitizeBaileysLogValue(entry, { depth: depth + 1, seen }),
+		]),
+	);
+};
+const sanitizeBaileysLogArgs = (args) =>
+	args.map((arg) => sanitizeBaileysLogValue(arg));
+const formatMemoryUsageMiB = (usage = process.memoryUsage()) =>
+	Object.fromEntries(
+		Object.entries(usage).map(([key, value]) => [
+			key,
+			Math.round((Number(value || 0) / BYTES_PER_MIB) * 10) / 10,
+		]),
+	);
+const logWhatsAppStartupMemoryProbe = (milestone, extra = {}) => {
+	state.logger?.info?.(
+		{
+			milestone,
+			memoryMiB: formatMemoryUsageMiB(),
+			uptimeMs: Math.round(process.uptime() * 1000),
+			...extra,
+		},
+		"WhatsApp startup memory probe.",
+	);
+};
+const createBaileysLogger = (baseLogger) => {
+	const levels = ["trace", "debug", "info", "warn", "error", "fatal"];
+	const logger = {};
+	for (const level of levels) {
+		logger[level] = (...args) => {
+			const target =
+				typeof baseLogger?.[level] === "function"
+					? baseLogger[level]
+					: typeof baseLogger?.info === "function"
+						? baseLogger.info
+						: null;
+			if (target) {
+				target.apply(baseLogger, sanitizeBaileysLogArgs(args));
+			}
+		};
+	}
+	logger.child = () => logger;
+	return logger;
+};
+const createStartupProbeBaileysLogger = (baseLogger) => {
+	const logger = createBaileysLogger(baseLogger);
+	const probeOnce = new Set();
+	const wrapProbe = (level) => {
+		const base = logger[level];
+		logger[level] = (...args) => {
+			base(...args);
+			const message = args.find((arg) => typeof arg === "string");
+			if (!message) return;
+			const probe = [
+				{
+					match: "connected to WA",
+					milestone: "after-connected-to-wa",
+				},
+				{
+					match: "opened connection to WA",
+					milestone: "after-opened-connection-to-wa",
+				},
+				{
+					match: "Own LID session created successfully",
+					milestone: "after-lid-session-migration",
+				},
+				{
+					match:
+						"Timeout in AwaitingInitialSync, forcing state to Online and flushing buffer",
+					milestone: "after-first-event-buffer-flush",
+					deferMs: 25,
+				},
+			].find(({ match }) => message.includes(match));
+			if (!probe || probeOnce.has(probe.milestone)) return;
+			probeOnce.add(probe.milestone);
+			if (typeof probe.deferMs === "number") {
+				setTimeout(
+					() => logWhatsAppStartupMemoryProbe(probe.milestone),
+					probe.deferMs,
+				).unref?.();
+				return;
+			}
+			logWhatsAppStartupMemoryProbe(probe.milestone);
+		};
+	};
+	for (const level of ["info", "warn", "error"]) {
+		wrapProbe(level);
+	}
+	return logger;
+};
+const shouldSyncWhatsAppHistoryMessage = ({ syncType } = {}) =>
+	!HISTORY_SYNC_TYPES_TO_SKIP.has(syncType);
+const summarizeBaileysErrorStack = (stack) => {
+	if (typeof stack !== "string") return undefined;
+	if (
+		stack.length > MAX_BAILEYS_LOG_STRING_LENGTH ||
+		stack.includes("data:text/javascript;base64")
+	) {
+		return sanitizeBaileysLogString(stack);
+	}
+	return stack.split("\n").slice(0, 6).map(sanitizeBaileysLogString).join("\n");
+};
+const summarizeDisconnectError = (error) => {
+	if (!error) {
+		return { message: "unknown" };
+	}
+	return {
+		message: String(error.message || error),
+		name: typeof error.name === "string" ? error.name : undefined,
+		statusCode:
+			typeof error.output?.statusCode === "number"
+				? error.output.statusCode
+				: typeof error.statusCode === "number"
+					? error.statusCode
+					: undefined,
+		code: error.code,
+		stack: summarizeBaileysErrorStack(error.stack),
+	};
+};
+export const isPartialUnregisteredWhatsAppAuth = (creds = {}) => {
+	if (!creds || creds.registered === true) {
+		return false;
+	}
+	return Boolean(creds.me || creds.account);
+};
+const getDisconnectStatusCode = (error) =>
+	typeof error?.output?.statusCode === "number"
+		? error.output.statusCode
+		: typeof error?.statusCode === "number"
+			? error.statusCode
+			: undefined;
+const getDisconnectMessage = (error) => String(error?.message || error || "");
+const shouldResetPartialWhatsAppAuth = ({ creds, error } = {}) => {
+	if (!isPartialUnregisteredWhatsAppAuth(creds)) {
+		return false;
+	}
+	const statusCode = getDisconnectStatusCode(error);
+	if (
+		statusCode === DisconnectReason.loggedOut ||
+		statusCode === DisconnectReason.badSession ||
+		statusCode === DisconnectReason.forbidden ||
+		statusCode === DisconnectReason.multideviceMismatch
+	) {
+		return true;
+	}
+	return (
+		statusCode === DisconnectReason.timedOut &&
+		getDisconnectMessage(error).includes("QR refs attempts ended")
+	);
 };
 const getReconnectDelayMs = (retry) => {
 	if (retry <= 3) {
@@ -64,6 +298,181 @@ const getReconnectDelayMs = (retry) => {
 	const baseDelay = 5000;
 	const maxDelay = 60000;
 	return Math.min(baseDelay * 2 ** (slowAttempt - 1), maxDelay);
+};
+const WHATSAPP_BROWSER_PROFILE_STORAGE_KEY = "whatsapp-browser-profile";
+const WHATSAPP_BROWSER_PROFILE_HEALTHY_STORAGE_KEY =
+	"whatsapp-browser-profile-healthy";
+const WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY =
+	"whatsapp-pairing-code-browser-profile";
+const DEFAULT_WHATSAPP_BROWSER_PROFILE = WHATSAPP_BROWSER_PROFILES.ANDROID;
+export const PAIRING_CODE_BROWSER_PROFILE =
+	WHATSAPP_BROWSER_PROFILES.MACOS_CHROME;
+const getBaileysBrowserProfile = (preset, args) => {
+	const factory = Browsers?.[preset];
+	if (typeof factory !== "function") {
+		throw new Error(`Baileys browser profile is unavailable: ${preset}`);
+	}
+	return factory(...args);
+};
+export const resolveWhatsAppBrowserProfile = (
+	value = DEFAULT_WHATSAPP_BROWSER_PROFILE,
+) => {
+	switch (
+		String(value || DEFAULT_WHATSAPP_BROWSER_PROFILE)
+			.trim()
+			.toLowerCase()
+	) {
+		case WHATSAPP_BROWSER_PROFILES.ANDROID:
+			return getBaileysBrowserProfile("android", ["13"]);
+		case WHATSAPP_BROWSER_PROFILES.MACOS_CHROME:
+			return getBaileysBrowserProfile("macOS", ["Chrome"]);
+		case WHATSAPP_BROWSER_PROFILES.WINDOWS_CHROME:
+			return getBaileysBrowserProfile("windows", ["Chrome"]);
+		case WHATSAPP_BROWSER_PROFILES.UBUNTU_CHROME:
+			return getBaileysBrowserProfile("ubuntu", ["Chrome"]);
+		case WHATSAPP_BROWSER_PROFILES.BAILEYS:
+			return getBaileysBrowserProfile("baileys", ["Chrome"]);
+		default:
+			throw new Error(`Unsupported WhatsApp browser profile: ${value}`);
+	}
+};
+let currentWhatsAppBrowser = resolveWhatsAppBrowserProfile();
+let browserProfileHealthyTimer = null;
+
+export const serializeWhatsAppBrowserProfile = (browser = []) =>
+	Array.isArray(browser) ? browser.map((part) => String(part ?? "")) : [];
+
+export const selectWhatsAppBrowserProfile = ({
+	creds,
+	pairingCodeProfile,
+	storedProfile,
+	envValue = process.env[WHATSAPP_BROWSER_PROFILE_ENV],
+} = {}) => {
+	if (String(envValue || "").trim()) {
+		return resolveWhatsAppBrowserProfile(envValue);
+	}
+	if (
+		creds?.registered &&
+		Array.isArray(storedProfile) &&
+		storedProfile.length
+	) {
+		return serializeWhatsAppBrowserProfile(storedProfile);
+	}
+	if (!creds?.registered && String(pairingCodeProfile || "").trim()) {
+		return resolveWhatsAppBrowserProfile(pairingCodeProfile);
+	}
+	if (!creds?.registered) {
+		return resolveWhatsAppBrowserProfile(DEFAULT_WHATSAPP_BROWSER_PROFILE);
+	}
+	return resolveWhatsAppBrowserProfile(DEFAULT_WHATSAPP_BROWSER_PROFILE);
+};
+
+export const isWhatsAppBrowserProfile = (browser, profileName) =>
+	JSON.stringify(serializeWhatsAppBrowserProfile(browser)) ===
+	JSON.stringify(resolveWhatsAppBrowserProfile(profileName));
+
+export const shouldResetWhatsAppAuthForBrowserProfile = ({
+	creds,
+	storedProfile,
+	currentProfile,
+} = {}) => {
+	if (!creds?.registered) {
+		return false;
+	}
+	if (!Array.isArray(currentProfile) || currentProfile.length === 0) {
+		return false;
+	}
+	if (!Array.isArray(storedProfile) || storedProfile.length === 0) {
+		return true;
+	}
+	return JSON.stringify(storedProfile) !== JSON.stringify(currentProfile);
+};
+
+const readStoredWhatsAppBrowserProfile = async () => {
+	const raw = await storage.get(WHATSAPP_BROWSER_PROFILE_STORAGE_KEY);
+	if (!raw) {
+		return [];
+	}
+	try {
+		const parsed = JSON.parse(raw.toString("utf8"));
+		return serializeWhatsAppBrowserProfile(parsed);
+	} catch (err) {
+		state.logger?.warn(
+			{ err },
+			"Failed to parse stored WhatsApp browser profile.",
+		);
+		return [];
+	}
+};
+
+const saveWhatsAppBrowserProfile = async (browser) => {
+	await storage.upsert(
+		WHATSAPP_BROWSER_PROFILE_STORAGE_KEY,
+		JSON.stringify(serializeWhatsAppBrowserProfile(browser)),
+	);
+};
+const clearBrowserProfileHealthyTimer = () => {
+	if (!browserProfileHealthyTimer) {
+		return;
+	}
+	clearTimeout(browserProfileHealthyTimer);
+	browserProfileHealthyTimer = null;
+};
+const scheduleWhatsAppBrowserProfileHealthyMarker = (browser) => {
+	clearBrowserProfileHealthyTimer();
+	const browserProfile = serializeWhatsAppBrowserProfile(browser);
+	if (
+		!isWhatsAppBrowserProfile(browserProfile, DEFAULT_WHATSAPP_BROWSER_PROFILE)
+	) {
+		return;
+	}
+	browserProfileHealthyTimer = setTimeout(() => {
+		browserProfileHealthyTimer = null;
+		storage
+			.upsert(
+				WHATSAPP_BROWSER_PROFILE_HEALTHY_STORAGE_KEY,
+				JSON.stringify({
+					browserProfile,
+					healthyAt: new Date().toISOString(),
+					uptimeMs: Math.round(process.uptime() * 1000),
+				}),
+			)
+			.then(() => {
+				state.logger?.info(
+					{ browserProfile },
+					"Marked WhatsApp Android browser profile healthy.",
+				);
+			})
+			.catch((err) => {
+				state.logger?.warn(
+					{ err },
+					"Failed to persist WhatsApp browser profile healthy marker.",
+				);
+			});
+	}, UPDATE_VALIDATION_WINDOW_MS);
+	if (typeof browserProfileHealthyTimer.unref === "function") {
+		browserProfileHealthyTimer.unref();
+	}
+};
+
+const readWhatsAppPairingCodeBrowserProfile = async () => {
+	const raw = await storage.get(
+		WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY,
+	);
+	return raw?.toString("utf8").trim() || "";
+};
+
+export const saveWhatsAppPairingCodeBrowserProfile = async (
+	profile = PAIRING_CODE_BROWSER_PROFILE,
+) => {
+	await storage.upsert(
+		WHATSAPP_PAIRING_CODE_BROWSER_PROFILE_STORAGE_KEY,
+		String(profile || "").trim(),
+	);
+};
+
+const clearWhatsAppPairingCodeBrowserProfile = async () => {
+	await saveWhatsAppPairingCodeBrowserProfile("");
 };
 
 const getPollCreation = (message = {}) =>
@@ -192,16 +601,8 @@ const isBroadcastJid = (jid = "") =>
 	typeof jid === "string" && jid.endsWith("@broadcast");
 const isNewsletterJid = (jid = "") =>
 	typeof jid === "string" && jid.endsWith("@newsletter");
-const NEWSLETTER_SPECIAL_FLOW_ENABLED =
-	process.env.WA2DC_NEWSLETTER_SPECIAL_FLOW === "1";
-const useNewsletterSpecialFlowForJid = (jid = "") =>
-	NEWSLETTER_SPECIAL_FLOW_ENABLED && isNewsletterJid(jid);
 const normalizeSendJid = (jid) => utils.whatsapp.formatJid(jid) || jid;
-const NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS = 8000;
-const NEWSLETTER_SERVER_ID_WAIT_POLL_MS = 150;
 const NEWSLETTER_SERVER_ID_WAIT_WITHOUT_PENDING_MS = 300;
-const NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS = 2500;
-const NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS = 8000;
 const NEWSLETTER_SERVER_ID_FETCH_FALLBACK_COUNT = 30;
 const NEWSLETTER_SERVER_ID_FETCH_WINDOW_SECONDS = 12 * 60;
 const NEWSLETTER_SERVER_ID_FETCH_FALLBACK_WINDOW_SECONDS = 3 * 60;
@@ -209,8 +610,6 @@ const NEWSLETTER_SUBSCRIPTION_DEFAULT_TTL_MS = 15 * 60 * 1000;
 const NEWSLETTER_SUBSCRIPTION_RETRY_TTL_MS = 2 * 60 * 1000;
 const NEWSLETTER_MEDIA_STANZA_DEBUG_TTL_MS = 5 * 60 * 1000;
 const NEWSLETTER_MEDIA_STANZA_DEBUG_MAX = 256;
-const NEWSLETTER_MEDIA_STANZA_DEBUG_ENABLED =
-	process.env.WA2DC_NEWSLETTER_MEDIA_DEBUG !== "0";
 const NEWSLETTER_IMAGE_NORMALIZATION_MAX_BYTES = 25 * 1024 * 1024;
 const NEWSLETTER_IMAGE_JPEG_MIME_TYPES = new Set(["image/jpeg", "image/jpg"]);
 const WHATSAPP_MEDIA_ALBUM_MAX_ITEMS = 10;
@@ -888,22 +1287,12 @@ const buildAttachmentCaptionText = ({
 	text,
 	hasOnlyCustomEmoji,
 	isForwardedFromDiscord,
-	useNewsletterSpecialFlow,
-	hasReplyReference,
-	options,
-	ensureNewsletterReplyFallbackContext,
-	prependReplyFallbackContext,
 } = {}) => {
 	let captionText = hasOnlyCustomEmoji ? "" : text;
 	if (isForwardedFromDiscord) {
 		captionText = captionText ? `Forwarded\n${captionText}` : "Forwarded";
 	}
-	if (useNewsletterSpecialFlow && hasReplyReference && !options?.quoted) {
-		return ensureNewsletterReplyFallbackContext().then((replyContext) =>
-			prependReplyFallbackContext(captionText, replyContext),
-		);
-	}
-	return Promise.resolve(captionText);
+	return captionText;
 };
 
 const buildAlbumRelayOptions = ({ client, jid, messageId } = {}) => {
@@ -939,6 +1328,7 @@ const sendMediaAlbumToWhatsApp = async ({
 	contents,
 	captionText = "",
 	mentionJids = [],
+	mentionAll = false,
 	quoted = null,
 } = {}) => {
 	const relayBaseOptions = buildAlbumRelayOptions({
@@ -1009,6 +1399,9 @@ const sendMediaAlbumToWhatsApp = async ({
 				}
 				if (mentionJids.length) {
 					payload.contextInfo.mentionedJid = mentionJids;
+				}
+				if (mentionAll) {
+					payload.contextInfo.nonJidMentions = 1;
 				}
 			}
 			const childMessage = generateWAMessageFromContent(
@@ -1873,8 +2266,9 @@ const replaceLiteralMentionTokens = (text, replacements = []) => {
 
 const DISCORD_USER_MENTION_REGEX = /<@!?(\d+)>/g;
 const DISCORD_ROLE_MENTION_REGEX = /<@&(\d+)>/g;
+const DISCORD_EVERYONE_MENTION_REGEX =
+	/@(everyone|here)(?=$|\s|[\p{P}\p{S}])/giu;
 const DISCORD_REPLY_PREFIX_REGEX = /^(<@!?\d+>|@\S+)\s*/;
-const DISCORD_REPLY_FALLBACK_MAX_CHARS = 160;
 const DISCORD_MESSAGE_TYPE_REPLY = 19;
 
 const isDiscordReplyReference = (message = {}) => {
@@ -1887,75 +2281,11 @@ const isDiscordReplyReference = (message = {}) => {
 	if (typeof type === "number") {
 		return type === DISCORD_MESSAGE_TYPE_REPLY;
 	}
-	if (typeof type === "string") {
-		const normalizedType = type.trim().toUpperCase();
-		return (
-			normalizedType === "REPLY" ||
-			normalizedType === String(DISCORD_MESSAGE_TYPE_REPLY)
-		);
-	}
 	return false;
 };
 
-const formatReplyFallbackText = (value = "") =>
-	String(value || "")
-		.replace(/\s+/g, " ")
-		.trim()
-		.slice(0, DISCORD_REPLY_FALLBACK_MAX_CHARS);
-
-const prependReplyFallbackContext = (text, replyContext) => {
-	if (!replyContext) return text || "";
-	if (!text) return replyContext;
-	return `${replyContext}\n${text}`;
-};
-
-const buildNewsletterReplyFallbackContext = async (message) => {
-	const channelId = message?.reference?.channelId;
-	const messageId = message?.reference?.messageId;
-	if (!channelId || !messageId) {
-		return null;
-	}
-	try {
-		const channel = await message?.client?.channels?.fetch?.(channelId);
-		const repliedMessage = await channel?.messages?.fetch?.(messageId);
-		const author =
-			repliedMessage?.member?.displayName ||
-			repliedMessage?.author?.globalName ||
-			repliedMessage?.author?.username ||
-			"Unknown";
-		const rawText =
-			repliedMessage?.cleanContent || repliedMessage?.content || "";
-		const fallbackText =
-			formatReplyFallbackText(rawText) ||
-			(repliedMessage?.attachments?.size ? "[attachment]" : "[message]");
-		return `Replying to ${author}: ${fallbackText}`;
-	} catch {
-		return `Replying to message ${messageId}`;
-	}
-};
-
-const cloneNewsletterSendContentWithReplyFallback = (
-	content = {},
-	replyContext = "",
-) => {
-	if (!replyContext || !content || typeof content !== "object") {
-		return content;
-	}
-	const next = { ...content };
-	if (typeof next.text === "string") {
-		next.text = prependReplyFallbackContext(next.text, replyContext);
-		return next;
-	}
-	if (typeof next.caption === "string") {
-		next.caption = prependReplyFallbackContext(next.caption, replyContext);
-		return next;
-	}
-	next.caption = prependReplyFallbackContext("", replyContext);
-	return next;
-};
-
 const notifyLinkedDiscordChannel = async (jid, text) => {
-	const channelId = state.chats[jid]?.channelId;
+	const channelId = getChatTargetChannelId(state.chats[jid]);
 	if (!channelId || !text) return;
 	const channel = await utils.discord.getChannel(channelId).catch(() => null);
 	await channel?.send?.(text).catch(() => {});
@@ -2088,6 +2418,25 @@ const normalizeMentionJidsForChat = async (jid, mentionJids = []) => [
 	),
 ];
 
+const resolveDiscordEveryoneMentionForWhatsApp = ({ message, text, jid }) => {
+	const canMentionAll =
+		typeof jid === "string" &&
+		jid.endsWith("@g.us") &&
+		message?.mentions?.everyone === true;
+	if (!canMentionAll) return { text, mentionAll: false };
+
+	let replaced = false;
+	const sourceText = typeof text === "string" ? text : "";
+	let nextText = sourceText.replace(DISCORD_EVERYONE_MENTION_REGEX, () => {
+		replaced = true;
+		return "@all";
+	});
+	if (!replaced) {
+		nextText = nextText ? `@all ${nextText}` : "@all";
+	}
+	return { text: nextText, mentionAll: true };
+};
+
 const resolveDiscordTextMentionsForWhatsApp = async ({
 	message,
 	text,
@@ -2105,10 +2454,16 @@ const resolveDiscordTextMentionsForWhatsApp = async ({
 					{ chatJid: jid },
 				)
 			: { text, mentionJids: [] };
-	const updatedText = replaceLiteralMentionTokens(
+	let updatedText = replaceLiteralMentionTokens(
 		linkedMentions.text ?? text,
 		fallbackReplacements,
 	);
+	const everyoneMention = resolveDiscordEveryoneMentionForWhatsApp({
+		message,
+		text: updatedText,
+		jid,
+	});
+	updatedText = everyoneMention.text;
 	const mentionJidsRaw = [
 		...new Set([
 			...(Array.isArray(linkedMentions.mentionJids)
@@ -2118,7 +2473,11 @@ const resolveDiscordTextMentionsForWhatsApp = async ({
 		]),
 	];
 	const mentionJids = await normalizeMentionJidsForChat(jid, mentionJidsRaw);
-	return { text: updatedText, mentionJids };
+	return {
+		text: updatedText,
+		mentionJids,
+		mentionAll: everyoneMention.mentionAll,
+	};
 };
 
 const handlePollUpdateMessage = async (client, rawMessage) => {
@@ -2668,8 +3027,7 @@ const patchSendNodeForNewsletterMessages = (client) => {
 			const outboundId = normalizeBridgeMessageId(frame?.attrs?.id);
 			const needsMediaType =
 				frame?.attrs?.type === "media" && !frame?.attrs?.mediatype;
-			const shouldInspectMedia =
-				NEWSLETTER_MEDIA_STANZA_DEBUG_ENABLED && frame?.attrs?.type === "media";
+			const shouldInspectMedia = frame?.attrs?.type === "media";
 			const contentNodes = Array.isArray(frame?.content) ? frame.content : [];
 			const hasMeta = (predicate) =>
 				contentNodes.some((node) => predicate(node));
@@ -2893,14 +3251,18 @@ const connectToWhatsApp = async (retry = 1) => {
 		}
 	}
 
+	logWhatsAppStartupMemoryProbe("before-whatsapp-socket-create", {
+		browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
+	});
+
 	const client = createWhatsAppClient({
 		version,
 		printQRInTerminal: false,
 		auth: authState,
-		logger: state.logger,
+		logger: createStartupProbeBaileysLogger(state.logger),
 		markOnlineOnConnect: false,
-		syncFullHistory: true,
-		shouldSyncHistoryMessage: () => true,
+		syncFullHistory: false,
+		shouldSyncHistoryMessage: shouldSyncWhatsAppHistoryMessage,
 		generateHighQualityLinkPreview: true,
 		cachedGroupMetadata: async (jid) =>
 			groupMetadataCache.get(utils.whatsapp.formatJid(jid)),
@@ -2913,8 +3275,20 @@ const connectToWhatsApp = async (retry = 1) => {
 
 			return stored.message || stored;
 		},
-		browser: ["Firefox (Linux)", "", ""],
+		browser: currentWhatsAppBrowser,
 	});
+	logWhatsAppStartupMemoryProbe("after-whatsapp-socket-create", {
+		browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
+	});
+	client.authState = authState;
+	state.waConnection = {
+		browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
+		connection: null,
+		hasQr: false,
+		qrAt: 0,
+		registered: authState?.creds?.registered ?? null,
+		updatedAt: Date.now(),
+	};
 	client.contacts = state.contacts;
 	patchSendMessageForLinkPreviews(client);
 	patchSendNodeForNewsletterMessages(client);
@@ -2922,6 +3296,14 @@ const connectToWhatsApp = async (retry = 1) => {
 	const groupRefreshScheduler = createGroupRefreshScheduler({
 		refreshFn: (jid) => refreshGroupMetadata(client, jid),
 	});
+	const credsListener = async () => {
+		state.waConnection = {
+			...(state.waConnection || {}),
+			registered: authState?.creds?.registered ?? null,
+		};
+		return typeof saveState === "function" ? saveState() : undefined;
+	};
+	client.ev.on("creds.update", credsListener);
 
 	client.ev.on("connection.update", async (update) => {
 		try {
@@ -2930,14 +3312,53 @@ const connectToWhatsApp = async (retry = 1) => {
 			}
 
 			const { connection, lastDisconnect, qr } = update;
+			const now = Date.now();
+			const previousWaConnection = state.waConnection || {};
+			const hasQr = Boolean(qr);
+			const shouldClearQr = connection === "close" || connection === "open";
+			state.waConnection = {
+				...previousWaConnection,
+				browserProfile: serializeWhatsAppBrowserProfile(currentWhatsAppBrowser),
+				...(connection ? { connection } : {}),
+				hasQr: hasQr
+					? true
+					: shouldClearQr
+						? false
+						: Boolean(previousWaConnection.hasQr),
+				qrAt: hasQr ? now : shouldClearQr ? 0 : previousWaConnection.qrAt || 0,
+				registered:
+					authState?.creds?.registered ??
+					previousWaConnection.registered ??
+					null,
+				updatedAt: now,
+			};
 			if (qr) {
 				utils.whatsapp.sendQR(qr);
 			}
 			if (connection === "close") {
-				state.logger.error(lastDisconnect?.error);
+				clearBrowserProfileHealthyTimer();
 				groupRefreshScheduler.clearAll();
 				groupMetadataCache.clear();
 				const statusCode = lastDisconnect?.error?.output?.statusCode;
+				state.logger.warn(
+					{
+						disconnect: summarizeDisconnectError(lastDisconnect?.error),
+					},
+					"WhatsApp connection closed.",
+				);
+				if (
+					shouldResetPartialWhatsAppAuth({
+						creds: client.authState?.creds || authState?.creds,
+						error: lastDisconnect?.error,
+					})
+				) {
+					await sendControlMessage(
+						"WhatsApp pairing ended with a stale partial session. WA2DC cleared the WhatsApp auth state; scan the next fresh QR code or request a fresh pairing code.",
+					);
+					await utils.whatsapp.deleteSession();
+					await actions.start(true);
+					return;
+				}
 				if (
 					statusCode === DisconnectReason.loggedOut ||
 					statusCode === DisconnectReason.badSession
@@ -2947,6 +3368,21 @@ const connectToWhatsApp = async (retry = 1) => {
 					);
 					await utils.whatsapp.deleteSession();
 					await actions.start(true);
+					return;
+				}
+				if (statusCode === DisconnectReason.restartRequired) {
+					await Promise.resolve(saveState?.()).catch((err) => {
+						state.logger?.warn(
+							{ err },
+							"Failed to save WhatsApp creds before restartRequired reconnect.",
+						);
+					});
+					await sendControlMessage(
+						"WhatsApp pairing restart requested. Reconnecting with the saved session...",
+					);
+					if (!state.shutdownRequested) {
+						await connectToWhatsApp(1);
+					}
 					return;
 				}
 				const delayMs = getReconnectDelayMs(retry);
@@ -2970,15 +3406,29 @@ const connectToWhatsApp = async (retry = 1) => {
 				state.waClient = client;
 
 				retry = 1;
+				logWhatsAppStartupMemoryProbe("after-connection-update-open", {
+					browserProfile: serializeWhatsAppBrowserProfile(
+						currentWhatsAppBrowser,
+					),
+				});
+				await saveWhatsAppBrowserProfile(currentWhatsAppBrowser).catch(
+					(err) => {
+						state.logger?.warn(
+							{ err },
+							"Failed to persist WhatsApp browser profile.",
+						);
+					},
+				);
+				await clearWhatsAppPairingCodeBrowserProfile().catch((err) => {
+					state.logger?.warn(
+						{ err },
+						"Failed to clear WhatsApp pairing-code browser profile.",
+					);
+				});
+				scheduleWhatsAppBrowserProfileHealthyMarker(currentWhatsAppBrowser);
 				await sendControlMessage("WhatsApp connection successfully opened!");
 
 				try {
-					const groups = await client.groupFetchAllParticipating();
-					groupMetadataCache.prime(groups);
-					for (const [jid, data] of Object.entries(groups)) {
-						state.contacts[jid] = data.subject;
-						client.contacts[jid] = data.subject;
-					}
 					await migrateLegacyChats(client);
 				} catch (err) {
 					state.logger?.error(err);
@@ -2991,8 +3441,6 @@ const connectToWhatsApp = async (retry = 1) => {
 			);
 		}
 	});
-	const credsListener = typeof saveState === "function" ? saveState : () => {};
-	client.ev.on("creds.update", credsListener);
 	const contactUpdater = utils.whatsapp.updateContacts.bind(utils.whatsapp);
 	[
 		"chats.set",
@@ -3126,13 +3574,14 @@ const connectToWhatsApp = async (retry = 1) => {
 					continue;
 				}
 				const messageType = utils.whatsapp.getMessageType(rawMessage);
-				storeMessage(rawMessage);
 				if (
 					!utils.whatsapp.inWhitelist(rawMessage) ||
 					!utils.whatsapp.sentAfterStart(rawMessage) ||
 					!messageType
 				)
 					continue;
+
+				storeMessage(rawMessage);
 
 				if (
 					utils.whatsapp.isStatusBroadcast(rawMessage) &&
@@ -3238,12 +3687,10 @@ const connectToWhatsApp = async (retry = 1) => {
 					rawMessage,
 					messageType,
 				);
-				const { content, discordMentions } = await utils.whatsapp.getContent(
-					message,
-					nMsgType,
-					messageType,
-					{ mentionTarget: "discord" },
-				);
+				const { content, discordMentions, discordMentionEveryone } =
+					await utils.whatsapp.getContent(message, nMsgType, messageType, {
+						mentionTarget: "discord",
+					});
 				state.dcClient.emit("whatsappMessage", {
 					id: utils.whatsapp.getId(rawMessage),
 					name: await utils.whatsapp.getSenderName(rawMessage),
@@ -3259,6 +3706,7 @@ const connectToWhatsApp = async (retry = 1) => {
 					),
 					isEdit: messageType === "editedMessage",
 					discordMentions,
+					discordMentionEveryone,
 				});
 				const ts = utils.whatsapp.getTimestamp(rawMessage);
 				if (ts > state.startTime) state.startTime = ts;
@@ -3671,7 +4119,6 @@ const connectToWhatsApp = async (retry = 1) => {
 
 		const targetJid = normalizeSendJid(jid);
 		const newsletterChat = isNewsletterJid(targetJid);
-		const useNewsletterSpecialFlow = useNewsletterSpecialFlowForJid(targetJid);
 		const isForwardedFromDiscord = Boolean(forwardContext?.isForwarded);
 		const hasReplyReference =
 			!isForwardedFromDiscord && isDiscordReplyReference(message);
@@ -3683,7 +4130,6 @@ const connectToWhatsApp = async (retry = 1) => {
 		const snapshotEmbeds = Array.isArray(forwardSnapshot?.embeds)
 			? forwardSnapshot.embeds
 			: [];
-		let newsletterReplyFallbackContext = "";
 
 		if (hasReplyReference) {
 			options.quoted = await utils.whatsapp.createQuoteMessage(
@@ -3691,14 +4137,9 @@ const connectToWhatsApp = async (retry = 1) => {
 				targetJid,
 			);
 			if (options.quoted == null) {
-				if (useNewsletterSpecialFlow) {
-					newsletterReplyFallbackContext =
-						(await buildNewsletterReplyFallbackContext(message)) || "";
-				} else {
-					message.channel.send(
-						`Couldn't find the message quoted. You can only reply to last ${state.settings.lastMessageStorage} messages. Sending the message without the quoted message.`,
-					);
-				}
+				message.channel.send(
+					`Couldn't find the message quoted. You can only reply to last ${state.settings.lastMessageStorage} messages. Sending the message without the quoted message.`,
+				);
 			}
 		}
 
@@ -3907,49 +4348,13 @@ const connectToWhatsApp = async (retry = 1) => {
 		});
 		text = mentionResolution.text;
 		const mentionJids = mentionResolution.mentionJids;
-		const ensureNewsletterReplyFallbackContext = async () => {
-			if (!useNewsletterSpecialFlow || !hasReplyReference) return "";
-			if (newsletterReplyFallbackContext) return newsletterReplyFallbackContext;
-			newsletterReplyFallbackContext =
-				(await buildNewsletterReplyFallbackContext(message)) || "";
-			return newsletterReplyFallbackContext;
-		};
-		const sendWithNewsletterQuoteFallback = async (content, sendOptions) => {
-			try {
-				return await client.sendMessage(targetJid, content, sendOptions);
-			} catch (err) {
-				if (!useNewsletterSpecialFlow || !sendOptions?.quoted) {
-					throw err;
-				}
-				const replyContext = await ensureNewsletterReplyFallbackContext();
-				const retryContent = cloneNewsletterSendContentWithReplyFallback(
-					content,
-					replyContext,
-				);
-				const retryOptions = { ...sendOptions };
-				delete retryOptions.quoted;
-				state.logger?.warn?.(
-					{
-						err,
-						jid: targetJid,
-						discordMessageId: message?.id,
-					},
-					"Retrying newsletter send without quoted context",
-				);
-				return await client.sendMessage(
-					targetJid,
-					retryContent,
-					Object.keys(retryOptions).length ? retryOptions : undefined,
-				);
-			}
-		};
+		const mentionAll = mentionResolution.mentionAll;
 		const sendTrackedMessage = async (
 			content,
 			sendOptions,
 			{
 				ackContext = "Newsletter send",
 				notifyAckFailure = false,
-				retryWithoutQuotedOnAck = true,
 				forceNewsletterAck = false,
 				watchNewsletterAck = false,
 			} = {},
@@ -3967,7 +4372,8 @@ const connectToWhatsApp = async (retry = 1) => {
 				});
 				await ensureNewsletterLiveUpdatesSubscription(client, targetJid);
 			}
-			const sentMessage = await sendWithNewsletterQuoteFallback(
+			const sentMessage = await client.sendMessage(
+				targetJid,
 				content,
 				sendOptions,
 			);
@@ -4014,8 +4420,7 @@ const connectToWhatsApp = async (retry = 1) => {
 				});
 			}
 			storeMessage(sentMessage);
-			const shouldTrackNewsletterAck =
-				newsletterChat && (useNewsletterSpecialFlow || forceNewsletterAck);
+			const shouldTrackNewsletterAck = newsletterChat && forceNewsletterAck;
 			const notifyNewsletterAckFailure = async (ackErrorCode) => {
 				const ackStanzaDebug = getNewsletterMediaStanzaDebug(
 					sentMessage?.key?.id,
@@ -4094,43 +4499,6 @@ const connectToWhatsApp = async (retry = 1) => {
 				return { sentMessage, ackErrorCode: null };
 			}
 
-			if (
-				useNewsletterSpecialFlow &&
-				retryWithoutQuotedOnAck &&
-				sendOptions?.quoted
-			) {
-				clearFailedNewsletterMapping({
-					discordMessageId: message.id,
-					sentMessage,
-				});
-				const replyContext = await ensureNewsletterReplyFallbackContext();
-				const retryContent = cloneNewsletterSendContentWithReplyFallback(
-					content,
-					replyContext,
-				);
-				const retryOptions = { ...sendOptions };
-				delete retryOptions.quoted;
-				state.logger?.warn?.(
-					{
-						jid: targetJid,
-						discordMessageId: message.id,
-						outboundId: sentMessage?.key?.id,
-						serverId: getNewsletterServerIdFromMessage(sentMessage),
-						error: ackErrorCode,
-						ackWaitMs,
-					},
-					`${ackContext} was rejected by WhatsApp ack; retrying without quoted context`,
-				);
-				return await sendTrackedMessage(
-					retryContent,
-					Object.keys(retryOptions).length ? retryOptions : undefined,
-					{
-						ackContext,
-						notifyAckFailure,
-						retryWithoutQuotedOnAck: false,
-					},
-				);
-			}
 			await notifyNewsletterAckFailure(ackErrorCode);
 			return { sentMessage, ackErrorCode };
 		};
@@ -4184,19 +4552,18 @@ const connectToWhatsApp = async (retry = 1) => {
 				text,
 				hasOnlyCustomEmoji,
 				isForwardedFromDiscord,
-				useNewsletterSpecialFlow,
-				hasReplyReference,
-				options,
-				ensureNewsletterReplyFallbackContext,
-				prependReplyFallbackContext,
 			});
 
 			const albumEligibleAttachments = preparedAttachments.filter(
 				({ content }) => Boolean(getAlbumEligibleMediaKind(content)),
 			);
+			const hasViewOnceAttachment = preparedAttachments.some(({ content }) =>
+				Boolean(content?.viewOnce),
+			);
 			const canUseMediaAlbum =
 				!newsletterChat &&
 				!isBroadcastJid(targetJid) &&
+				!hasViewOnceAttachment &&
 				preparedAttachments.length >= 2 &&
 				albumEligibleAttachments.length === preparedAttachments.length;
 			if (canUseMediaAlbum) {
@@ -4212,6 +4579,7 @@ const connectToWhatsApp = async (retry = 1) => {
 						contents: batch.map((entry) => entry.content),
 						captionText: batchIndex === 0 ? attachmentCaptionText : "",
 						mentionJids: batchIndex === 0 ? mentionJids : [],
+						mentionAll: batchIndex === 0 ? mentionAll : false,
 						quoted: batchIndex === 0 ? options?.quoted : undefined,
 					});
 					if (albumResult?.error) {
@@ -4263,6 +4631,9 @@ const connectToWhatsApp = async (retry = 1) => {
 				if (!newsletterChat && mentionJids.length) {
 					standaloneTextPayload.mentions = mentionJids;
 				}
+				if (mentionAll) {
+					standaloneTextPayload.mentionAll = true;
+				}
 				await sendTrackedMessage(standaloneTextPayload, options, {
 					ackContext: "Sticker companion text send",
 					forceNewsletterAck: newsletterChat,
@@ -4290,6 +4661,9 @@ const connectToWhatsApp = async (retry = 1) => {
 						mentionJids.length
 					) {
 						doc.mentions = mentionJids;
+					}
+					if (!sentStandaloneStickerText && mentionAll) {
+						doc.mentionAll = true;
 					}
 				}
 				try {
@@ -4363,10 +4737,6 @@ const connectToWhatsApp = async (retry = 1) => {
 		if (isForwardedFromDiscord) {
 			finalText = finalText ? `Forwarded\n${finalText}` : "Forwarded";
 		}
-		if (useNewsletterSpecialFlow && hasReplyReference && !options.quoted) {
-			const replyContext = await ensureNewsletterReplyFallbackContext();
-			finalText = prependReplyFallbackContext(finalText, replyContext);
-		}
 		if (!finalText) {
 			return;
 		}
@@ -4374,6 +4744,9 @@ const connectToWhatsApp = async (retry = 1) => {
 		const content = { text: finalText };
 		if (!newsletterChat && mentionJids.length) {
 			content.mentions = mentionJids;
+		}
+		if (mentionAll) {
+			content.mentionAll = true;
 		}
 		let preview = null;
 		if (!newsletterChat) {
@@ -4408,25 +4781,6 @@ const connectToWhatsApp = async (retry = 1) => {
 			}
 		} catch (err) {
 			state.logger?.error(err);
-			if (useNewsletterSpecialFlow) {
-				const metadata =
-					typeof client.newsletterMetadata === "function"
-						? await client
-								.newsletterMetadata("jid", targetJid)
-								.catch(() => null)
-						: null;
-				const role =
-					metadata?.viewer_metadata?.role || metadata?.viewerMetadata?.role;
-				const roleHint =
-					role && !["OWNER", "ADMIN"].includes(role)
-						? ` Current account role: ${role}.`
-						: "";
-				await message.channel
-					?.send(
-						`Couldn't send to WhatsApp channel ${targetJid}.${roleHint} Newsletters require OWNER/ADMIN posting rights and may reject some media types.`,
-					)
-					.catch(() => {});
-			}
 		}
 	});
 
@@ -4543,6 +4897,7 @@ const connectToWhatsApp = async (retry = 1) => {
 		});
 		text = mentionResolution.text;
 		const editMentions = mentionResolution.mentionJids;
+		const editMentionAll = mentionResolution.mentionAll;
 		const editOptions = buildSendOptionsForJid(targetJid);
 		const sendEditWithKey = async (editKey, mode = "default") => {
 			if (newsletterChat) {
@@ -4570,6 +4925,7 @@ const connectToWhatsApp = async (retry = 1) => {
 					...(!newsletterChat && editMentions.length
 						? { mentions: editMentions }
 						: {}),
+					...(editMentionAll ? { mentionAll: true } : {}),
 				},
 				editOptions,
 			);
@@ -5080,7 +5436,55 @@ const connectToWhatsApp = async (retry = 1) => {
 
 const actions = {
 	async start() {
-		const baileyState = await useSQLiteAuthState();
+		let baileyState = await useSQLiteAuthState();
+		let storedBrowserProfile = await readStoredWhatsAppBrowserProfile();
+		let pairingCodeBrowserProfile =
+			await readWhatsAppPairingCodeBrowserProfile();
+		currentWhatsAppBrowser = selectWhatsAppBrowserProfile({
+			creds: baileyState.state?.creds,
+			pairingCodeProfile: pairingCodeBrowserProfile,
+			storedProfile: storedBrowserProfile,
+		});
+		const currentBrowserProfile = serializeWhatsAppBrowserProfile(
+			currentWhatsAppBrowser,
+		);
+		if (
+			shouldResetWhatsAppAuthForBrowserProfile({
+				creds: baileyState.state?.creds,
+				storedProfile: storedBrowserProfile,
+				currentProfile: currentBrowserProfile,
+			})
+		) {
+			state.logger?.warn(
+				{
+					storedBrowserProfile,
+					currentBrowserProfile,
+				},
+				"WhatsApp browser profile changed; clearing WhatsApp auth state for a fresh pairing.",
+			);
+			await utils.whatsapp.deleteSession();
+			await utils.discord
+				.getControlChannel()
+				.then((channel) =>
+					channel?.send?.(
+						"WhatsApp browser profile changed in this update, so the saved WhatsApp session was reset. Please scan the new QR code or use `/pairwithcode` to pair again.",
+					),
+				)
+				.catch((err) => {
+					state.logger?.debug?.(
+						{ err },
+						"Failed to send WhatsApp browser profile reset notice.",
+					);
+				});
+			baileyState = await useSQLiteAuthState();
+			storedBrowserProfile = await readStoredWhatsAppBrowserProfile();
+			pairingCodeBrowserProfile = await readWhatsAppPairingCodeBrowserProfile();
+			currentWhatsAppBrowser = selectWhatsAppBrowserProfile({
+				creds: baileyState.state?.creds,
+				pairingCodeProfile: pairingCodeBrowserProfile,
+				storedProfile: storedBrowserProfile,
+			});
+		}
 		await ensureSignalStoreSupport(baileyState.state?.keys);
 		authState = baileyState.state;
 		saveState = baileyState.saveCreds;

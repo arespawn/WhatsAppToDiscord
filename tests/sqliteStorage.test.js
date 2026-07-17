@@ -60,7 +60,9 @@ test("SQLite storage round-trips app state via save/parse APIs", async () => {
 		state.settings.Token = "TOK";
 		state.settings.GuildID = "guild";
 		state.settings.ControlChannelID = "control";
-		state.chats = { "123@s.whatsapp.net": { id: "chan-1" } };
+		state.chats = {
+			"123@s.whatsapp.net": { id: "webhook-1", channelId: "chan-1" },
+		};
 		state.contacts = { "123@s.whatsapp.net": "Alice" };
 		state.startTime = 1712345678;
 		state.lastMessages = { a: "b", b: "a" };
@@ -74,7 +76,9 @@ test("SQLite storage round-trips app state via save/parse APIs", async () => {
 		const parsedLast = await storage.parseLastMessages();
 
 		assert.equal(parsedSettings.Token, "TOK");
-		assert.deepEqual(parsedChats, { "123@s.whatsapp.net": { id: "chan-1" } });
+		assert.deepEqual(parsedChats, {
+			"123@s.whatsapp.net": { id: "webhook-1", channelId: "chan-1" },
+		});
 		assert.deepEqual(parsedContacts, { "123@s.whatsapp.net": "Alice" });
 		assert.equal(parsedStart, 1712345678);
 		assert.equal(parsedLast.a, "b");

@@ -71,8 +71,51 @@ test("parseSettings merges defaults when older settings are missing keys", async
 		assert.equal(settings.NewsletterMediaUrlFallback, false);
 		assert.equal(settings.PinDurationSeconds, 7 * 24 * 60 * 60);
 		assert.equal(settings.WhatsAppDiscordMediaBurstSize, 10);
+		assert.equal(settings.DefaultChatType, "channel");
+		assert.equal(settings.DefaultThreadHostName, "");
+		assert.equal(settings.ThreadNotificationsEnabled, false);
+		assert.deepEqual(settings.ThreadNotificationRoles, []);
+		assert.deepEqual(settings.ThreadNotificationUsers, []);
 	});
 	restoreObject(state.settings, settingsSnapshot);
+});
+
+test("parseChats accepts only object chat links with canonical channel metadata", async () => {
+	const chatsSnapshot = snapshotObject(state.chats);
+	await withTempStorage(async () => {
+		await storage.upsert(
+			"chats",
+			JSON.stringify({
+				"ignored@s.whatsapp.net": "legacy-channel",
+				"123@s.whatsapp.net": {
+					id: " wh-1 ",
+					token: " tok-1 ",
+					channelId: " chan-1 ",
+				},
+				"456@s.whatsapp.net": {
+					id: "wh-2",
+					token: "tok-2",
+					channelId: "forum-1",
+					threadId: " thread-2 ",
+				},
+			}),
+		);
+
+		const chats = await storage.parseChats();
+		assert.equal(chats["ignored@s.whatsapp.net"], undefined);
+		assert.deepEqual(chats["123@s.whatsapp.net"], {
+			id: "wh-1",
+			token: "tok-1",
+			channelId: "chan-1",
+		});
+		assert.deepEqual(chats["456@s.whatsapp.net"], {
+			id: "wh-2",
+			token: "tok-2",
+			channelId: "forum-1",
+			threadId: "thread-2",
+		});
+	});
+	restoreObject(state.chats, chatsSnapshot);
 });
 
 test("parseSettings recovers via firstRun on corrupted JSON (mocked Discord bootstrap)", async () => {

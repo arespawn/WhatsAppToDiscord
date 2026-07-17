@@ -1,7 +1,7 @@
 # Runtime And Layout
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-03-19
+> Last reviewed: 2026-05-13
 > Scope: Runtime model, startup, and repository map.
 
 ## Runtime model
@@ -12,12 +12,22 @@ WA2DC bridges WhatsApp and Discord:
 - Discord side: Discord bot (`discord.js`)
 - State: local persistence in `storage/`
 - Process supervision: watchdog runner in `src/runner.js`
+- Environment loading: source runs optionally read `.env` from the working directory, while packaged binaries read `.env` beside the executable. Existing operating-system variables take precedence, missing files are ignored, and other read failures stop startup. Loading happens before runtime options and handlers inspect `process.env`.
+- Runtime logging: `WA2DC_LOG_LEVEL` sets the Pino threshold for both the watchdog and worker loggers. Supported values are `trace`, `debug`, `info`, `warn`, `error`, `fatal`, and `silent`; the default is `info`, and invalid values prevent startup. It controls structured `logs.txt` entries and pretty Pino console output, while raw process warnings or dependency `console` output can still reach `terminal.log`. Debug logs can contain operational identifiers such as WhatsApp JIDs and Discord channel/message IDs, so treat diagnostic logs as sensitive.
 
 Primary flow:
 
 1. `src/runner.js` starts worker process and handles restart/backoff.
 2. `src/index.js` bootstraps state/storage and starts platform handlers.
 3. Discord/WhatsApp handlers mirror messages and control commands.
+
+WhatsApp startup guardrails:
+
+- `src/whatsappHandler.js` intentionally does not process WhatsApp history-sync payloads beyond push-name updates. The bridge only needs live/offline message delivery, and history payload processing can make Baileys allocate large decoded batches during reconnects after pairing.
+- Do not eagerly call `groupFetchAllParticipating()` on WhatsApp reconnect or `/resync`. Group metadata is refreshed through live group events and `/resync` uses a lightweight `@g.us` participating-groups query that does not request every participant roster/description; full all-groups fetches can allocate very large Baileys response structures after pairing.
+- Pass Baileys a bounded logger wrapper instead of the root pino logger. Baileys errors can include bundled `data:text/javascript;base64...` stack traces and binary payloads; keep those summarized so `logs.txt` and `terminal.log` stay useful and do not drive heap pressure.
+- Keep WhatsApp startup memory probes around socket creation, WA connection, real initial buffer flushes, and LID session migration. These probes are intentionally small structured logs used to diagnose packaged OOM rollbacks.
+- The Baileys rc13 postinstall patch skips startup event buffering when history sync is disabled, avoids buffer-and-immediate-flush on the disabled-history path, preserves delivered receipts for inbound messages while WA2DC stays unavailable, and bounds tctoken pruning so large auth stores do not trigger single huge heap allocations while the socket is coming online.
 
 ## Developer quick start
 

@@ -499,3 +499,39 @@ test("Discord mentions prefer PN JIDs when both PN and LID links exist", async (
 		state.settings.WhatsAppDiscordMentionLinks = originalLinks;
 	}
 });
+
+test("WhatsApp mention-all metadata converts @all to Discord @everyone", async () => {
+	const msg = {
+		text: "Team update @all",
+		contextInfo: { nonJidMentions: 1 },
+	};
+
+	const result = await utils.whatsapp.getContent(
+		msg,
+		"extendedTextMessage",
+		"extendedTextMessage",
+		{ mentionTarget: "discord" },
+	);
+
+	assert.equal(result.content, "Team update @everyone");
+	assert.equal(result.discordMentionEveryone, true);
+	assert.deepEqual(result.discordMentions, []);
+});
+
+test("Plain @all text without WhatsApp mention-all metadata is not promoted", async () => {
+	const msg = {
+		text: "Team update @all",
+		contextInfo: {},
+	};
+
+	const result = await utils.whatsapp.getContent(
+		msg,
+		"extendedTextMessage",
+		"extendedTextMessage",
+		{ mentionTarget: "discord" },
+	);
+
+	assert.equal(result.content, "Team update @all");
+	assert.equal(result.discordMentionEveryone, false);
+	assert.deepEqual(result.discordMentions, []);
+});

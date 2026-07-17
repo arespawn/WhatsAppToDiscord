@@ -1,4 +1,3 @@
-import childProcess from "node:child_process";
 import crypto from "node:crypto";
 import dns from "node:dns";
 import fs from "node:fs";
@@ -21,7 +20,15 @@ import * as linkPreview from "link-preview-js";
 import QRCode from "qrcode";
 import * as tar from "tar";
 import { Agent } from "undici";
+import {
+	chatTargetsChannelId,
+	chatUsesHostChannelId,
+	getChatHostChannelId,
+	getChatTargetChannelId,
+	isThreadChatLink,
+} from "./chatLinks.js";
 import { getImageSharp } from "./imageLibs.js";
+import { createWhatsAppAudioToDiscordFileNormalizer } from "./internal/whatsappAudioToDiscordNormalization.js";
 import { createWhatsAppGifToDiscordFileNormalizer } from "./internal/whatsappGifToDiscordNormalization.js";
 import messageStore from "./messageStore.js";
 import state from "./state.js";
@@ -34,6 +41,7 @@ const {
 	ButtonStyle,
 	ChannelType,
 	StickerFormatType,
+	ThreadAutoArchiveDuration,
 	WebhookClient,
 } = discordJs;
 
@@ -62,6 +70,7 @@ const buildUnicodeMentionRegex = (token) =>
 	new RegExp(`@${escapeRegex(token)}(?=$|\\s|[\\p{P}\\p{S}])`, "giu");
 const buildWordBoundaryMentionRegex = (token) =>
 	new RegExp(`@${escapeRegex(token)}(?=\\W|$)`, "g");
+const WHATSAPP_MENTION_ALL_REGEX = /@all(?=$|\s|[\p{P}\p{S}])/giu;
 const asLower = (value) => String(value || "").toLowerCase();
 const includesHint = (text, hints) =>
 	hints.some((hint) => text.includes(asLower(hint)));
@@ -118,6 +127,11 @@ const LINK_PREVIEW_MAX_REDIRECTS = 5;
 const LINK_PREVIEW_FETCH_OPTS = { timeout: LINK_PREVIEW_FETCH_TIMEOUT_MS };
 const LINK_PREVIEW_MAX_BYTES = 1024 * 1024;
 const LINK_PREVIEW_THUMB_MAX_BYTES = 8 * 1024 * 1024;
+const FORUM_CHANNEL_TYPES = [ChannelType.GuildForum];
+const MANAGED_THREAD_HOST_BASE_NAME = "whatsapp-threads";
+const MANAGED_THREAD_HOST_OWNER_PREFIX = "WA2DC managed thread host for bot ";
+const MANAGED_THREAD_HOST_SOFT_LIMIT = 500;
+const MANAGED_THREAD_HOST_NAME_MAX_LENGTH = 80;
 const DISCORD_MAX_FILES_PER_MESSAGE = 10;
 const EXPLICIT_URL_REGEX = /<?https?:\/\/[^\s>]+>?/i;
 const BARE_URL_REGEX =
@@ -157,6 +171,10 @@ const UPDATE_BUTTON_IDS = {
 const ROLLBACK_BUTTON_ID = "wa2dc:rollback";
 const normalizeWhatsAppGifFileForDiscord =
 	createWhatsAppGifToDiscordFileNormalizer({
+		getLogger: () => state.logger,
+	});
+const normalizeWhatsAppAudioFileForDiscord =
+	createWhatsAppAudioToDiscordFileNormalizer({
 		getLogger: () => state.logger,
 	});
 const resolveLinkPreviewFromContentFn = () => {
@@ -723,6 +741,41 @@ const sanitizeFileName = (name = "", fallback = "file") => {
 		.replace(/-+/g, "-")
 		.slice(0, 64);
 	return normalized || fallback;
+};
+const DISCORD_SPOILER_PREFIX = "SPOILER_";
+const isWhatsAppViewOnceMessageType = (msgType = "") =>
+	[
+		"viewOnceMessage",
+		"viewOnceMessageV2",
+		"viewOnceMessageV2Extension",
+	].includes(msgType);
+const isWhatsAppViewOnceMediaMessage = (
+	rawMsg = {},
+	msgType = "",
+	msg = {},
+) => {
+	if (isWhatsAppViewOnceMessageType(msgType)) return true;
+	if (msg?.viewOnce === true) return true;
+	const typedMessage = rawMsg?.message?.[msgType];
+	if (typedMessage?.viewOnce === true) return true;
+	return false;
+};
+const asDiscordSpoilerFileName = (name = "attachment") => {
+	const fileName = String(name || "attachment");
+	return fileName.toUpperCase().startsWith(DISCORD_SPOILER_PREFIX)
+		? fileName
+		: `${DISCORD_SPOILER_PREFIX}${fileName}`;
+};
+const ensureDiscordSpoilerFileName = (file = {}) => {
+	if (!file || typeof file !== "object" || file.spoiler !== true) return file;
+	const name =
+		typeof file.name === "string" && file.name.trim()
+			? file.name.trim()
+			: typeof file.attachment?.name === "string" && file.attachment.name.trim()
+				? file.attachment.name.trim()
+				: "attachment";
+	const spoilerName = asDiscordSpoilerFileName(name);
+	return spoilerName === file.name ? file : { ...file, name: spoilerName };
 };
 
 const WINDOWS_RESERVED_BASENAMES = new Set([
@@ -2363,185 +2416,181 @@ const updater = {
 		"-----END PUBLIC KEY-----",
 };
 
-const sqliteToJson = {
-	get defaultExeName() {
-		let name = "stj_";
-		const osPlatform = os.platform();
-
-		switch (osPlatform) {
-			case "linux":
-			case "darwin":
-			case "freebsd":
-				name += `${osPlatform}_`;
-				break;
-			case "win32":
-				name += "windows_";
-				break;
-			default:
-				return "";
-		}
-
-		switch (process.arch) {
-			case "arm":
-			case "arm64":
-				name += process.arch;
-				break;
-			case "x64":
-				name += "amd64";
-				break;
-			default:
-				return "";
-		}
-
-		if (osPlatform === "win32") {
-			name += ".exe";
-		}
-		return name;
-	},
-
-	async downloadLatestVersion(defaultExeName) {
-		return requests.downloadFile(
-			defaultExeName,
-			`https://github.com/arespawn/sqlite-to-json/releases/latest/download/${defaultExeName}`,
-		);
-	},
-
-	async downloadSignature(defaultExeName) {
-		const signature = await requests.fetchBuffer(
-			`https://github.com/arespawn/sqlite-to-json/releases/latest/download/${defaultExeName}.sig`,
-		);
-		if ("error" in signature) {
-			state.logger?.error("Couldn't fetch the signature of the update.");
-			return false;
-		}
-		return signature;
-	},
-
-	_storageDir: "./storage/",
-	_dbPath: "./storage.db",
-	isConverted() {
-		return fs.existsSync(this._storageDir) || !fs.existsSync(this._dbPath);
-	},
-
-	async downloadAndVerify() {
-		const exeName = this.defaultExeName;
-		if (exeName === "") {
-			state.logger?.error(
-				`Automatic conversion of database is not supported on this platform and arch ${os.platform()}/${process.arch}. Please convert database manually`,
-			);
-			return false;
-		}
-
-		const downloadStatus = await this.downloadLatestVersion(exeName);
-		if (!downloadStatus) {
-			state.logger?.error("Download failed! Please convert database manually.");
-			return false;
-		}
-		if (os.platform() !== "win32") {
-			try {
-				await fs.promises.chmod(exeName, 0o755);
-			} catch (err) {
-				state.logger?.error(
-					{ err },
-					"Failed to mark the database converter as executable.",
-				);
-				fs.unlinkSync(exeName);
-				return false;
-			}
-		}
-
-		const signature = await this.downloadSignature(exeName);
-		if (!signature) {
-			state.logger?.error(
-				"Couldn't fetch the signature of the database converter. Please convert database manually",
-			);
-			fs.unlinkSync(exeName);
-			return false;
-		}
-		if (!updater.validateSignature(signature.result, exeName)) {
-			state.logger?.error(
-				"Couldn't verify the signature of the database converter. Please convert database manually",
-			);
-			fs.unlinkSync(exeName);
-			return false;
-		}
-
-		return exeName;
-	},
-
-	runStj(exeName) {
-		fs.mkdirSync(this._storageDir, { recursive: true, mode: 0o700 });
-		const exePath = path.resolve(exeName);
-
-		const child = childProcess.spawnSync(
-			exePath,
-			[this._dbPath, "SELECT * FROM WA2DC"],
-			{ shell: false },
-		);
-		if (child.error) {
-			throw child.error;
-		}
-		if (typeof child.status === "number" && child.status !== 0) {
-			const stderr = child.stderr ? child.stderr.toString() : "";
-			throw new Error(
-				`Database converter failed (exit ${child.status})${stderr ? `: ${stderr}` : ""}`,
-			);
-		}
-
-		const allowedKeys = new Set([
-			"settings",
-			"chats",
-			"contacts",
-			"lastMessages",
-			"lastTimestamp",
-		]);
-		const raw = child.stdout ? child.stdout.toString().trim() : "";
-		if (!raw) {
-			return;
-		}
-
-		const rows = raw.split("\n");
-		for (const line of rows) {
-			if (!line) continue;
-			const row = JSON.parse(line);
-			const key = sanitizePathSegment(row?.[0] ?? "", "");
-			if (!key || !allowedKeys.has(key)) {
-				state.logger?.warn(
-					{ key: row?.[0] },
-					"Skipping unexpected storage key during database migration",
-				);
-				continue;
-			}
-			fs.writeFileSync(path.join(this._storageDir, key), row?.[1] ?? "", {
-				mode: 0o600,
-			});
-		}
-	},
-
-	async convert() {
-		if (this.isConverted()) {
-			return true;
-		}
-
-		const stjName = await this.downloadAndVerify();
-		if (!stjName) {
-			return false;
-		}
-
-		this.runStj(stjName);
-		fs.unlinkSync(stjName);
-
-		return true;
-	},
+const isForumChannelType = (type) => FORUM_CHANNEL_TYPES.includes(type);
+const normalizeDiscordId = (value) => {
+	if (value == null) return null;
+	const trimmed = String(value).trim();
+	return trimmed ? trimmed : null;
+};
+const uniqueDiscordIds = (value = []) => [
+	...new Set(
+		(Array.isArray(value) ? value : []).map(normalizeDiscordId).filter(Boolean),
+	),
+];
+const normalizeManagedThreadHostBaseName = (value) => {
+	const normalized = String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/gu, "-")
+		.replace(/[^a-z0-9_-]+/gu, "")
+		.replace(/-+/gu, "-")
+		.replace(/^[-_]+|[-_]+$/gu, "")
+		.slice(0, MANAGED_THREAD_HOST_NAME_MAX_LENGTH);
+	return normalized || MANAGED_THREAD_HOST_BASE_NAME;
+};
+const getManagedThreadHostBaseName = () =>
+	normalizeManagedThreadHostBaseName(state.settings?.DefaultThreadHostName);
+const getManagedThreadHostName = (
+	index = 0,
+	baseName = getManagedThreadHostBaseName(),
+) => (index <= 0 ? baseName : `${baseName}-${index + 1}`);
+const managedThreadHostNamePattern = (baseName) =>
+	new RegExp(`^${escapeRegex(baseName)}-(\\d+)$`, "iu");
+const getManagedThreadHostNameBase = (name = "") => {
+	const normalizedName = String(name || "").toLowerCase();
+	const configuredBase = getManagedThreadHostBaseName();
+	if (normalizedName === configuredBase) return configuredBase;
+	if (normalizedName === MANAGED_THREAD_HOST_BASE_NAME) {
+		return MANAGED_THREAD_HOST_BASE_NAME;
+	}
+	if (managedThreadHostNamePattern(configuredBase).test(normalizedName)) {
+		return configuredBase;
+	}
+	if (
+		managedThreadHostNamePattern(MANAGED_THREAD_HOST_BASE_NAME).test(
+			normalizedName,
+		)
+	) {
+		return MANAGED_THREAD_HOST_BASE_NAME;
+	}
+	return null;
+};
+const isManagedThreadHostName = (name = "") =>
+	typeof name === "string" && Boolean(getManagedThreadHostNameBase(name));
+const getManagedThreadHostIndex = (channel = {}) => {
+	const name = String(channel?.name || "").toLowerCase();
+	const baseName = getManagedThreadHostNameBase(name);
+	if (!baseName) return null;
+	if (name === baseName) return 0;
+	const match = name.match(managedThreadHostNamePattern(baseName));
+	if (!match) return null;
+	const parsed = Number.parseInt(match[1], 10);
+	return Number.isFinite(parsed) && parsed >= 2 ? parsed - 1 : null;
+};
+const getManagedThreadHostTopic = (botId = state.dcClient?.user?.id) =>
+	botId ? `${MANAGED_THREAD_HOST_OWNER_PREFIX}${botId}` : "";
+const getManagedThreadHostOwnerId = (channel = {}) => {
+	const topic = typeof channel?.topic === "string" ? channel.topic : "";
+	const markerIndex = topic.indexOf(MANAGED_THREAD_HOST_OWNER_PREFIX);
+	if (markerIndex < 0) return null;
+	const ownerId = topic
+		.slice(markerIndex + MANAGED_THREAD_HOST_OWNER_PREFIX.length)
+		.trim()
+		.split(/\s+/u)[0];
+	return normalizeDiscordId(ownerId);
+};
+const isManagedThreadHostOwnedByCurrentBot = (channel = {}) => {
+	const ownerId = getManagedThreadHostOwnerId(channel);
+	const currentBotId = normalizeDiscordId(state.dcClient?.user?.id);
+	return !ownerId || !currentBotId || ownerId === currentBotId;
+};
+const buildStoredChatLink = (webhook, existingChat = {}, overrides = {}) => {
+	const threadId = normalizeDiscordId(
+		overrides.threadId ?? existingChat?.threadId ?? null,
+	);
+	return {
+		...existingChat,
+		id: webhook.id,
+		type: webhook.type,
+		token: webhook.token,
+		channelId: webhook.channelId,
+		...(threadId ? { threadId } : {}),
+	};
+};
+const attachWebhookChatMetadata = (webhook, chatLink = {}) => {
+	if (!webhook) return webhook;
+	webhook.wa2dcThreadId = normalizeDiscordId(chatLink?.threadId);
+	webhook.wa2dcTargetChannelId =
+		getChatTargetChannelId(chatLink) ||
+		webhook.wa2dcThreadId ||
+		webhook.channelId;
+	return webhook;
+};
+const withThreadIdForChat = (payload, jid) => {
+	const normalizedJid = whatsapp.formatJid(jid) || jid;
+	const chatLink = state.chats?.[normalizedJid];
+	const threadId = normalizeDiscordId(chatLink?.threadId);
+	if (!threadId || !payload || typeof payload !== "object") {
+		return payload;
+	}
+	if (Object.hasOwn(payload, "threadId") && payload.threadId) {
+		return payload;
+	}
+	return { ...payload, threadId };
 };
 
 const discord = {
 	updateButtonIds: UPDATE_BUTTON_IDS,
 	rollbackButtonId: ROLLBACK_BUTTON_ID,
-	channelIdToJid(channelId) {
-		return Object.keys(state.chats).find(
-			(key) => state.chats[key].channelId === channelId,
+	channelIdToJids(channelId) {
+		return Object.keys(state.chats).filter((key) =>
+			chatTargetsChannelId(state.chats[key], channelId),
 		);
+	},
+	channelIdToJid(channelId) {
+		return this.channelIdToJids(channelId)[0] || null;
+	},
+	hostChannelIdToJids(channelId) {
+		return Object.keys(state.chats).filter(
+			(key) =>
+				isThreadChatLink(state.chats[key]) &&
+				chatUsesHostChannelId(state.chats[key], channelId),
+		);
+	},
+	getChatLink(jid) {
+		const normalizedJid = whatsapp.formatJid(jid) || jid;
+		return normalizedJid ? state.chats?.[normalizedJid] || null : null;
+	},
+	getChatTargetChannelId(jid) {
+		return getChatTargetChannelId(this.getChatLink(jid));
+	},
+	getChatTargetMention(jid) {
+		const targetChannelId = this.getChatTargetChannelId(jid);
+		return targetChannelId ? `<#${targetChannelId}>` : null;
+	},
+	isManagedThreadHostChannel(channel = {}) {
+		return (
+			isForumChannelType(channel?.type) &&
+			isManagedThreadHostName(channel?.name)
+		);
+	},
+	isOwnedManagedThreadHostChannel(channel = {}) {
+		return (
+			this.isManagedThreadHostChannel(channel) &&
+			isManagedThreadHostOwnedByCurrentBot(channel)
+		);
+	},
+	async ensureManagedThreadHostOwnership(channel) {
+		if (!this.isOwnedManagedThreadHostChannel(channel)) return channel;
+		const ownerTopic = getManagedThreadHostTopic();
+		if (!ownerTopic || getManagedThreadHostOwnerId(channel)) return channel;
+
+		if (typeof channel.setTopic === "function") {
+			try {
+				await channel.setTopic(ownerTopic);
+				channel.topic = ownerTopic;
+			} catch (err) {
+				state.logger?.warn(
+					{
+						err,
+						channelId: channel.id,
+						botId: state.dcClient?.user?.id,
+					},
+					"Could not mark managed thread host ownership",
+				);
+			}
+		}
+		return channel;
 	},
 	partitionText(text) {
 		return text.match(/(.|[\r\n]){1,2000}/g) || [];
@@ -2549,6 +2598,9 @@ const discord = {
 	isRetryableWebhookTransportError,
 	chunkWebhookFilesForSend(files) {
 		return chunkDiscordWebhookFilesForSend(files);
+	},
+	ensureSpoilerFileName(file) {
+		return ensureDiscordSpoilerFileName(file);
 	},
 	async sendPartitioned(channel, text) {
 		if (!channel || !text) return;
@@ -2830,6 +2882,175 @@ const discord = {
 			),
 		});
 	},
+	async getOrCreateOwnedWebhook(channel) {
+		if (!channel) return null;
+		const webhooks = await channel.fetchWebhooks();
+		const existing = webhooks.find(
+			(hook) => hook.token && hook.owner?.id === state.dcClient?.user?.id,
+		);
+		if (existing) {
+			return ensureWebhookReplySupport(existing);
+		}
+		return ensureWebhookReplySupport(
+			await channel.createWebhook({ name: "WA2DC" }),
+		);
+	},
+	buildManagedThreadStarterPayload(
+		jid,
+		{
+			restored = false,
+			notifyTargets = state.settings.ThreadNotificationsEnabled,
+		} = {},
+	) {
+		const name = whatsapp.jidToName(jid);
+		const roleIds = uniqueDiscordIds(state.settings?.ThreadNotificationRoles);
+		const userIds = uniqueDiscordIds(state.settings?.ThreadNotificationUsers);
+		const mentionTokens = [];
+		roleIds.forEach((id) => mentionTokens.push(`<@&${id}>`));
+		userIds.forEach((id) => mentionTokens.push(`<@${id}>`));
+
+		const lines = [];
+		if (notifyTargets && mentionTokens.length) {
+			lines.push(mentionTokens.join(" "));
+		}
+		lines.push(
+			restored
+				? `WA2DC restored the WhatsApp chat thread for **${name}**.`
+				: `New WhatsApp chat: **${name}**`,
+		);
+		lines.push("Open or join this thread to follow the conversation.");
+
+		const allowedMentions =
+			mentionTokens.length && notifyTargets
+				? { parse: [], roles: roleIds, users: userIds }
+				: undefined;
+
+		return {
+			content: lines.join("\n"),
+			...(allowedMentions ? { allowedMentions } : {}),
+		};
+	},
+	async getOrCreateManagedThreadHostChannel({
+		preferredHostChannelId = null,
+	} = {}) {
+		const guild = await this.getGuild();
+		if (!guild) return null;
+		await guild.channels.fetch();
+
+		const preferredHost = preferredHostChannelId
+			? guild.channels.cache.get(preferredHostChannelId) || null
+			: null;
+		if (preferredHost && this.isOwnedManagedThreadHostChannel(preferredHost)) {
+			return this.ensureManagedThreadHostOwnership(preferredHost);
+		}
+
+		const threadCounts = new Map();
+		Object.values(state.chats || {}).forEach((chatLink) => {
+			if (!isThreadChatLink(chatLink)) return;
+			const hostChannelId = getChatHostChannelId(chatLink);
+			if (!hostChannelId) return;
+			threadCounts.set(
+				hostChannelId,
+				(threadCounts.get(hostChannelId) || 0) + 1,
+			);
+		});
+
+		const allManagedHosts = [...guild.channels.cache.values()]
+			.filter((channel) => this.isManagedThreadHostChannel(channel))
+			.sort(
+				(a, b) =>
+					(getManagedThreadHostIndex(a) ?? Number.MAX_SAFE_INTEGER) -
+					(getManagedThreadHostIndex(b) ?? Number.MAX_SAFE_INTEGER),
+			);
+		const managedHosts = allManagedHosts.filter((channel) =>
+			isManagedThreadHostOwnedByCurrentBot(channel),
+		);
+		const availableHost = managedHosts.find(
+			(channel) =>
+				(threadCounts.get(channel.id) || 0) < MANAGED_THREAD_HOST_SOFT_LIMIT,
+		);
+		if (availableHost) {
+			return this.ensureManagedThreadHostOwnership(availableHost);
+		}
+
+		const nextIndex =
+			allManagedHosts.reduce(
+				(maxIndex, channel) =>
+					Math.max(maxIndex, getManagedThreadHostIndex(channel) ?? -1),
+				-1,
+			) + 1;
+		return guild.channels.create({
+			name: getManagedThreadHostName(nextIndex),
+			type: ChannelType.GuildForum,
+			topic: getManagedThreadHostTopic() || undefined,
+			parent: await this.getCategory(0),
+		});
+	},
+	async createManagedThreadLink(
+		jid,
+		{
+			restored = false,
+			notifyTargets = state.settings.ThreadNotificationsEnabled,
+			preferredHostChannelId = null,
+		} = {},
+	) {
+		const hostChannel = await this.getOrCreateManagedThreadHostChannel({
+			preferredHostChannelId,
+		});
+		if (!hostChannel) return null;
+
+		const starterPayload = this.buildManagedThreadStarterPayload(jid, {
+			restored,
+			notifyTargets,
+		});
+		const desiredName = whatsapp.jidToChannelName(jid);
+		let thread;
+		try {
+			thread = await hostChannel.threads.create({
+				name: desiredName,
+				autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+				message: starterPayload,
+			});
+		} catch (err) {
+			if (err?.code !== 50035) {
+				throw err;
+			}
+			thread = await hostChannel.threads.create({
+				name: "invalid-name",
+				autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+				message: starterPayload,
+			});
+		}
+
+		const webhook = await this.getOrCreateOwnedWebhook(hostChannel);
+		const chatLink = buildStoredChatLink(webhook, {}, { threadId: thread.id });
+		return {
+			webhook: attachWebhookChatMetadata(webhook, chatLink),
+			chatLink,
+			thread,
+			hostChannel,
+		};
+	},
+	async recreateManagedThreadLink(jid) {
+		const normalizedJid = whatsapp.formatJid(jid);
+		if (!normalizedJid) return null;
+		const existingChat = state.chats?.[normalizedJid] || {};
+		const created = await this.createManagedThreadLink(normalizedJid, {
+			restored: true,
+			notifyTargets: false,
+			preferredHostChannelId: existingChat.channelId || null,
+		});
+		if (!created) return null;
+		state.chats[normalizedJid] = {
+			...existingChat,
+			...created.chatLink,
+		};
+		delete state.goccRuns[normalizedJid];
+		return attachWebhookChatMetadata(
+			created.webhook,
+			state.chats[normalizedJid],
+		);
+	},
 	_unfinishedGoccCalls: 0,
 	async getOrCreateChannel(jid) {
 		const normalizedJid = whatsapp.formatJid(jid);
@@ -2837,46 +3058,79 @@ const discord = {
 		if (state.goccRuns[normalizedJid]) {
 			return state.goccRuns[normalizedJid];
 		}
-		let resolve;
-		state.goccRuns[normalizedJid] = new Promise((res) => {
-			resolve = res;
-		});
-		if (state.chats[normalizedJid]) {
-			const webhook = ensureWebhookReplySupport(
-				new WebhookClient({
-					id: state.chats[normalizedJid].id,
-					token: state.chats[normalizedJid].token,
-				}),
-			);
-			resolve(webhook);
-			return webhook;
-		}
-
-		this._unfinishedGoccCalls++;
-		const name = whatsapp.jidToChannelName(normalizedJid);
-		const channel = await this.createChannel(name).catch((err) => {
-			if (err.code === 50035) {
-				return this.createChannel("invalid-name");
+		const inFlight = (async () => {
+			const existingChat = state.chats[normalizedJid];
+			if (existingChat) {
+				let webhook;
+				if (existingChat.id && existingChat.token) {
+					webhook = ensureWebhookReplySupport(
+						new WebhookClient({
+							id: existingChat.id,
+							token: existingChat.token,
+						}),
+					);
+				} else if (existingChat.channelId) {
+					const channel = await this.getChannel(existingChat.channelId);
+					webhook = await this.getOrCreateOwnedWebhook(channel);
+					state.chats[normalizedJid] = buildStoredChatLink(
+						webhook,
+						existingChat,
+					);
+				}
+				if (!webhook) {
+					return null;
+				}
+				return attachWebhookChatMetadata(
+					webhook,
+					state.chats[normalizedJid] || existingChat,
+				);
 			}
+
+			this._unfinishedGoccCalls++;
+			try {
+				if (state.settings.DefaultChatType === "thread") {
+					const created = await this.createManagedThreadLink(normalizedJid);
+					if (!created?.webhook || !created?.chatLink) {
+						return null;
+					}
+					state.chats[normalizedJid] = created.chatLink;
+					return attachWebhookChatMetadata(
+						created.webhook,
+						state.chats[normalizedJid],
+					);
+				}
+
+				const name = whatsapp.jidToChannelName(normalizedJid);
+				const channel = await this.createChannel(name).catch((err) => {
+					if (err?.code === 50035) {
+						return this.createChannel("invalid-name");
+					}
+					throw err;
+				});
+				const webhook = await this.getOrCreateOwnedWebhook(channel);
+				state.chats[normalizedJid] = buildStoredChatLink(webhook);
+				return attachWebhookChatMetadata(webhook, state.chats[normalizedJid]);
+			} finally {
+				this._unfinishedGoccCalls--;
+			}
+		})();
+
+		state.goccRuns[normalizedJid] = inFlight;
+		try {
+			return await inFlight;
+		} catch (err) {
+			delete state.goccRuns[normalizedJid];
 			throw err;
-		});
-		const webhook = ensureWebhookReplySupport(
-			await channel.createWebhook({ name: "WA2DC" }),
-		);
-		state.chats[normalizedJid] = {
-			id: webhook.id,
-			type: webhook.type,
-			token: webhook.token,
-			channelId: webhook.channelId,
-		};
-		this._unfinishedGoccCalls--;
-		resolve(webhook);
-		return webhook;
+		}
 	},
 	async safeWebhookSend(webhook, args, jid) {
+		const normalizedJid = whatsapp.formatJid(jid) || jid;
 		const normalizeWebhookUsername = (value) => {
 			if (typeof value !== "string") return null;
-			const trimmed = value.trim();
+			const trimmed = value
+				.replace(/discord/giu, "Disc")
+				.replace(/clyde/giu, "Cly")
+				.trim();
 			if (!trimmed) return null;
 			return trimmed.length > 80 ? trimmed.slice(0, 80) : trimmed;
 		};
@@ -2890,6 +3144,7 @@ const discord = {
 				args = { ...args, username: normalized };
 			}
 		}
+		args = withThreadIdForChat(args, normalizedJid);
 
 		const configuredRetriesRaw = state.settings?.DiscordUploadRetryAttempts;
 		const configuredRetries = Number(configuredRetriesRaw);
@@ -2904,6 +3159,39 @@ const discord = {
 			err?.code === "ABORT_ERR" ||
 			/aborted/i.test(err?.message || "") ||
 			isRetryableWebhookTransportError(err);
+		const isUnknownWebhookError = (err) =>
+			err?.code === 10015 && /Unknown Webhook/i.test(err?.message || "");
+		const isUnknownChannelError = (err) =>
+			err?.code === 10003 ||
+			err?.rawError?.code === 10003 ||
+			/Unknown Channel/i.test(err?.message || "");
+		const refreshWebhookForChat = async () => {
+			delete state.goccRuns[normalizedJid];
+			const chatInfo = state.chats[normalizedJid];
+			if (!chatInfo?.channelId) {
+				return null;
+			}
+			const channel = await this.getChannel(chatInfo.channelId);
+			if (!channel) {
+				return null;
+			}
+			const refreshedWebhook = await this.getOrCreateOwnedWebhook(channel);
+			state.chats[normalizedJid] = buildStoredChatLink(
+				refreshedWebhook,
+				chatInfo,
+			);
+			return attachWebhookChatMetadata(
+				refreshedWebhook,
+				state.chats[normalizedJid],
+			);
+		};
+		const recreateMissingThread = async () => {
+			const chatInfo = state.chats[normalizedJid];
+			if (!isThreadChatLink(chatInfo)) {
+				return null;
+			}
+			return this.recreateManagedThreadLink(normalizedJid);
+		};
 
 		const extractFileNames = (files) => {
 			if (!Array.isArray(files)) return [];
@@ -3096,29 +3384,26 @@ const discord = {
 				return await webhook.send(sendArgs);
 			} catch (err) {
 				attemptsMade = attempt + 1;
-				if (err.code === 10015 && err.message.includes("Unknown Webhook")) {
-					delete state.goccRuns[jid];
-					const chatInfo = state.chats[jid];
-					if (!chatInfo?.channelId) {
+				if (isUnknownWebhookError(err)) {
+					webhook = await refreshWebhookForChat();
+					if (!webhook) {
 						throw err;
 					}
-					const channel = await this.getChannel(chatInfo.channelId);
-					webhook = ensureWebhookReplySupport(
-						await channel.createWebhook({ name: "WA2DC" }),
-					);
-					state.chats[jid] = {
-						id: webhook.id,
-						type: webhook.type,
-						token: webhook.token,
-						channelId: webhook.channelId,
-					};
+					attempt += 1;
+					continue;
+				}
+				if (isUnknownChannelError(err)) {
+					webhook = await recreateMissingThread();
+					if (!webhook) {
+						throw err;
+					}
 					attempt += 1;
 					continue;
 				}
 				if (err.code === 40005 || err.httpStatus === 413) {
 					const content = `WA2DC Attention: Received a file, but it's over Discord's upload limit. Check WhatsApp on your phone${state.settings.LocalDownloads ? "" : " or enable local downloads."}`;
 					const fallbackArgs = {
-						...baseArgsWithoutFiles,
+						...withThreadIdForChat(baseArgsWithoutFiles, normalizedJid),
 						content,
 					};
 					if (hasFilesArray) {
@@ -3170,7 +3455,7 @@ const discord = {
 		);
 		const fallbackContent = fallbackParts.join("\n\n");
 		const fallbackArgs = {
-			...baseArgsWithoutFiles,
+			...withThreadIdForChat(baseArgsWithoutFiles, normalizedJid),
 			content: fallbackContent,
 		};
 		if (hasFilesArray) {
@@ -3184,8 +3469,12 @@ const discord = {
 	},
 	async safeWebhookEdit(webhook, messageId, args, jid) {
 		const normalizedJid = whatsapp.formatJid(jid);
+		const chatInfo = state.chats[normalizedJid];
 		try {
-			return await webhook.editMessage(messageId, args);
+			return await webhook.editMessage(
+				messageId,
+				withThreadIdForChat(args, normalizedJid),
+			);
 		} catch (err) {
 			if (err.code === 10008 && err.message.includes("Unknown Message")) {
 				return null;
@@ -3194,52 +3483,42 @@ const discord = {
 				if (normalizedJid) {
 					delete state.goccRuns[normalizedJid];
 				}
-				const channel = await this.getChannel(
-					state.chats[normalizedJid]?.channelId,
-				);
-				webhook = ensureWebhookReplySupport(
-					await channel.createWebhook({ name: "WA2DC" }),
-				);
+				const channel = await this.getChannel(chatInfo?.channelId);
+				webhook = await this.getOrCreateOwnedWebhook(channel);
 				if (normalizedJid) {
-					state.chats[normalizedJid] = {
-						id: webhook.id,
-						type: webhook.type,
-						token: webhook.token,
-						channelId: webhook.channelId,
-					};
+					state.chats[normalizedJid] = buildStoredChatLink(webhook, chatInfo);
 				}
-				return await webhook.editMessage(messageId, args);
+				return await webhook.editMessage(
+					messageId,
+					withThreadIdForChat(args, normalizedJid),
+				);
 			}
 			throw err;
 		}
 	},
 	async safeWebhookDelete(webhook, messageId, jid) {
 		const normalizedJid = whatsapp.formatJid(jid);
+		const chatInfo = state.chats[normalizedJid];
+		const threadId = normalizeDiscordId(chatInfo?.threadId);
 		try {
-			return await webhook.deleteMessage(messageId);
+			return await webhook.deleteMessage(messageId, threadId || undefined);
 		} catch (err) {
 			if (err.code === 10008 && err.message.includes("Unknown Message")) {
+				return null;
+			}
+			if (threadId && err?.code === 10003) {
 				return null;
 			}
 			if (err.code === 10015 && err.message.includes("Unknown Webhook")) {
 				if (normalizedJid) {
 					delete state.goccRuns[normalizedJid];
 				}
-				const channel = await this.getChannel(
-					state.chats[normalizedJid]?.channelId,
-				);
-				webhook = ensureWebhookReplySupport(
-					await channel.createWebhook({ name: "WA2DC" }),
-				);
+				const channel = await this.getChannel(chatInfo?.channelId);
+				webhook = await this.getOrCreateOwnedWebhook(channel);
 				if (normalizedJid) {
-					state.chats[normalizedJid] = {
-						id: webhook.id,
-						type: webhook.type,
-						token: webhook.token,
-						channelId: webhook.channelId,
-					};
+					state.chats[normalizedJid] = buildStoredChatLink(webhook, chatInfo);
 				}
-				return await webhook.deleteMessage(messageId);
+				return await webhook.deleteMessage(messageId, threadId || undefined);
 			}
 			throw err;
 		}
@@ -3248,9 +3527,6 @@ const discord = {
 		const guild = await this.getGuild();
 		await guild.channels.fetch();
 
-		if (state.settings.Categories == null) {
-			state.settings.Categories = [state.settings.CategoryID];
-		}
 		const categoryExists = await guild.channels
 			.fetch(state.settings.Categories?.[0])
 			.catch(() => null);
@@ -3277,10 +3553,20 @@ const discord = {
 			position: 0,
 			parent: state.settings.Categories[0],
 		});
-		for (const [jid, webhook] of Object.entries(state.chats)) {
-			guild.channels.fetch(webhook.channelId).catch(() => {
+		for (const [jid, chatLink] of Object.entries(state.chats)) {
+			const hostChannelId = getChatHostChannelId(chatLink);
+			const targetChannelId = getChatTargetChannelId(chatLink);
+			const [hostChannel, targetChannel] = await Promise.all([
+				hostChannelId
+					? guild.channels.fetch(hostChannelId).catch(() => null)
+					: Promise.resolve(null),
+				targetChannelId
+					? guild.channels.fetch(targetChannelId).catch(() => null)
+					: Promise.resolve(null),
+			]);
+			if (!hostChannel || !targetChannel) {
 				delete state.chats[jid];
-			});
+			}
 		}
 
 		for await (const categoryId of state.settings.Categories) {
@@ -3296,7 +3582,9 @@ const discord = {
 			if (
 				channel.id !== state.settings.ControlChannelID &&
 				state.settings.Categories.includes(channel.parentId) &&
-				!this.channelIdToJid(channel.id)
+				!this.channelIdToJid(channel.id) &&
+				!this.hostChannelIdToJids(channel.id).length &&
+				!this.isManagedThreadHostChannel(channel)
 			) {
 				channel.edit({ parent: null });
 			}
@@ -3305,9 +3593,11 @@ const discord = {
 	async renameChannels() {
 		const guild = await this.getGuild();
 
-		for (const [jid, webhook] of Object.entries(state.chats)) {
+		for (const [jid, chatLink] of Object.entries(state.chats)) {
 			try {
-				const channel = await guild.channels.fetch(webhook.channelId);
+				const channel = await guild.channels.fetch(
+					getChatTargetChannelId(chatLink),
+				);
 				await channel.edit({
 					name: whatsapp.jidToName(jid),
 				});
@@ -4475,7 +4765,7 @@ const whatsapp = {
 				"documentMessage",
 				rawMsg.message[msgType].message.documentMessage,
 			];
-		} else if (msgType === "viewOnceMessageV2") {
+		} else if (isWhatsAppViewOnceMessageType(msgType)) {
 			const nMsgType = this.getMessageType(rawMsg.message[msgType]);
 			return [nMsgType, rawMsg.message[msgType].message[nMsgType]];
 		} else if (msgType === "editedMessage") {
@@ -4545,12 +4835,15 @@ const whatsapp = {
 		if (largeFile && !state.settings.LocalDownloads) return -1;
 		try {
 			const baseName = this.getFilename(msg, nMsgType);
+			const viewOnce = isWhatsAppViewOnceMediaMessage(rawMsg, msgType, msg);
+			const fileName = viewOnce ? asDiscordSpoilerFileName(baseName) : baseName;
 			if (largeFile && state.settings.LocalDownloads) {
 				return {
-					name: baseName,
+					name: fileName,
 					downloadCtx: rawMsg,
 					msgType: nMsgType,
 					largeFile: true,
+					spoiler: viewOnce,
 				};
 			}
 			if (nMsgType === "videoMessage" && msg.gifPlayback) {
@@ -4573,16 +4866,55 @@ const whatsapp = {
 					messageId: this.getId(rawMsg),
 				});
 				return {
-					name: normalizedGif.fileName,
+					name: viewOnce
+						? asDiscordSpoilerFileName(normalizedGif.fileName)
+						: normalizedGif.fileName,
 					attachment: normalizedGif.attachmentBuffer,
 					contentType: normalizedGif.contentType,
 					largeFile,
 					downloadCtx: rawMsg,
 					msgType: nMsgType,
+					spoiler: viewOnce,
+				};
+			}
+			if (
+				nMsgType === "audioMessage" &&
+				state.settings.WhatsAppAudioConversionFormat === "mp3"
+			) {
+				const attachmentBuffer = Buffer.from(
+					await downloadMediaMessage(
+						rawMsg,
+						"buffer",
+						{},
+						{
+							logger: state.logger,
+							reuploadRequest: state.waClient.updateMediaMessage,
+						},
+					),
+				);
+				const normalizedAudio = await normalizeWhatsAppAudioFileForDiscord({
+					attachmentBuffer,
+					fileName: baseName,
+					mimetype: msg.mimetype,
+					targetFormat: state.settings.WhatsAppAudioConversionFormat,
+					jid: remoteJid,
+					messageId: this.getId(rawMsg),
+					maxBytes: state.settings.DiscordFileSizeLimit,
+				});
+				return {
+					name: viewOnce
+						? asDiscordSpoilerFileName(normalizedAudio.fileName)
+						: normalizedAudio.fileName,
+					attachment: normalizedAudio.attachmentBuffer,
+					contentType: normalizedAudio.contentType,
+					largeFile,
+					downloadCtx: rawMsg,
+					msgType: nMsgType,
+					spoiler: viewOnce,
 				};
 			}
 			return {
-				name: baseName,
+				name: fileName,
 
 				attachment: await downloadMediaMessage(
 					rawMsg,
@@ -4596,6 +4928,7 @@ const whatsapp = {
 				largeFile,
 				downloadCtx: rawMsg,
 				msgType: nMsgType,
+				spoiler: viewOnce,
 			};
 		} catch (err) {
 			if (
@@ -4645,7 +4978,9 @@ const whatsapp = {
 			"audioMessage",
 			"documentMessage",
 			"documentWithCaptionMessage",
+			"viewOnceMessage",
 			"viewOnceMessageV2",
+			"viewOnceMessageV2Extension",
 			"stickerMessage",
 			"editedMessage",
 			"pollCreationMessage",
@@ -4688,11 +5023,12 @@ const whatsapp = {
 	async getContent(msg, nMsgType, msgType, { mentionTarget = "name" } = {}) {
 		let content = "";
 		const discordMentions = new Set();
-		if (msgType === "viewOnceMessageV2") {
+		let discordMentionEveryone = false;
+		if (isWhatsAppViewOnceMessageType(msgType)) {
 			content += "View once message:\n";
 		}
 		if (msg == null) {
-			return { content, discordMentions: [] };
+			return { content, discordMentions: [], discordMentionEveryone };
 		}
 		switch (nMsgType) {
 			case "conversation":
@@ -4736,6 +5072,20 @@ const whatsapp = {
 		const mentions = contextInfo?.mentionedJid || [];
 		const links = state.settings?.WhatsAppDiscordMentionLinks;
 		const hasLinks = links && typeof links === "object";
+		const nonJidMentionCount = Number(contextInfo?.nonJidMentions || 0);
+		const hasWhatsAppMentionAll =
+			Number.isFinite(nonJidMentionCount) && nonJidMentionCount > 0;
+
+		if (mentionTarget === "discord" && hasWhatsAppMentionAll) {
+			const nextContent = content.replace(
+				WHATSAPP_MENTION_ALL_REGEX,
+				"@everyone",
+			);
+			if (nextContent !== content) {
+				content = nextContent;
+				discordMentionEveryone = true;
+			}
+		}
 
 		const resolveLinkedDiscordUserId = async (jid) => {
 			if (!hasLinks) return null;
@@ -4981,7 +5331,11 @@ const whatsapp = {
 			content = content ? `${content} ${suffix}` : suffix;
 		}
 
-		return { content, discordMentions: [...discordMentions] };
+		return {
+			content,
+			discordMentions: [...discordMentions],
+			discordMentionEveryone,
+		};
 	},
 	updateContacts(rawContacts) {
 		const contacts = rawContacts.chats || rawContacts.contacts || rawContacts;
@@ -5253,7 +5607,6 @@ const utils = {
 	discord,
 	requests,
 	whatsapp,
-	sqliteToJson,
 	ensureDownloadServer,
 	stopDownloadServer,
 };

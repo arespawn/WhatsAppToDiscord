@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const DEFAULT_RESTART_DELAY_MS = 10_000;
-export const DEFAULT_MAX_RESTARTS = 5;
+const DEFAULT_RESTART_DELAY_MS = 10_000;
+const DEFAULT_MAX_RESTARTS = 5;
 export const UPDATE_VALIDATION_WINDOW_MS = 120_000;
-export const UPDATE_ROLLBACK_CRASH_THRESHOLD = 2;
+const UPDATE_ROLLBACK_CRASH_THRESHOLD = 2;
 
 const RESTART_REASONS = new Set(["manual", "update", "rollback"]);
 

@@ -8,23 +8,40 @@ All bot controls now run exclusively through Discord slash commands. Type `/` in
 
 ### `/pairwithcode`
 Request a pairing code for a specific phone number.  
-Usage: `/pairwithcode number:<E.164 phone number>`
+Usage: `/pairwithcode phone:<E.164 phone number>`  
+Note: `phone` can include a leading `+`, spaces, dashes, dots, or parentheses; WA2DC normalizes it before requesting the pairing code. Run this while WhatsApp is showing a fresh QR/pairing prompt, then enter the code immediately in WhatsApp. WA2DC waits briefly after the WhatsApp pairing prompt before requesting a code and refuses to request codes for already registered sessions. If WhatsApp closes or times out the current pairing window, run `/pairwithcode` again after WA2DC posts the next fresh prompt. Pairing codes are still less reliable than QR scanning because WhatsApp may reject or rate-limit them.
+
+Advanced troubleshooting: WA2DC starts fresh/unregistered WhatsApp sessions with the Android browser profile by default because it has better view-once media support. When `/pairwithcode` is used from Android, WA2DC stores a temporary `macos-chrome` pairing profile, clears the unregistered WhatsApp auth stub, and restarts; run `/pairwithcode phone:<number>` again after the restart to receive the code. The command warns that this profile is less reliable for WhatsApp view-once media. Set `WA2DC_WHATSAPP_BROWSER` before startup to force a specific profile; supported values are `android`, `macos-chrome`, `windows-chrome`, `ubuntu-chrome`, and `baileys`. For prerelease startup OOM isolation, `WA2DC_WHATSAPP_BROWSER=macos-chrome` or `WA2DC_WHATSAPP_BROWSER=baileys` can be used temporarily without changing the default for other installs.
 
 ### `/chatinfo`
-Show which WhatsApp chat the current channel is linked to (JID + type).  
+Show which WhatsApp chat the current channel/thread is linked to (JID + type), plus the Discord target mode.  
 Usage: `/chatinfo`
 
 ### `/start`
-Create a brand-new WhatsApp conversation and channel link.  
+Create a brand-new WhatsApp conversation and link it using the current default chat mode (`channel` or `thread`).  
 Usage: `/start contact:<phone number or saved contact name>`
 
+### `/defaultchat`
+Choose whether new WhatsApp chats are created as regular Discord channels or as forum threads under managed forum channels.  
+Usage: `/defaultchat mode:<channel|thread> host_name:<optional forum name>`
+
+### `/threadnotifications`
+Toggle the one-time notification post WA2DC sends when it creates a new WhatsApp thread.  
+Usage: `/threadnotifications enabled:<true|false>`
+
+### `/threadtargets`
+Manage which Discord roles/users are pinged when WA2DC creates a new WhatsApp thread. This is the single add/remove/list command for thread notification targets.  
+Usage: `/threadtargets action:<add|remove|list> user:<optional @user> role:<optional @role>`  
+Pick exactly one of `user` or `role` when using `add` or `remove`.
+
 ### `/link`
-Link an existing Discord text/news channel to an existing WhatsApp chat without creating anything new.  
+Link an existing Discord text/news channel or forum thread to an existing WhatsApp chat without creating anything new.  
 Usage: `/link contact:<name or number> channel:<#channel> force:<true|false>`  
-Enable `force` to override a channel that is already linked to another chat.
+Enable `force` to override a channel/thread that is already linked to another chat.  
+Note: thread targets must be forum threads; WA2DC does not support linking raw text-channel threads.
 
 ### `/move`
-Move an existing WhatsApp link (and webhook) from one channel to another.  
+Move an existing WhatsApp link (and webhook) from one Discord target to another.  
 Usage: `/move from:<#current-channel> to:<#new-channel> force:<true|false>`
 
 ### `/list`
@@ -39,6 +56,14 @@ Notes: Poll messages and live vote updates are mirrored to Discord, voting can o
 ### `/setpinduration`
 Set the default expiration time (24h, 7d, or 30d) for WhatsApp pins created from Discord.  
 Usage: `/setpinduration duration:<24h|7d|30d>`
+
+Thread mode notes:
+
+- `channel` is the default.
+- In `thread` mode, WA2DC creates forum threads under auto-managed forum channels named `whatsapp-threads`, `whatsapp-threads-2`, and so on, unless you provide `host_name`.
+- `host_name` is sanitized into a Discord channel name and only affects newly created managed forum channels.
+- Existing channel links continue working unchanged after you switch the default.
+- Thread notification pings are sent only once when the thread is first created, never on every mirrored message.
 
 ### Newsletters
 
@@ -187,7 +212,8 @@ Usage: `/hidephonenumbers enabled:<true|false>`
 
 WA2DC can optionally translate WhatsApp @mentions into Discord user mentions, if you link a WhatsApp contact to a Discord user.
 This only works for **real WhatsApp mentions** (select the person from WhatsApp’s mention picker); manually typing `@name` without selecting won’t include mention metadata and can’t be translated reliably.
-If a WhatsApp contact is linked, WA2DC will also translate **Discord user @mentions** into **WhatsApp mentions** when forwarding messages from Discord to WhatsApp (you must use a real Discord mention — select the user from autocomplete so Discord inserts a `<@...>` mention).
+WhatsApp group-wide `@all` mentions are mirrored as Discord `@everyone` mentions when WhatsApp includes mention-all metadata; plain typed `@all` text is left unchanged.
+If a WhatsApp contact is linked, WA2DC will also translate **Discord user @mentions** into **WhatsApp mentions** when forwarding messages from Discord to WhatsApp (you must use a real Discord mention — select the user from autocomplete so Discord inserts a `<@...>` mention). In WhatsApp group chats, real Discord `@everyone` / `@here` mentions are forwarded as WhatsApp `@all`; plain typed text is left unchanged.
 
 ### `/linkmention`
 Link a WhatsApp contact to a Discord user so future WhatsApp @mentions ping them in Discord.  
@@ -216,9 +242,11 @@ How to find PN/LID:
 Defaults (out of the box):
 
 - WhatsApp → Discord media bursts use batches of `10` attachments (`/setwamediaburstsize` can lower this for slower machines or unstable connections).
+- WhatsApp audio is mirrored in its original format by default (`/waaudiomp3 enabled:true` opts in to MP3 conversion for older clients).
 - Local downloads are disabled (`/localdownloads enabled:true` to turn on).
 - Download directory is `./downloads` and pruning is disabled (`/setdownloadlimit`, `/setdownloadmaxage`, `/setdownloadminfree` all default to `0` = off).
 - Local download server is disabled; when enabled it defaults to local-only (`127.0.0.1` bind, `localhost` URLs, port `8080`).
+- WhatsApp view-once media is mirrored to Discord as spoiler attachments.
 
 ### `/setwamediaburstsize`
 Set how many WhatsApp attachments WA2DC uploads to Discord per batch when mirroring media bursts.  
@@ -226,6 +254,12 @@ Usage: `/setwamediaburstsize count:<1-10>`
 Default: `10`  
 Lower values can help on slower machines or unstable connections, at the cost of producing more Discord messages for large WhatsApp image bursts.
 - Download links are signed (survive restarts) and never expire by default (`/setdownloadlinkttl seconds:0`).
+
+### `/waaudiomp3`
+Toggle MP3 conversion for WhatsApp audio before uploading it to Discord.  
+Usage: `/waaudiomp3 enabled:<true|false>`  
+Default: `false` (original WhatsApp audio is preserved).  
+Requires `ffmpeg`; if conversion is unavailable or fails, WA2DC falls back to the original WhatsApp audio.
 
 To make download links reachable from other devices (phone/PC), you usually want:
 
@@ -359,7 +393,7 @@ Safely save state and restart the bot (requires running via the watchdog runner)
 Usage: `/restart` (control channel only)
 
 ### `/resync`
-Re-sync WhatsApp contacts/groups. Set `rename:true` to rename Discord channels to match WhatsApp subjects.
+Re-sync WhatsApp contacts/groups. Set `rename:true` to rename Discord channels to match WhatsApp subjects. The group refresh uses a lightweight group list query and does not download every group participant roster.
 
 ### `/autosaveinterval`
 Change how often the bot persists state (seconds).  

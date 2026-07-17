@@ -49,7 +49,7 @@ const extractUrls = (value = "") =>
 	String(value).match(/https?:\/\/[^\s>]+/gu) || [];
 
 const setupWhatsAppHarness = async ({
-	oneWay = 0b11,
+	oneWay = "bidirectional",
 	inWhitelist = () => true,
 	sentAfterStart = () => true,
 	getMessageType = () => "conversation",
@@ -257,6 +257,7 @@ const setupWhatsAppHarness = async ({
 test("WhatsApp message emits Discord event", async () => {
 	const harness = await setupWhatsAppHarness();
 	try {
+		messageStore.clear();
 		harness.fakeClient.ev.emit("messages.upsert", {
 			type: "notify",
 			messages: [
@@ -275,8 +276,90 @@ test("WhatsApp message emits Discord event", async () => {
 			harness.forwarded.messages[0]?.channelJid,
 			"jid@s.whatsapp.net",
 		);
+		assert.ok(
+			messageStore.get({
+				id: "abc",
+				remoteJid: "jid@s.whatsapp.net",
+			}),
+		);
 		assert.ok(harness.controlMessages.length >= 1);
 	} finally {
+		messageStore.clear();
+		harness.cleanup();
+	}
+});
+
+test("WhatsApp stale pre-start messages are not stored", async () => {
+	const harness = await setupWhatsAppHarness({
+		sentAfterStart: () => false,
+	});
+	try {
+		messageStore.clear();
+		harness.fakeClient.ev.emit("messages.upsert", {
+			type: "notify",
+			messages: [
+				{
+					key: { id: "stale", remoteJid: "jid@s.whatsapp.net" },
+					message: "old message",
+				},
+			],
+		});
+
+		await delay(0);
+
+		assert.equal(harness.forwarded.messages.length, 0);
+		assert.equal(
+			messageStore.get({
+				id: "stale",
+				remoteJid: "jid@s.whatsapp.net",
+			}),
+			null,
+		);
+	} finally {
+		messageStore.clear();
+		harness.cleanup();
+	}
+});
+
+test("WhatsApp newsletter server-id mapping runs before stale message skip", async () => {
+	const harness = await setupWhatsAppHarness({
+		sentAfterStart: () => false,
+	});
+	try {
+		messageStore.clear();
+		state.lastMessages["newsletter-outbound"] = "dc-news";
+		state.lastMessages["dc-news"] = "newsletter-outbound";
+
+		harness.fakeClient.ev.emit("messages.upsert", {
+			type: "notify",
+			messages: [
+				{
+					key: {
+						id: "newsletter-outbound",
+						server_id: "newsletter-server",
+						remoteJid: "120363123456789@newsletter",
+						fromMe: true,
+					},
+					message: "newsletter post",
+				},
+			],
+		});
+
+		await delay(0);
+
+		assert.equal(harness.forwarded.messages.length, 0);
+		assert.equal(state.lastMessages["dc-news"], "newsletter-server");
+		assert.equal(state.lastMessages["newsletter-server"], "dc-news");
+		assert.equal(state.sentMessages.has("newsletter-server"), true);
+		assert.equal(
+			messageStore.get({
+				id: "newsletter-outbound",
+				remoteJid: "120363123456789@newsletter",
+			}),
+			null,
+		);
+	} finally {
+		messageStore.clear();
 		harness.cleanup();
 	}
 });
@@ -477,7 +560,7 @@ test("WhatsApp sentPins prevents echoing pins back to Discord", async () => {
 });
 
 test("Discord delete/edit/reaction events send the expected WhatsApp actions", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		state.lastMessages["dc-msg"] = "wa-msg";
 
@@ -530,7 +613,7 @@ test("Discord delete/edit/reaction events send the expected WhatsApp actions", a
 });
 
 test("Discord reactions in newsletter chats use newsletter-specific API", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		state.lastMessages["dc-news-react"] = "newsletter-server-id-1";
 
@@ -588,7 +671,7 @@ test("Discord reactions in newsletter chats use newsletter-specific API", async 
 });
 
 test("Discord newsletter deletes notify manual action and skip WhatsApp delete", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalGetChannel = utils.discord.getChannel;
 	try {
 		const linkedNotices = [];
@@ -622,7 +705,7 @@ test("Discord newsletter deletes notify manual action and skip WhatsApp delete",
 });
 
 test("Newsletter edit/delete notify manual action while reactions still wait for server ids", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalGetChannel = utils.discord.getChannel;
 	try {
 		const editNotices = [];
@@ -707,7 +790,7 @@ test("Newsletter edit/delete notify manual action while reactions still wait for
 });
 
 test("Newsletter reactions wait past outbound client ids for resolved server ids", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		state.lastMessages["dc-news-react-outbound"] = "3EB0DD14CD06ABCE146147";
 		state.lastMessages["3EB0DD14CD06ABCE146147"] = "dc-news-react-outbound";
@@ -745,7 +828,7 @@ test("Newsletter reactions wait past outbound client ids for resolved server ids
 });
 
 test("Newsletter reactions recover server ids from stored outbound messages after restart", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		messageStore.clear();
 		const outboundId = "3EB0DD14CD06ABCE146147";
@@ -838,7 +921,7 @@ test("Newsletter reactions recover server ids from stored outbound messages afte
 
 test("Discord newsletter sends use normalized JIDs and map server IDs", async () => {
 	const harness = await setupWhatsAppHarness({
-		oneWay: 0b11,
+		oneWay: "bidirectional",
 		formatJid: (jid) => (typeof jid === "string" ? jid.trim() : jid),
 	});
 	try {
@@ -884,7 +967,7 @@ test("Discord newsletter sends use normalized JIDs and map server IDs", async ()
 
 test("Discord newsletter send maps server ids from pending upsert notifications", async () => {
 	const harness = await setupWhatsAppHarness({
-		oneWay: 0b11,
+		oneWay: "bidirectional",
 		formatJid: (jid) => (typeof jid === "string" ? jid.trim() : jid),
 	});
 	try {
@@ -950,7 +1033,7 @@ test("Discord newsletter send maps server ids from pending upsert notifications"
 
 test("Newsletter live_updates notifications map pending outbound ids to server ids", async () => {
 	const harness = await setupWhatsAppHarness({
-		oneWay: 0b11,
+		oneWay: "bidirectional",
 		formatJid: (jid) => (typeof jid === "string" ? jid.trim() : jid),
 	});
 	try {
@@ -1032,7 +1115,7 @@ test("Newsletter live_updates notifications map pending outbound ids to server i
 
 test("Newsletter live_updates notifications mirror reactions to Discord", async () => {
 	const harness = await setupWhatsAppHarness({
-		oneWay: 0b11,
+		oneWay: "bidirectional",
 		formatJid: (jid) => (typeof jid === "string" ? jid.trim() : jid),
 	});
 	try {
@@ -1090,7 +1173,7 @@ test("Newsletter live_updates notifications mirror reactions to Discord", async 
 
 test("Newsletter live_updates reaction echo suppression uses server_id", async () => {
 	const harness = await setupWhatsAppHarness({
-		oneWay: 0b11,
+		oneWay: "bidirectional",
 		formatJid: (jid) => (typeof jid === "string" ? jid.trim() : jid),
 	});
 	try {
@@ -1146,7 +1229,7 @@ test("Newsletter live_updates reaction echo suppression uses server_id", async (
 
 test("Newsletter live_updates empty reactions clear tracked newsletter reactions", async () => {
 	const harness = await setupWhatsAppHarness({
-		oneWay: 0b11,
+		oneWay: "bidirectional",
 		formatJid: (jid) => (typeof jid === "string" ? jid.trim() : jid),
 	});
 	try {
@@ -1197,7 +1280,7 @@ test("Newsletter live_updates empty reactions clear tracked newsletter reactions
 });
 
 test("Discord to WhatsApp sends include broadcast mode for broadcast chats", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		state.lastMessages["dc-broadcast-edit"] = "wa-broadcast-msg";
 		state.lastMessages["dc-broadcast-react"] = "wa-broadcast-msg";
@@ -1262,7 +1345,7 @@ test("Discord to WhatsApp sends include broadcast mode for broadcast chats", asy
 });
 
 test("Discord raw user and role mentions are converted before forwarding to WhatsApp", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		harness.fakeClient.ev.emit("discordMessage", {
 			jid: "jid@s.whatsapp.net",
@@ -1310,8 +1393,142 @@ test("Discord raw user and role mentions are converted before forwarding to What
 	}
 });
 
+test("Discord everyone and here mentions become WhatsApp @all in group chats", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
+	try {
+		harness.fakeClient.ev.emit("discordMessage", {
+			jid: "123456789@g.us",
+			message: {
+				id: "dc-everyone-msg",
+				content: "Team @everyone",
+				cleanContent: "Team @everyone",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				attachments: new Map(),
+				stickers: new Map(),
+				embeds: [],
+				mentions: {
+					everyone: true,
+					users: new Map(),
+					members: new Map(),
+					roles: new Map(),
+				},
+			},
+		});
+		await delay(0);
+
+		assert.equal(harness.fakeClient.sendCalls[0]?.content?.text, "Team @all");
+		assert.equal(harness.fakeClient.sendCalls[0]?.content?.mentionAll, true);
+
+		harness.fakeClient.ev.emit("discordMessage", {
+			jid: "123456789@g.us",
+			message: {
+				id: "dc-here-msg",
+				content: "Team @here",
+				cleanContent: "Team @here",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				attachments: new Map(),
+				stickers: new Map(),
+				embeds: [],
+				mentions: {
+					everyone: true,
+					users: new Map(),
+					members: new Map(),
+					roles: new Map(),
+				},
+			},
+		});
+		await delay(0);
+
+		assert.equal(harness.fakeClient.sendCalls[1]?.content?.text, "Team @all");
+		assert.equal(harness.fakeClient.sendCalls[1]?.content?.mentionAll, true);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test("Plain Discord @everyone text is not promoted to WhatsApp @all", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
+	try {
+		harness.fakeClient.ev.emit("discordMessage", {
+			jid: "123456789@g.us",
+			message: {
+				id: "dc-manual-everyone-msg",
+				content: "Manual @everyone",
+				cleanContent: "Manual @everyone",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				attachments: new Map(),
+				stickers: new Map(),
+				embeds: [],
+				mentions: {
+					everyone: false,
+					users: new Map(),
+					members: new Map(),
+					roles: new Map(),
+				},
+			},
+		});
+		await delay(0);
+
+		assert.equal(
+			harness.fakeClient.sendCalls[0]?.content?.text,
+			"Manual @everyone",
+		);
+		assert.equal(
+			harness.fakeClient.sendCalls[0]?.content?.mentionAll,
+			undefined,
+		);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test("Discord edited everyone mentions keep WhatsApp mentionAll metadata", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
+	try {
+		state.lastMessages["dc-edit-everyone"] = "wa-edit-everyone";
+
+		harness.fakeClient.ev.emit("discordEdit", {
+			jid: "123456789@g.us",
+			message: {
+				id: "dc-edit-everyone",
+				content: "Edited @everyone",
+				cleanContent: "Edited @everyone",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: { send: async () => {} },
+				mentions: {
+					everyone: true,
+					users: new Map(),
+					members: new Map(),
+					roles: new Map(),
+				},
+			},
+		});
+		await delay(0);
+
+		assert.equal(harness.fakeClient.sendCalls[0]?.content?.text, "Edited @all");
+		assert.equal(harness.fakeClient.sendCalls[0]?.content?.mentionAll, true);
+		assert.equal(
+			harness.fakeClient.sendCalls[0]?.content?.edit?.id,
+			"wa-edit-everyone",
+		);
+	} finally {
+		harness.cleanup();
+	}
+});
+
 test("Discord embeds are ignored when DiscordEmbedsToWhatsApp is disabled", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalEmbedSetting = state.settings.DiscordEmbedsToWhatsApp;
 	try {
 		state.settings.DiscordEmbedsToWhatsApp = false;
@@ -1350,7 +1567,7 @@ test("Discord embeds are ignored when DiscordEmbedsToWhatsApp is disabled", asyn
 });
 
 test("Discord embeds can be mirrored to WhatsApp with mention conversion", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalEmbedSetting = state.settings.DiscordEmbedsToWhatsApp;
 	const originalMentionLinks = {
 		...(state.settings.WhatsAppDiscordMentionLinks || {}),
@@ -1430,7 +1647,7 @@ test("Discord embeds can be mirrored to WhatsApp with mention conversion", async
 });
 
 test("Discord embed images are not duplicated when CDN and proxy URLs point to the same media", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalEmbedSetting = state.settings.DiscordEmbedsToWhatsApp;
 	try {
 		state.settings.DiscordEmbedsToWhatsApp = true;
@@ -1493,7 +1710,7 @@ test("Discord embed images are not duplicated when CDN and proxy URLs point to t
 });
 
 test("Discord voice-style audio attachments are sent as WhatsApp ptt messages", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		utils.whatsapp.createDocumentContent = (attachment) => ({
 			audio: { url: attachment.url },
@@ -1555,7 +1772,7 @@ test("Discord voice-style audio attachments are sent as WhatsApp ptt messages", 
 });
 
 test("Regular Discord audio attachments are not forced into ptt mode", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		utils.whatsapp.createDocumentContent = (attachment) => ({
 			audio: { url: attachment.url },
@@ -1612,7 +1829,7 @@ test("Regular Discord audio attachments are not forced into ptt mode", async () 
 });
 
 test("Discord static stickers are sent to WhatsApp as sticker payloads", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const sharpMod = await import("sharp");
 		const sharp = sharpMod?.default || sharpMod;
@@ -1676,7 +1893,7 @@ test("Discord static stickers are sent to WhatsApp as sticker payloads", async (
 });
 
 test("Unsupported Discord static WebP attachments are normalized before WhatsApp send", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const sharpMod = await import("sharp");
 		const sharp = sharpMod?.default || sharpMod;
@@ -1746,7 +1963,7 @@ test("Unsupported Discord static WebP attachments are normalized before WhatsApp
 });
 
 test("Standard Discord PNG image attachments include a jpegThumbnail before WhatsApp send", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const sharpMod = await import("sharp");
 		const sharp = sharpMod?.default || sharpMod;
@@ -1814,7 +2031,7 @@ test("Standard Discord PNG image attachments include a jpegThumbnail before What
 });
 
 test("Multiple Discord image attachments are sent to WhatsApp as a media album", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const sharpMod = await import("sharp");
 		const sharp = sharpMod?.default || sharpMod;
@@ -1928,7 +2145,7 @@ test("Multiple Discord image attachments are sent to WhatsApp as a media album",
 });
 
 test("Unsupported Discord AVIF attachments are normalized before WhatsApp send", async (t) => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const sharpMod = await import("sharp");
 		const sharp = sharpMod?.default || sharpMod;
@@ -2001,7 +2218,7 @@ test("Unsupported Discord AVIF attachments are normalized before WhatsApp send",
 });
 
 test("Unsupported Discord TIFF attachments fall back to document sends when sharp is unavailable", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const sharpMod = await import("sharp");
 		const sharp = sharpMod?.default || sharpMod;
@@ -2074,7 +2291,7 @@ test("Unsupported Discord TIFF attachments fall back to document sends when shar
 });
 
 test("Unsupported Discord image attachments fall back to document sends when normalization loading fails", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalFetchPublicBuffer = utils.requests.fetchPublicBuffer;
 	try {
 		utils.requests.fetchPublicBuffer = async () => {
@@ -2136,7 +2353,7 @@ test("Unsupported Discord image attachments fall back to document sends when nor
 });
 
 test("Discord replies warn with interpolated message storage size when quoted message is missing", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalLimit = state.settings.lastMessageStorage;
 	try {
 		state.settings.lastMessageStorage = 321;
@@ -2184,7 +2401,7 @@ test("Discord replies warn with interpolated message storage size when quoted me
 });
 
 test("Discord non-reply references skip quote lookup and do not warn", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const channelWarnings = [];
 		let quoteAttempts = 0;
@@ -2235,7 +2452,7 @@ test("Discord non-reply references skip quote lookup and do not warn", async () 
 });
 
 test("Discord forwarded messages skip quote lookup and send plain forwarded text to WhatsApp", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const channelWarnings = [];
 		let quoteAttempts = 0;
@@ -2283,7 +2500,7 @@ test("Discord forwarded messages skip quote lookup and send plain forwarded text
 });
 
 test("Discord forwarded snapshots mirror content and attachments to WhatsApp", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		utils.whatsapp.createDocumentContent = (attachment) => ({
 			document: { url: attachment.url },
@@ -2341,7 +2558,7 @@ test("Discord forwarded snapshots mirror content and attachments to WhatsApp", a
 });
 
 test("Discord forwarded snapshot embeds can be mirrored to WhatsApp", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalEmbedSetting = state.settings.DiscordEmbedsToWhatsApp;
 	try {
 		state.settings.DiscordEmbedsToWhatsApp = true;
@@ -2407,7 +2624,7 @@ test("Discord forwarded snapshot embeds can be mirrored to WhatsApp", async () =
 });
 
 test("Discord forwarded snapshot embeds do not duplicate attachment media", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalEmbedSetting = state.settings.DiscordEmbedsToWhatsApp;
 	try {
 		state.settings.DiscordEmbedsToWhatsApp = true;
@@ -2470,7 +2687,7 @@ test("Discord forwarded snapshot embeds do not duplicate attachment media", asyn
 });
 
 test("Discord forwarded snapshots resolve user and role mentions from raw tokens", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	const originalMentionLinks = {
 		...(state.settings.WhatsAppDiscordMentionLinks || {}),
 	};
@@ -2547,7 +2764,7 @@ test("Discord forwarded snapshots resolve user and role mentions from raw tokens
 });
 
 test("Discord replies to newsletter chats attempt WhatsApp quote lookup", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		let quoteAttempts = 0;
 		utils.whatsapp.createQuoteMessage = async () => {
@@ -2588,7 +2805,7 @@ test("Discord replies to newsletter chats attempt WhatsApp quote lookup", async 
 });
 
 test("Newsletter quoted sends do not perform ack retry fallback by default", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		utils.whatsapp.createQuoteMessage = async () => ({
 			key: { id: "wa-quote-ack-retry" },
@@ -2635,7 +2852,7 @@ test("Newsletter quoted sends do not perform ack retry fallback by default", asy
 });
 
 test("Newsletter replies without quote mapping send without fallback reply-context text by default", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const notices = [];
 		utils.whatsapp.createQuoteMessage = async () => null;
@@ -2690,7 +2907,7 @@ test("Newsletter replies without quote mapping send without fallback reply-conte
 });
 
 test("Newsletter image attachments with fallback disabled are not sent to WhatsApp media", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const pngBase64 =
 			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==";
@@ -2740,7 +2957,7 @@ test("Newsletter image attachments with fallback disabled are not sent to WhatsA
 });
 
 test("Newsletter unsupported attachments are skipped with FAQ notice", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const notices = [];
 		harness.fakeClient.ev.emit("discordMessage", {
@@ -2794,7 +3011,7 @@ test("Newsletter unsupported attachments are skipped with FAQ notice", async () 
 });
 
 test("Newsletter URL fallback enabled sends image attachments as plain links", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		state.settings.NewsletterMediaUrlFallback = true;
 		utils.whatsapp.createDocumentContent = (attachment) => ({
@@ -2864,7 +3081,7 @@ test("Newsletter URL fallback enabled sends image attachments as plain links", a
 });
 
 test("Newsletter URL fallback disabled drops image attachments and posts a notice", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const pngBase64 =
 			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==";
@@ -2914,7 +3131,7 @@ test("Newsletter URL fallback disabled drops image attachments and posts a notic
 });
 
 test("Newsletter URL fallback enabled never sends WhatsApp media payloads", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		state.settings.NewsletterMediaUrlFallback = true;
 		const notices = [];
@@ -2978,7 +3195,7 @@ test("Newsletter URL fallback enabled never sends WhatsApp media payloads", asyn
 });
 
 test("Newsletter URL fallback enabled keeps only image/video links and notifies for unsupported files", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		state.settings.NewsletterMediaUrlFallback = true;
 		const notices = [];
@@ -3063,7 +3280,7 @@ test("Newsletter URL fallback enabled keeps only image/video links and notifies 
 });
 
 test("Newsletter URL fallback disabled keeps text and drops attachment links", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b11 });
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
 		const notices = [];
 
@@ -3186,7 +3403,7 @@ test("Ack-rejected newsletter fromMe upserts are not mirrored back to Discord", 
 });
 
 test("oneWay gating blocks Discord -> WhatsApp sends", async () => {
-	const harness = await setupWhatsAppHarness({ oneWay: 0b01 });
+	const harness = await setupWhatsAppHarness({ oneWay: "to-discord" });
 	try {
 		harness.fakeClient.ev.emit("discordDelete", {
 			jid: "jid@s.whatsapp.net",

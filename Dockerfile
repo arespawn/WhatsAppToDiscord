@@ -18,6 +18,7 @@ RUN apt-get update \
 	&& chown node:node /usr/local/WA2DC
 
 COPY --chown=node:node package*.json ./
+COPY --chown=node:node scripts/patchBaileysAndroidBrowser.js ./scripts/patchBaileysAndroidBrowser.js
 USER node
 RUN npm ci --omit=dev
 

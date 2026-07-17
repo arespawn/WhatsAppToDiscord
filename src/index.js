@@ -1,10 +1,19 @@
+import "./loadRuntimeEnvironment.js";
+
 import nodeCrypto from "node:crypto";
 import fs from "node:fs";
 import pino from "pino";
 import pretty from "pino-pretty";
 import packageInfo from "../package.json" with { type: "json" };
 import discordHandler from "./discordHandler.js";
+import { resolveLogLevel } from "./logLevel.js";
 import { isRecoverableUnhandledRejection } from "./processErrors.js";
+import {
+	buildProcessExitReportContent,
+	getProcessExitCode,
+	getProcessReportFileName,
+	isShutdownEvent,
+} from "./processExitReporting.js";
 import state from "./state.js";
 import storage from "./storage.js";
 import utils from "./utils.js";
@@ -15,6 +24,25 @@ const isSmokeTest = process.env.WA2DC_SMOKE_TEST === "1";
 if (!globalThis.crypto) {
 	globalThis.crypto = nodeCrypto.webcrypto;
 }
+
+const suppressSecretBearingDependencyConsoleLogs = () => {
+	const shouldSuppress = (args) =>
+		args[0] === "Closing stale open session for new outgoing prekey bundle" ||
+		args[0] === "Closing session:";
+	const wrap = (method) => {
+		const original = console[method].bind(console);
+		console[method] = (...args) => {
+			if (shouldSuppress(args)) {
+				return;
+			}
+			original(...args);
+		};
+	};
+	wrap("info");
+	wrap("warn");
+};
+
+suppressSecretBearingDependencyConsoleLogs();
 
 (async () => {
 	const packageVersion =
@@ -29,6 +57,7 @@ if (!globalThis.crypto) {
 	];
 	state.logger = pino(
 		{
+			level: resolveLogLevel(),
 			mixin() {
 				return { version };
 			},
@@ -53,7 +82,11 @@ if (!globalThis.crypto) {
 				shuttingDown = true;
 				clearInterval(autoSaver);
 				if (err != null) {
-					state.logger.error(err);
+					if (isShutdownEvent(eventName)) {
+						state.logger.info(err);
+					} else {
+						state.logger.error(err);
+					}
 				}
 				state.logger.info("Exiting!");
 				let logs = "";
@@ -63,11 +96,13 @@ if (!globalThis.crypto) {
 				} catch (readErr) {
 					void readErr;
 				}
-				const content =
-					`Bot crashed: \n\n\u0060\u0060\u0060\n${err?.stack || err}\n\u0060\u0060\u0060` +
-					(logs
-						? `\nRecent logs:\n\u0060\u0060\u0060\n${logs}\n\u0060\u0060\u0060`
-						: "");
+				const content = buildProcessExitReportContent({
+					eventName,
+					reason: err,
+					logs,
+				});
+				const isShutdown = isShutdownEvent(eventName);
+				const reportFileName = getProcessReportFileName(eventName);
 				let sent = false;
 				try {
 					const ctrl = await utils.discord.getControlChannel();
@@ -78,7 +113,7 @@ if (!globalThis.crypto) {
 								files: [
 									{
 										attachment: Buffer.from(content, "utf8"),
-										name: "crash.txt",
+										name: reportFileName,
 									},
 								],
 							});
@@ -88,10 +123,10 @@ if (!globalThis.crypto) {
 						sent = true;
 					}
 				} catch (e) {
-					state.logger.error("Failed to send crash info to Discord");
+					state.logger.error("Failed to send process exit info to Discord");
 					state.logger.error(e);
 				}
-				if (!sent) {
+				if (!sent && !isShutdown) {
 					try {
 						await fs.promises.writeFile("crash-report.txt", content, "utf8");
 					} catch (e) {
@@ -105,7 +140,7 @@ if (!globalThis.crypto) {
 					state.logger.error("Failed to save storage");
 					state.logger.error(e);
 				}
-				process.exit(["SIGINT", "SIGTERM"].includes(eventName) ? 0 : 1);
+				process.exit(getProcessExitCode(eventName));
 			});
 		},
 	);
@@ -115,13 +150,6 @@ if (!globalThis.crypto) {
 	if (process.pkg) {
 		await utils.updater.ensureRuntimeSidecar(version);
 	}
-
-	const conversion = await utils.sqliteToJson.convert();
-	if (!conversion) {
-		state.logger.error("Conversion failed!");
-		process.exit(1);
-	}
-	state.logger.info("Conversion completed.");
 
 	try {
 		await storage.ensureInitialized();

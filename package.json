@@ -1,20 +1,31 @@
 {
 	"name": "wa2dc",
-	"version": "2.3.2",
+	"version": "2.4.0-beta.3",
 	"description": "WhatsAppToDiscord is a Discord bot that uses WhatsApp Web as a bridge between Discord and WhatsApp",
 	"type": "module",
 	"main": "src/runner.js",
 	"scripts": {
 		"start": "node src/runner.js",
+		"postinstall": "node scripts/patchBaileysAndroidBrowser.js",
 		"docs": "npx -y docsify-cli@4.4.4 serve docs",
 		"bundle": "esbuild src/runner.js --bundle --platform=node --format=esm --external:sharp --external:qrcode-terminal --external:link-preview-js --target=node24 --banner:js=\"import { createRequire as __esbuildCreateRequire } from 'module'; const require = __esbuildCreateRequire(import.meta.url);\" --outfile=out.js",
-		"bundle:pkg": "esbuild src/runner.js --bundle --platform=node --format=cjs --external:sharp --external:qrcode-terminal --external:link-preview-js --target=node24 --outfile=out.cjs",
+		"bundle:pkg": "node scripts/buildPkgBundle.js",
 		"build:bin": "node scripts/buildBinary.js",
 		"build:bin:smoke": "node scripts/buildBinary.js --smoke",
 		"test": "node --test",
-		"lint": "biome lint src --error-on-warnings",
-		"check": "biome check src --error-on-warnings",
-		"format": "biome format --write src"
+		"lint": "biome lint src tests scripts --error-on-warnings",
+		"check": "biome check src tests scripts --error-on-warnings",
+		"format": "biome format --write src tests scripts"
+	},
+	"knip": {
+		"ignoreBinaries": [
+			"ffmpeg"
+		],
+		"ignoreDependencies": [
+			"canvas",
+			"jsdom",
+			"lottie-web"
+		]
 	},
 	"author": "arespawn (forked from Fatih Kilic)",
 	"repository": "https://github.com/arespawn/WhatsAppToDiscord",
@@ -23,28 +34,29 @@
 		"node": ">=24"
 	},
 	"dependencies": {
-		"@adiwajshing/keyed-db": "^0.2.4",
-		"@whiskeysockets/baileys": "^7.0.0-rc.9",
+		"@whiskeysockets/baileys": "7.0.0-rc13",
 		"canvas": "^3.2.3",
 		"discord.js": "^14.25.1",
-		"jsdom": "^29.0.1",
+		"jsdom": "^29.1.0",
 		"link-preview-js": "3.2.0",
 		"lottie-web": "^5.13.0",
 		"pino": "^10.3.1",
 		"pino-pretty": "^13.1.2",
 		"qrcode": "^1.5.3",
-		"sharp": "^0.34.5",
-		"tar": "^7.5.13",
-		"undici": "^7.24.6"
+		"sharp": "^0.35.1",
+		"tar": "^7.5.20",
+		"undici": "^7.28.0"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "^2.4.10",
-		"esbuild": "^0.28.0"
+		"@biomejs/biome": "^2.4.13",
+		"esbuild": "^0.28.1"
 	},
 	"pkg": {},
 	"overrides": {
 		"lodash": "4.18.1",
 		"form-data": "4.0.5",
+		"protobufjs": "7.6.5",
+		"ws": "8.21.1",
 		"@whiskeysockets/baileys": {
 			"music-metadata": "11.12.3"
 		},
@@ -52,10 +64,10 @@
 			"file-type": "21.3.3"
 		},
 		"discord.js": {
-			"undici": "6.24.0"
+			"undici": "6.27.0"
 		},
 		"@discordjs/rest": {
-			"undici": "6.24.0"
+			"undici": "6.27.0"
 		},
 		"sharp": {
 			"tar-fs": "3.1.1"

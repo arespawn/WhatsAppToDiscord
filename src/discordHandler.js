@@ -1,8 +1,22 @@
 import fs from "node:fs";
 import * as baileys from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
+import {
+	getChatHostChannelId,
+	getChatTargetChannelId,
+	isThreadChatLink,
+} from "./chatLinks.js";
 import { createDiscordClient } from "./clientFactories.js";
-import groupMetadataCache from "./groupMetadataCache.js";
+import {
+	DISCORD_BOT_PERMISSIONS,
+	NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS,
+	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
+	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
+	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
+	ONE_WAY_MODES,
+	oneWayAllowsDiscordToWhatsApp,
+	oneWayAllowsWhatsAppToDiscord,
+} from "./contracts.js";
 import messageStore from "./messageStore.js";
 import {
 	getNewsletterAckError,
@@ -15,15 +29,17 @@ import {
 	waitForNewsletterAckError,
 	waitForNewsletterServerId,
 } from "./newsletterBridge.js";
-import {
-	ONE_WAY_MODES,
-	oneWayAllowsDiscordToWhatsApp,
-	oneWayAllowsWhatsAppToDiscord,
-} from "./oneWay.js";
 import { resolveRestartFlagPath } from "./runnerLogic.js";
 import state from "./state.js";
 import storage from "./storage.js";
 import utils from "./utils.js";
+import {
+	isWhatsAppBrowserProfile,
+	PAIRING_CODE_BROWSER_PROFILE,
+	saveWhatsAppPairingCodeBrowserProfile,
+	WHATSAPP_BROWSER_PROFILE_ENV,
+} from "./whatsappHandler.js";
+import { resyncWhatsAppContactsAndGroups } from "./whatsappResync.js";
 
 const {
 	ActionRowBuilder,
@@ -35,7 +51,7 @@ const {
 	MessageFlags,
 	MessageType,
 } = discordJs;
-const { getDevice } = baileys;
+const { DisconnectReason, getDevice } = baileys;
 
 const DEFAULT_AVATAR_URL = "https://cdn.discordapp.com/embed/avatars/0.png";
 const PIN_DURATION_PRESETS = {
@@ -43,22 +59,25 @@ const PIN_DURATION_PRESETS = {
 	"7d": 7 * 24 * 60 * 60,
 	"30d": 30 * 24 * 60 * 60,
 };
-const AnnouncementChannelTypes = [ChannelType.GuildAnnouncement, "GUILD_NEWS"];
+const normalizeManagedThreadHostNameOption = (value) =>
+	String(value || "")
+		.trim()
+		.toLowerCase()
+		.replace(/\s+/gu, "-")
+		.replace(/[^a-z0-9_-]+/gu, "")
+		.replace(/-+/gu, "-")
+		.replace(/^[-_]+|[-_]+$/gu, "")
+		.slice(0, 80);
+const AnnouncementChannelTypes = [ChannelType.GuildAnnouncement];
 const TextBridgeChannelTypes = [
 	ChannelType.GuildText,
 	ChannelType.GuildAnnouncement,
-	"GUILD_TEXT",
-	"GUILD_NEWS",
 ];
-const ApplicationCommandOptionTypes = {
-	STRING: ApplicationCommandOptionType.String,
-	INTEGER: ApplicationCommandOptionType.Integer,
-	NUMBER: ApplicationCommandOptionType.Number,
-	BOOLEAN: ApplicationCommandOptionType.Boolean,
-	CHANNEL: ApplicationCommandOptionType.Channel,
-	USER: ApplicationCommandOptionType.User,
-};
-
+const ThreadBridgeChannelTypes = [
+	ChannelType.PublicThread,
+	ChannelType.AnnouncementThread,
+];
+const ForumChannelTypes = [ChannelType.GuildForum];
 const client = createDiscordClient({
 	intents: [
 		GatewayIntentBits.Guilds,
@@ -72,7 +91,6 @@ let controlChannel;
 let slashRegisterWarned = false;
 const pendingAlbums = {};
 const deliveredMessages = new Set();
-const BOT_PERMISSIONS = 536879120;
 const UPDATE_BUTTON_IDS = utils.discord.updateButtonIds;
 const ROLLBACK_BUTTON_ID = utils.discord.rollbackButtonId;
 const bridgePinnedMessages = new Set();
@@ -80,10 +98,6 @@ const pinExpiryTimers = new Map();
 const DISCORD_FORWARD_CONTEXT_TTL_MS = 5 * 60 * 1000;
 const DISCORD_MESSAGE_LOCATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const DISCORD_MESSAGE_LOCATION_MISS_TTL_MS = 10 * 1000;
-const NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS = 8000;
-const NEWSLETTER_SERVER_ID_WAIT_POLL_MS = 150;
-const NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS = 2500;
-const NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS = 8000;
 const newsletterAckWaitMsForSentMessage = (sentMessage) =>
 	getNewsletterServerIdFromMessage(sentMessage)
 		? NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS
@@ -133,11 +147,83 @@ const resolveDiscordMessageIdForWhatsAppId = (whatsAppMessageId) => {
 const resolveChannelIdForJid = (jid) => {
 	const normalizedJid = utils.whatsapp.formatJid(jid);
 	return (
-		state.chats?.[normalizedJid]?.channelId ||
-		state.chats?.[jid]?.channelId ||
+		getChatTargetChannelId(state.chats?.[normalizedJid]) ||
+		getChatTargetChannelId(state.chats?.[jid]) ||
 		null
 	);
 };
+
+const getDiscordTargetMentionForJid = (jid) => {
+	const targetChannelId =
+		utils.discord.getChatTargetChannelId?.(jid) || resolveChannelIdForJid(jid);
+	return targetChannelId ? `<#${targetChannelId}>` : null;
+};
+
+const getChatModeLabel = (chatLink = {}) =>
+	isThreadChatLink(chatLink) ? "Thread" : "Channel";
+
+const resolveManualLinkTarget = async (channel) => {
+	if (!channel) {
+		return {
+			ok: false,
+			error:
+				"Please choose a regular text/news channel or a forum thread from the configured Discord server.",
+		};
+	}
+
+	if (TextBridgeChannelTypes.includes(channel.type)) {
+		return {
+			ok: true,
+			hostChannel: channel,
+			targetChannel: channel,
+			targetChannelId: channel.id,
+			threadId: null,
+		};
+	}
+
+	if (!ThreadBridgeChannelTypes.includes(channel.type)) {
+		return {
+			ok: false,
+			error:
+				"Only text/news channels or forum threads can be linked to WhatsApp chats.",
+		};
+	}
+
+	const parentId = channel.parentId || channel.parent?.id;
+	const parentChannel =
+		channel.parent ||
+		(parentId ? await utils.discord.getChannel(parentId) : null);
+	if (!parentChannel || !ForumChannelTypes.includes(parentChannel.type)) {
+		return {
+			ok: false,
+			error:
+				"WA2DC only supports linking WhatsApp threads to forum threads, not raw text-channel threads.",
+		};
+	}
+
+	return {
+		ok: true,
+		hostChannel: parentChannel,
+		targetChannel: channel,
+		targetChannelId: channel.id,
+		threadId: channel.id,
+	};
+};
+
+const buildChatLinkFromWebhook = (webhook, { threadId = null } = {}) => ({
+	id: webhook.id,
+	type: webhook.type,
+	token: webhook.token,
+	channelId: webhook.channelId,
+	...(threadId ? { threadId } : {}),
+});
+
+const isWebhookSharedAcrossChats = (webhookId, exceptJid = null) =>
+	Object.entries(state.chats || {}).some(
+		([jid, chatLink]) =>
+			jid !== exceptJid &&
+			String(chatLink?.id || "") === String(webhookId || ""),
+	);
 
 const requestSafeRestart = async (
 	ctx,
@@ -520,8 +606,7 @@ const cacheQuotedWhatsAppMessageLocation = ({
 };
 
 const buildForwardContext = (message, rawContext = null) => {
-	const isReplyMessage =
-		message.type === MessageType.Reply || message.type === "REPLY";
+	const isReplyMessage = message.type === MessageType.Reply;
 	const fallbackIsForwarded = Boolean(message.reference && !isReplyMessage);
 	const sourceChannelId =
 		rawContext?.sourceChannelId || message.reference?.channelId || null;
@@ -609,7 +694,7 @@ const resolveForwardSourceChannelId = async (sourceJid) => {
 	if (!sourceJid) return null;
 	const candidates = await collectSourceJidCandidates(sourceJid);
 	for (const candidate of candidates) {
-		const channelId = state.chats?.[candidate]?.channelId;
+		const channelId = getChatTargetChannelId(state.chats?.[candidate]);
 		if (channelId) return channelId;
 	}
 	return null;
@@ -691,7 +776,7 @@ const resolveForwardSourceFromQuote = async (message) => {
 	pushChannelId(sourceChannelId);
 	pushChannelId(cachedByQuotedWaId?.channelId || null);
 	for (const channelId of Object.values(state.chats || {})
-		.map((chat) => chat?.channelId)
+		.map((chat) => getChatTargetChannelId(chat))
 		.filter(Boolean)) {
 		pushChannelId(channelId);
 	}
@@ -861,6 +946,10 @@ class CommandContext {
 		return this.interaction?.options?.getChannel(name);
 	}
 
+	getRoleOption(name) {
+		return this.interaction?.options?.getRole(name);
+	}
+
 	getUserOption(name) {
 		return this.interaction?.options?.getUser(name);
 	}
@@ -875,7 +964,14 @@ const sendWhatsappMessage = async (
 	const files = [];
 	const largeFiles = [];
 	let components = [];
+	const normalizedChannelJid =
+		utils.whatsapp.formatJid(message.channelJid) || message.channelJid;
 	const webhook = await utils.discord.getOrCreateChannel(message.channelJid);
+	const linkedTargetChannelId =
+		getChatTargetChannelId(state.chats?.[normalizedChannelJid]) ||
+		webhook?.wa2dcTargetChannelId ||
+		webhook?.channelId ||
+		null;
 	const avatarURL = message.profilePic || DEFAULT_AVATAR_URL;
 	const mentionIdsRaw = Array.isArray(message?.discordMentions)
 		? message.discordMentions
@@ -885,9 +981,11 @@ const sendWhatsappMessage = async (
 			mentionIdsRaw.map((id) => String(id)).filter((id) => /^\d+$/.test(id)),
 		),
 	];
-	const allowedMentions = mentionIds.length
-		? { parse: [], users: mentionIds }
-		: undefined;
+	const mentionEveryone = message?.discordMentionEveryone === true;
+	const allowedMentions = {
+		parse: mentionEveryone ? ["everyone"] : [],
+		...(mentionIds.length ? { users: mentionIds } : {}),
+	};
 	const content = utils.discord.convertWhatsappFormatting(message.content);
 	const quoteContent = message.quote
 		? utils.discord.convertWhatsappFormatting(message.quote.content)
@@ -943,7 +1041,7 @@ const sendWhatsappMessage = async (
 				msgContent +=
 					"WA2DC Attention: Received a file, but it's over Discord's upload limit. Check WhatsApp on your phone or enable local downloads.";
 			} else {
-				files.push(message.quote.file);
+				files.push(utils.discord.ensureSpoilerFileName(message.quote.file));
 			}
 		}
 	} else {
@@ -957,7 +1055,7 @@ const sendWhatsappMessage = async (
 			msgContent +=
 				"WA2DC Attention: Received a file, but it's over Discord's upload limit. Check WhatsApp on your phone or enable local downloads.";
 		} else if (file !== -1) {
-			files.push(file);
+			files.push(utils.discord.ensureSpoilerFileName(file));
 		}
 	}
 
@@ -1035,7 +1133,7 @@ const sendWhatsappMessage = async (
 			},
 			message.channelJid,
 		);
-		cacheDiscordMessageLocation(dcMessage, webhook.channelId);
+		cacheDiscordMessageLocation(dcMessage, linkedTargetChannelId);
 		if (message.id != null) {
 			state.lastMessages[dcMessage.id] = message.id;
 		}
@@ -1093,7 +1191,7 @@ const sendWhatsappMessage = async (
 				sendArgs,
 				message.channelJid,
 			);
-			cacheDiscordMessageLocation(lastDcMessage, webhook.channelId);
+			cacheDiscordMessageLocation(lastDcMessage, linkedTargetChannelId);
 			const lastDiscordMessageId = normalizeBridgeMessageId(lastDcMessage?.id);
 			if (!lastDiscordMessageId) {
 				state.logger?.warn?.(
@@ -1117,7 +1215,7 @@ const sendWhatsappMessage = async (
 				cacheQuotedWhatsAppMessageLocation({
 					whatsAppMessageId: waId,
 					discordMessageId: lastDiscordMessageId,
-					fallbackChannelId: webhook.channelId,
+					fallbackChannelId: linkedTargetChannelId,
 				});
 			}
 			if (i === 0) {
@@ -1206,17 +1304,28 @@ client.on("ready", async () => {
 	await registerSlashCommands();
 });
 
+const removeDeletedLinkedChannel = (channel) => {
+	const targetJids = utils.discord.channelIdToJids?.(channel?.id) || [];
+	const hostJids = utils.discord.hostChannelIdToJids?.(channel?.id) || [];
+	for (const jid of [...new Set([...targetJids, ...hostJids])]) {
+		delete state.chats[jid];
+		delete state.goccRuns[jid];
+	}
+};
+
 client.on("channelDelete", async (channel) => {
 	if (channel.id === state.settings.ControlChannelID) {
 		controlChannel = await utils.discord.getControlChannel();
 	} else {
-		const jid = utils.discord.channelIdToJid(channel.id);
-		delete state.chats[jid];
-		delete state.goccRuns[jid];
+		removeDeletedLinkedChannel(channel);
 		state.settings.Categories = state.settings.Categories.filter(
 			(id) => channel.id !== id,
 		);
 	}
+});
+
+client.on("threadDelete", (thread) => {
+	removeDeletedLinkedChannel(thread);
 });
 
 const WA_TYPING_IDLE_MS = 12_000;
@@ -1465,7 +1574,7 @@ client.on("whatsappRead", async ({ id, jid }) => {
 	if (!allowsWhatsAppToDiscord() || !state.settings.ReadReceipts) {
 		return;
 	}
-	const channelId = state.chats[jid]?.channelId;
+	const channelId = getChatTargetChannelId(state.chats[jid]);
 	const messageId = state.lastMessages[id];
 	if (!channelId || !messageId || deliveredMessages.has(messageId)) {
 		return;
@@ -1589,36 +1698,43 @@ client.on("whatsappDelete", async ({ id, jid }) => {
 });
 
 client.on("whatsappCall", async ({ call, jid }) => {
-	if (!allowsWhatsAppToDiscord()) {
-		return;
-	}
+	try {
+		if (!allowsWhatsAppToDiscord()) {
+			return;
+		}
 
-	const webhook = await utils.discord.getOrCreateChannel(jid);
+		const webhook = await utils.discord.getOrCreateChannel(jid);
 
-	const name = utils.whatsapp.jidToName(jid);
-	const callType = call.isVideo ? "video" : "voice";
-	let content = "";
+		const name = utils.whatsapp.jidToName(jid);
+		const callType = call.isVideo ? "video" : "voice";
+		let content = "";
 
-	switch (call.status) {
-		case "offer":
-			content = `${name} is ${callType} calling you! Check your phone to respond.`;
-			break;
-		case "timeout":
-			content = `Missed a ${callType} call from ${name}!`;
-			break;
-	}
+		switch (call.status) {
+			case "offer":
+				content = `${name} is ${callType} calling you! Check your phone to respond.`;
+				break;
+			case "timeout":
+				content = `Missed a ${callType} call from ${name}!`;
+				break;
+		}
 
-	if (content !== "") {
-		const avatarURL =
-			(await utils.whatsapp.getProfilePic(call)) || DEFAULT_AVATAR_URL;
-		await utils.discord.safeWebhookSend(
-			webhook,
-			{
-				content,
-				username: name,
-				avatarURL,
-			},
-			jid,
+		if (content !== "") {
+			const avatarURL =
+				(await utils.whatsapp.getProfilePic(call)) || DEFAULT_AVATAR_URL;
+			await utils.discord.safeWebhookSend(
+				webhook,
+				{
+					content,
+					username: name,
+					avatarURL,
+				},
+				jid,
+			);
+		}
+	} catch (err) {
+		state.logger?.error(
+			{ err, jid, status: call?.status },
+			"Failed to process WhatsApp call notification",
 		);
 	}
 });
@@ -1627,7 +1743,7 @@ client.on("whatsappPin", async ({ jid, key, pinned }) => {
 	if (!allowsWhatsAppToDiscord()) {
 		return;
 	}
-	const channelId = state.chats[jid]?.channelId;
+	const channelId = getChatTargetChannelId(state.chats[jid]);
 	const dcMessageId = state.lastMessages[key.id];
 	if (!channelId || !dcMessageId) {
 		return;
@@ -2074,6 +2190,120 @@ const requireNewsletterMethod = async (ctx, methodName) => {
 	return method.bind(state.waClient);
 };
 
+const normalizePairingPhoneNumber = (value) => {
+	const raw = String(value ?? "").trim();
+	if (!raw || !/^\+?[\d\s().-]+$/.test(raw)) {
+		return null;
+	}
+
+	const digits = raw.replace(/\D/g, "");
+	return /^[1-9]\d{6,14}$/.test(digits) ? digits : null;
+};
+
+const PAIRING_READY_WAIT_MS = 15_000;
+const PAIRING_READY_FRESH_MS = 45_000;
+const PAIRING_CODE_REQUEST_DELAY_MS = 5_000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const getWhatsAppPairingReadyAt = () => {
+	const waConnection = state.waConnection || {};
+	const lastReadyAt =
+		waConnection.hasQr === true
+			? waConnection.qrAt || waConnection.updatedAt
+			: waConnection.connection === "connecting"
+				? waConnection.updatedAt
+				: 0;
+	return lastReadyAt && Date.now() - lastReadyAt <= PAIRING_READY_FRESH_MS
+		? lastReadyAt
+		: 0;
+};
+const isWhatsAppPairingReady = () => Boolean(getWhatsAppPairingReadyAt());
+const isWhatsAppAuthRegistered = () =>
+	state.waClient?.authState?.creds?.registered === true ||
+	state.waConnection?.registered === true;
+const isUsingPairingCodeBrowserProfile = () =>
+	isWhatsAppBrowserProfile(
+		state.waConnection?.browserProfile,
+		PAIRING_CODE_BROWSER_PROFILE,
+	);
+const isWhatsAppBrowserProfileForced = () =>
+	Boolean(String(process.env[WHATSAPP_BROWSER_PROFILE_ENV] || "").trim());
+const waitBeforePairingCodeRequest = async () => {
+	const readyAt = getWhatsAppPairingReadyAt();
+	const waitMs = readyAt + PAIRING_CODE_REQUEST_DELAY_MS - Date.now();
+	if (waitMs > 0) {
+		await sleep(waitMs);
+	}
+};
+const getBaileysErrorStatusCode = (err) =>
+	typeof err?.output?.statusCode === "number"
+		? err.output.statusCode
+		: typeof err?.statusCode === "number"
+			? err.statusCode
+			: undefined;
+const getPairingCodeFailureReply = (err) => {
+	const statusCode = getBaileysErrorStatusCode(err);
+	if (
+		statusCode === DisconnectReason.connectionClosed ||
+		statusCode === DisconnectReason.timedOut
+	) {
+		return "WhatsApp closed the current pairing window before a code could be requested. Wait for the next fresh QR/pairing prompt, then run `/pairwithcode` again.";
+	}
+	if (statusCode === DisconnectReason.loggedOut) {
+		return "WhatsApp rejected the current saved session while requesting a pairing code. Wait for WA2DC to show a fresh QR/pairing prompt, then run `/pairwithcode` again.";
+	}
+	return null;
+};
+const waitForWhatsAppPairingReady = async (client) => {
+	if (!client?.ev || typeof client.ev.on !== "function") {
+		return { ok: false, reason: "unavailable" };
+	}
+	if (state.waConnection?.connection === "open") {
+		return { ok: false, reason: "connected" };
+	}
+	if (isWhatsAppPairingReady()) {
+		return { ok: true };
+	}
+
+	return new Promise((resolve) => {
+		let settled = false;
+		let timer = null;
+		const cleanup = () => {
+			if (timer) clearTimeout(timer);
+			if (typeof client.ev.off === "function") {
+				client.ev.off("connection.update", onUpdate);
+			} else if (typeof client.ev.removeListener === "function") {
+				client.ev.removeListener("connection.update", onUpdate);
+			}
+		};
+		const finish = (result) => {
+			if (settled) return;
+			settled = true;
+			cleanup();
+			resolve(result);
+		};
+		const onUpdate = (update = {}) => {
+			if (update.connection === "open") {
+				finish({ ok: false, reason: "connected" });
+				return;
+			}
+			if (update.connection === "close") {
+				finish({ ok: false, reason: "closed" });
+				return;
+			}
+			if (update.connection === "connecting" || update.qr) {
+				finish({ ok: true });
+			}
+		};
+
+		client.ev.on("connection.update", onUpdate);
+		timer = setTimeout(
+			() => finish({ ok: false, reason: "timeout" }),
+			PAIRING_READY_WAIT_MS,
+		);
+		timer?.unref?.();
+	});
+};
+
 const commandHandlers = {
 	ping: {
 		description: "Check the bot latency.",
@@ -2092,6 +2322,9 @@ const commandHandlers = {
 
 			const name = utils.whatsapp.jidToName(jid);
 			const displayJid = utils.whatsapp.formatJidForDisplay(jid) || jid;
+			const chatLink = state.chats?.[jid] || {};
+			const targetMention = getDiscordTargetMentionForJid(jid);
+			const mode = getChatModeLabel(chatLink);
 			const type =
 				jid === "status@broadcast"
 					? "Status"
@@ -2101,32 +2334,121 @@ const commandHandlers = {
 							? "Newsletter"
 							: "DM";
 
-			await ctx.reply(
-				`Linked chat: **${name}**\nJID: \`${displayJid}\`\nType: ${type}`,
-			);
+			const lines = [
+				`Linked chat: **${name}**`,
+				`JID: \`${displayJid}\``,
+				`Type: ${type}`,
+				`Discord target: ${targetMention || "Unknown"}`,
+				`Link mode: ${mode}`,
+			];
+			if (isThreadChatLink(chatLink)) {
+				lines.push(`Host forum: <#${getChatHostChannelId(chatLink)}>`);
+			}
+			await ctx.reply(lines.join("\n"));
 		},
 	},
 	pairwithcode: {
 		description: "Request a WhatsApp pairing code.",
 		options: [
 			{
-				name: "number",
-				description: "Phone number with country code.",
-				type: ApplicationCommandOptionTypes.STRING,
+				name: "phone",
+				description: "Phone number with country code, such as +12025550123.",
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
 		async execute(ctx) {
-			const number = ctx.getStringOption("number");
+			const rawNumber = ctx.getStringOption("phone");
+			const number = normalizePairingPhoneNumber(rawNumber);
 			if (!number) {
 				await ctx.reply(
-					'Please enter your number. Usage: `pairWithCode <number>`. Don\'t use "+" or any other special characters.',
+					"Please enter a phone number with country code, such as `+12025550123` or `12025550123`.",
 				);
 				return;
 			}
 
-			const code = await state.waClient.requestPairingCode(number);
-			await ctx.reply(`Your pairing code is: ${code}`);
+			if (!isWhatsAppAuthRegistered() && !isUsingPairingCodeBrowserProfile()) {
+				if (isWhatsAppBrowserProfileForced()) {
+					await ctx.reply(
+						`WA2DC is currently forced to use \`${process.env[WHATSAPP_BROWSER_PROFILE_ENV]}\` through \`${WHATSAPP_BROWSER_PROFILE_ENV}\`. Pairing codes need the \`${PAIRING_CODE_BROWSER_PROFILE}\` profile. Remove the override or set \`${WHATSAPP_BROWSER_PROFILE_ENV}=${PAIRING_CODE_BROWSER_PROFILE}\`, restart, then run \`/pairwithcode\` again.`,
+					);
+					return;
+				}
+
+				await saveWhatsAppPairingCodeBrowserProfile(
+					PAIRING_CODE_BROWSER_PROFILE,
+				);
+				await utils.whatsapp.deleteSession();
+				await requestSafeRestart(ctx, {
+					message: `Pairing codes need the \`${PAIRING_CODE_BROWSER_PROFILE}\` WhatsApp browser profile, so WA2DC will restart and switch profiles. This profile is not expected to support WhatsApp view-once media as the default Android profile; Android remains the default for QR pairing and view-once support. After the restart, run \`/pairwithcode phone:${number}\` again to get the code.`,
+					reason: "pairing-code-browser-profile",
+				});
+				return;
+			}
+
+			if (typeof state.waClient?.requestPairingCode !== "function") {
+				await ctx.reply(
+					"WhatsApp is not ready yet. Wait for the QR/pairing prompt, then run `/pairwithcode` again.",
+				);
+				return;
+			}
+			if (state.waConnection?.connection === "open") {
+				await ctx.reply(
+					"WhatsApp is already connected. To pair a different account, remove the existing WhatsApp linked device/session first, then restart pairing.",
+				);
+				return;
+			}
+			if (isWhatsAppAuthRegistered()) {
+				await ctx.reply(
+					"WhatsApp already has a registered auth session. If you need to pair again, remove the saved WhatsApp session first and restart pairing.",
+				);
+				return;
+			}
+
+			const ready = await waitForWhatsAppPairingReady(state.waClient);
+			if (!ready.ok) {
+				const message =
+					ready.reason === "connected"
+						? "WhatsApp is already connected. To pair a different account, remove the existing WhatsApp linked device/session first, then restart pairing."
+						: "WhatsApp is not ready for pairing yet. Wait for the QR/pairing prompt, then run `/pairwithcode` again.";
+				await ctx.reply(message);
+				return;
+			}
+			await waitBeforePairingCodeRequest();
+			if (
+				state.waConnection?.connection === "open" ||
+				isWhatsAppAuthRegistered()
+			) {
+				await ctx.reply(
+					"WhatsApp connected before a pairing code was requested. No code is needed.",
+				);
+				return;
+			}
+			if (!isWhatsAppPairingReady()) {
+				await ctx.reply(
+					"WhatsApp pairing window changed before a code could be requested. Wait for the next QR/pairing prompt, then run `/pairwithcode` again.",
+				);
+				return;
+			}
+
+			let code;
+			try {
+				code = await state.waClient.requestPairingCode(number);
+			} catch (err) {
+				const message = getPairingCodeFailureReply(err);
+				if (!message) {
+					throw err;
+				}
+				state.logger?.warn?.(
+					{ err },
+					"WhatsApp pairing code request failed because the pairing window closed.",
+				);
+				await ctx.reply(message);
+				return;
+			}
+			await ctx.reply(
+				`Your pairing code is: ${code}\nEnter it immediately in WhatsApp. If it is rejected, wait for the next QR/pairing prompt and request a fresh code.`,
+			);
 		},
 	},
 	start: {
@@ -2135,7 +2457,7 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -2165,9 +2487,13 @@ const commandHandlers = {
 				}
 			}
 
-			const channelMention = webhook.channelId
-				? `<#${webhook.channelId}>`
-				: "the linked channel";
+			const channelMention =
+				getDiscordTargetMentionForJid(utils.whatsapp.formatJid(jid) || jid) ||
+				(webhook?.wa2dcTargetChannelId
+					? `<#${webhook.wa2dcTargetChannelId}>`
+					: webhook?.channelId
+						? `<#${webhook.channelId}>`
+						: "the linked channel");
 			await ctx.reply(`Started a conversation in ${channelMention}.`);
 		},
 	},
@@ -2178,13 +2504,13 @@ const commandHandlers = {
 			{
 				name: "name",
 				description: "Newsletter name/title.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "description",
 				description: "Newsletter description.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2253,9 +2579,13 @@ const commandHandlers = {
 				state.settings.Whitelist.push(newsletterJid);
 			}
 
-			const channelMention = webhook.channelId
-				? `<#${webhook.channelId}>`
-				: "the linked channel";
+			const channelMention =
+				getDiscordTargetMentionForJid(newsletterJid) ||
+				(webhook?.wa2dcTargetChannelId
+					? `<#${webhook.wa2dcTargetChannelId}>`
+					: webhook?.channelId
+						? `<#${webhook.channelId}>`
+						: "the linked channel");
 			await ctx.reply(
 				`Created newsletter \`${formatNewsletterJidForReply(newsletterJid)}\` and linked it to ${channelMention}.`,
 			);
@@ -2268,19 +2598,19 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "name",
 				description: "New newsletter name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "description",
 				description: "New newsletter description.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2342,7 +2672,7 @@ const commandHandlers = {
 			{
 				name: "mode",
 				description: "Set a new picture or remove the current one.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "set", value: "set" },
@@ -2352,14 +2682,14 @@ const commandHandlers = {
 			{
 				name: "url",
 				description: "Image URL (required for mode:set).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2431,7 +2761,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2481,7 +2811,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2531,14 +2861,14 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "invite",
 				description:
 					"Newsletter invite code or link (optional alternative to jid).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2580,7 +2910,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2616,7 +2946,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2651,7 +2981,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2685,14 +3015,14 @@ const commandHandlers = {
 			{
 				name: "name",
 				description: "New newsletter name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2739,14 +3069,14 @@ const commandHandlers = {
 			{
 				name: "description",
 				description: "New newsletter description.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2793,25 +3123,25 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 			{
 				name: "count",
 				description: "How many messages to fetch (1-50, default 10).",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: false,
 			},
 			{
 				name: "before",
 				description: "Optional upper timestamp bound (unix seconds).",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: false,
 			},
 			{
 				name: "after",
 				description: "Optional lower timestamp bound (unix seconds).",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: false,
 			},
 		],
@@ -2895,14 +3225,14 @@ const commandHandlers = {
 			{
 				name: "messageid",
 				description: "Discord message ID to inspect.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -2939,7 +3269,7 @@ const commandHandlers = {
 				state.lastMessages,
 			);
 			const linkedChannelId = targetJid
-				? state.chats?.[targetJid]?.channelId || null
+				? getChatTargetChannelId(state.chats?.[targetJid]) || null
 				: null;
 			const pendingByDiscordId = getPendingNewsletterSend({
 				jid: targetJid || null,
@@ -3071,7 +3401,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3121,7 +3451,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3189,7 +3519,7 @@ const commandHandlers = {
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3242,14 +3572,14 @@ const commandHandlers = {
 			{
 				name: "user",
 				description: "New owner WhatsApp JID/number.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3296,14 +3626,14 @@ const commandHandlers = {
 			{
 				name: "user",
 				description: "Admin WhatsApp JID/number to demote.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3347,14 +3677,14 @@ const commandHandlers = {
 			{
 				name: "confirm",
 				description: "Set to true to confirm deletion.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 			{
 				name: "jid",
 				description:
 					"Target newsletter JID (optional if this channel is linked).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3405,25 +3735,25 @@ const commandHandlers = {
 			{
 				name: "question",
 				description: "Poll question/title.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "options",
 				description: "Comma-separated options (min 2).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "select",
 				description: "How many options can be selected.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: false,
 			},
 			{
 				name: "announcement",
 				description: "Send as an announcement-group poll.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: false,
 			},
 		],
@@ -3556,7 +3886,7 @@ const commandHandlers = {
 			{
 				name: "duration",
 				description: "How long pins last by default.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "24 hours", value: "24h" },
@@ -3576,25 +3906,187 @@ const commandHandlers = {
 			await ctx.reply(`Default pin duration set to ${choice}.`);
 		},
 	},
+	defaultchat: {
+		description:
+			"Choose whether new WhatsApp chats are created as channels or threads.",
+		options: [
+			{
+				name: "mode",
+				description: "Default Discord target type for new WhatsApp chats.",
+				type: ApplicationCommandOptionType.String,
+				required: true,
+				choices: [
+					{ name: "Channel", value: "channel" },
+					{ name: "Thread", value: "thread" },
+				],
+			},
+			{
+				name: "host_name",
+				description:
+					"Optional forum-channel name for new thread-mode WhatsApp chats.",
+				type: ApplicationCommandOptionType.String,
+				required: false,
+			},
+		],
+		async execute(ctx) {
+			const mode = ctx.getStringOption("mode");
+			if (!["channel", "thread"].includes(mode || "")) {
+				await ctx.reply("Choose either `channel` or `thread`.");
+				return;
+			}
+			const hostName = normalizeManagedThreadHostNameOption(
+				ctx.getStringOption("host_name"),
+			);
+			state.settings.DefaultChatType = mode;
+			if (mode === "thread") {
+				state.settings.DefaultThreadHostName = hostName;
+			}
+			await storage.saveSettings().catch(() => {});
+			await ctx.reply(
+				mode === "thread"
+					? `Default chat mode set to \`thread\`. New WhatsApp chats will be created as forum threads under managed \`${hostName || "whatsapp-threads"}\` channels.`
+					: "Default chat mode set to `channel`. New WhatsApp chats will keep using regular Discord channels.",
+			);
+		},
+	},
+	threadnotifications: {
+		description:
+			"Toggle the one-time notification post when WA2DC creates a new WhatsApp thread.",
+		options: [
+			{
+				name: "enabled",
+				description:
+					"Whether new WA-created threads should ping configured users/roles.",
+				type: ApplicationCommandOptionType.Boolean,
+				required: true,
+			},
+		],
+		async execute(ctx) {
+			const enabled = Boolean(ctx.getBooleanOption("enabled"));
+			state.settings.ThreadNotificationsEnabled = enabled;
+			await storage.saveSettings().catch(() => {});
+			await ctx.reply(
+				`Thread creation notifications are ${enabled ? "enabled" : "disabled"}.`,
+			);
+		},
+	},
+	threadtargets: {
+		description:
+			"Manage which Discord users/roles are pinged when WA2DC creates a new WhatsApp thread.",
+		options: [
+			{
+				name: "action",
+				description:
+					"Add, remove, or list configured thread-notification targets.",
+				type: ApplicationCommandOptionType.String,
+				required: true,
+				choices: [
+					{ name: "Add", value: "add" },
+					{ name: "Remove", value: "remove" },
+					{ name: "List", value: "list" },
+				],
+			},
+			{
+				name: "user",
+				description: "Discord user to notify on new thread creation.",
+				type: ApplicationCommandOptionType.User,
+				required: false,
+			},
+			{
+				name: "role",
+				description: "Discord role to notify on new thread creation.",
+				type: ApplicationCommandOptionType.Role,
+				required: false,
+			},
+		],
+		async execute(ctx) {
+			const action = ctx.getStringOption("action");
+			const user = ctx.getUserOption("user");
+			const role = ctx.getRoleOption("role");
+
+			if (action === "list") {
+				const roleTargets = [
+					...new Set(state.settings.ThreadNotificationRoles || []),
+				];
+				const userTargets = [
+					...new Set(state.settings.ThreadNotificationUsers || []),
+				];
+				await ctx.reply(
+					[
+						`Thread notifications: ${state.settings.ThreadNotificationsEnabled ? "enabled" : "disabled"}`,
+						`Roles: ${roleTargets.length ? roleTargets.map((id) => `<@&${id}>`).join(", ") : "(none)"}`,
+						`Users: ${userTargets.length ? userTargets.map((id) => `<@${id}>`).join(", ") : "(none)"}`,
+					].join("\n"),
+				);
+				return;
+			}
+
+			if (!["add", "remove"].includes(action || "")) {
+				await ctx.reply("Choose `add`, `remove`, or `list`.");
+				return;
+			}
+			if (Boolean(user) === Boolean(role)) {
+				await ctx.reply("Choose exactly one target: either `user` or `role`.");
+				return;
+			}
+
+			const isRoleTarget = Boolean(role);
+			const targetId = String(role?.id || user?.id || "");
+			const targetLabel = isRoleTarget ? `<@&${targetId}>` : `<@${targetId}>`;
+			const list = isRoleTarget
+				? (state.settings.ThreadNotificationRoles ??= [])
+				: (state.settings.ThreadNotificationUsers ??= []);
+			const alreadyConfigured = list.includes(targetId);
+
+			if (action === "add") {
+				if (alreadyConfigured) {
+					await ctx.reply(`${targetLabel} is already configured.`);
+					return;
+				}
+				list.push(targetId);
+				await storage.saveSettings().catch(() => {});
+				await ctx.reply(`Added ${targetLabel} to thread notifications.`);
+				return;
+			}
+
+			if (!alreadyConfigured) {
+				await ctx.reply(`${targetLabel} is not configured.`);
+				return;
+			}
+			if (isRoleTarget) {
+				state.settings.ThreadNotificationRoles =
+					state.settings.ThreadNotificationRoles.filter(
+						(id) => id !== targetId,
+					);
+			} else {
+				state.settings.ThreadNotificationUsers =
+					state.settings.ThreadNotificationUsers.filter(
+						(id) => id !== targetId,
+					);
+			}
+			await storage.saveSettings().catch(() => {});
+			await ctx.reply(`Removed ${targetLabel} from thread notifications.`);
+		},
+	},
 	link: {
 		description: "Link a WhatsApp chat to an existing channel.",
 		options: [
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "channel",
 				description: "Target Discord channel.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 			{
 				name: "force",
 				description: "Override an existing link.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: false,
 			},
 		],
@@ -3623,11 +4115,9 @@ const commandHandlers = {
 				);
 				return;
 			}
-
-			if (!TextBridgeChannelTypes.includes(channel.type)) {
-				await ctx.reply(
-					"Only text channels can be linked. Please choose a text channel.",
-				);
+			const targetInfo = await resolveManualLinkTarget(channel);
+			if (!targetInfo.ok) {
+				await ctx.reply(targetInfo.error);
 				return;
 			}
 
@@ -3638,7 +4128,9 @@ const commandHandlers = {
 				return;
 			}
 
-			const existingJid = utils.discord.channelIdToJid(channel.id);
+			const existingJid = utils.discord.channelIdToJid(
+				targetInfo.targetChannelId,
+			);
 			const forcedTakeover = Boolean(
 				existingJid && existingJid !== normalizedJid && force,
 			);
@@ -3659,13 +4151,9 @@ const commandHandlers = {
 
 			let webhook;
 			try {
-				const webhooks = await channel.fetchWebhooks();
-				webhook = webhooks.find(
-					(hook) => hook.token && hook.owner?.id === client.user.id,
+				webhook = await utils.discord.getOrCreateOwnedWebhook(
+					targetInfo.hostChannel,
 				);
-				if (!webhook) {
-					webhook = await channel.createWebhook({ name: "WA2DC" });
-				}
 			} catch (err) {
 				state.logger?.error(err);
 				await ctx.reply(
@@ -3675,18 +4163,14 @@ const commandHandlers = {
 			}
 
 			const previousChat = state.chats[normalizedJid];
-			const previousChannelId = previousChat?.channelId;
+			const previousHostChannelId = getChatHostChannelId(previousChat);
 			const previousRun = state.goccRuns[normalizedJid];
-			state.chats[normalizedJid] = {
-				id: webhook.id,
-				type: webhook.type,
-				token: webhook.token,
-				channelId: webhook.channelId,
-			};
+			state.chats[normalizedJid] = buildChatLinkFromWebhook(webhook, {
+				threadId: targetInfo.threadId,
+			});
 			delete state.goccRuns[normalizedJid];
 
 			try {
-				await utils.discord.getOrCreateChannel(normalizedJid);
 				await storage.save();
 			} catch (err) {
 				state.logger?.error(err);
@@ -3715,13 +4199,15 @@ const commandHandlers = {
 			}
 
 			if (
-				previousChannelId &&
-				previousChannelId !== channel.id &&
-				previousChat?.id
+				previousHostChannelId &&
+				previousHostChannelId !== webhook.channelId &&
+				previousChat?.id &&
+				!isWebhookSharedAcrossChats(previousChat.id, normalizedJid)
 			) {
 				try {
-					const previousChannel =
-						await utils.discord.getChannel(previousChannelId);
+					const previousChannel = await utils.discord.getChannel(
+						previousHostChannelId,
+					);
 					const previousWebhooks = await previousChannel?.fetchWebhooks();
 					const previousWebhook =
 						previousWebhooks?.get(previousChat.id) ||
@@ -3736,7 +4222,7 @@ const commandHandlers = {
 				? ` (overrode the previous link to \`${utils.whatsapp.jidToName(existingJid)}\`).`
 				: ".";
 			await ctx.reply(
-				`Linked ${channel} with \`${utils.whatsapp.jidToName(normalizedJid)}\`${forcedSuffix}`,
+				`Linked <#${targetInfo.targetChannelId}> with \`${utils.whatsapp.jidToName(normalizedJid)}\`${forcedSuffix}`,
 			);
 		},
 	},
@@ -3746,19 +4232,19 @@ const commandHandlers = {
 			{
 				name: "from",
 				description: "Current channel.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 			{
 				name: "to",
 				description: "Destination channel.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 			{
 				name: "force",
 				description: "Override any existing link on the destination.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: false,
 			},
 		],
@@ -3801,10 +4287,9 @@ const commandHandlers = {
 				return;
 			}
 
-			if (!TextBridgeChannelTypes.includes(target.type)) {
-				await ctx.reply(
-					"Only text or announcement channels can be targets. Please choose a different channel.",
-				);
+			const targetInfo = await resolveManualLinkTarget(target);
+			if (!targetInfo.ok) {
+				await ctx.reply(targetInfo.error);
 				return;
 			}
 
@@ -3817,7 +4302,9 @@ const commandHandlers = {
 				return;
 			}
 
-			const existingTargetJid = utils.discord.channelIdToJid(target.id);
+			const existingTargetJid = utils.discord.channelIdToJid(
+				targetInfo.targetChannelId,
+			);
 			const forcedTakeover = Boolean(
 				existingTargetJid && existingTargetJid !== normalizedJid && force,
 			);
@@ -3838,13 +4325,9 @@ const commandHandlers = {
 
 			let webhook;
 			try {
-				const webhooks = await target.fetchWebhooks();
-				webhook = webhooks.find(
-					(hook) => hook.token && hook.owner?.id === client.user.id,
+				webhook = await utils.discord.getOrCreateOwnedWebhook(
+					targetInfo.hostChannel,
 				);
-				if (!webhook) {
-					webhook = await target.createWebhook({ name: "WA2DC" });
-				}
 			} catch (err) {
 				state.logger?.error(err);
 				if (forcedTakeover) {
@@ -3862,17 +4345,14 @@ const commandHandlers = {
 			}
 
 			const previousChat = state.chats[normalizedJid];
+			const previousHostChannelId = getChatHostChannelId(previousChat);
 			const previousRun = state.goccRuns[normalizedJid];
-			state.chats[normalizedJid] = {
-				id: webhook.id,
-				type: webhook.type,
-				token: webhook.token,
-				channelId: webhook.channelId,
-			};
+			state.chats[normalizedJid] = buildChatLinkFromWebhook(webhook, {
+				threadId: targetInfo.threadId,
+			});
 			delete state.goccRuns[normalizedJid];
 
 			try {
-				await utils.discord.getOrCreateChannel(normalizedJid);
 				await storage.save();
 			} catch (err) {
 				state.logger?.error(err);
@@ -3901,13 +4381,14 @@ const commandHandlers = {
 			}
 
 			if (
-				previousChat?.channelId &&
-				previousChat.channelId !== webhook.channelId &&
-				previousChat.id
+				previousHostChannelId &&
+				previousHostChannelId !== webhook.channelId &&
+				previousChat?.id &&
+				!isWebhookSharedAcrossChats(previousChat.id, normalizedJid)
 			) {
 				try {
 					const previousChannel = await utils.discord.getChannel(
-						previousChat.channelId,
+						previousHostChannelId,
 					);
 					const previousWebhooks = await previousChannel?.fetchWebhooks();
 					const previousWebhook =
@@ -3923,7 +4404,7 @@ const commandHandlers = {
 				? ` (overrode the previous link to \`${utils.whatsapp.jidToName(existingTargetJid)}\`).`
 				: ".";
 			await ctx.reply(
-				`Moved \`${utils.whatsapp.jidToName(normalizedJid)}\` from ${source} to ${target}${forcedSuffix}`,
+				`Moved \`${utils.whatsapp.jidToName(normalizedJid)}\` from <#${source.id}> to <#${targetInfo.targetChannelId}>${forcedSuffix}`,
 			);
 		},
 	},
@@ -3933,7 +4414,7 @@ const commandHandlers = {
 			{
 				name: "query",
 				description: "Optional search text.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -3963,13 +4444,13 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "user",
 				description: "Target Discord user to mention.",
-				type: ApplicationCommandOptionTypes.USER,
+				type: ApplicationCommandOptionType.User,
 				required: true,
 			},
 		],
@@ -4014,7 +4495,7 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4116,7 +4597,7 @@ const commandHandlers = {
 			{
 				name: "contact",
 				description: "Number with country code or contact name.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4235,7 +4716,7 @@ const commandHandlers = {
 			{
 				name: "channel",
 				description: "Channel linked to a WhatsApp chat.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 		],
@@ -4267,7 +4748,7 @@ const commandHandlers = {
 			{
 				name: "channel",
 				description: "Channel linked to a WhatsApp chat.",
-				type: ApplicationCommandOptionTypes.CHANNEL,
+				type: ApplicationCommandOptionType.Channel,
 				required: true,
 			},
 		],
@@ -4309,7 +4790,7 @@ const commandHandlers = {
 			{
 				name: "prefix",
 				description: "Prefix text. Leave empty to reset to username.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: false,
 			},
 		],
@@ -4330,7 +4811,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether Discord username prefixes should be used.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4349,7 +4830,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether WhatsApp sender names should be prepended inside Discord messages.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4368,7 +4849,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether WhatsApp messages mirrored to Discord should include a sender platform suffix.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4380,6 +4861,29 @@ const commandHandlers = {
 			);
 		},
 	},
+	waaudiomp3: {
+		description: "Toggle MP3 conversion for WhatsApp audio sent to Discord.",
+		options: [
+			{
+				name: "enabled",
+				description:
+					"Whether WhatsApp audio should be converted to MP3 before Discord upload.",
+				type: ApplicationCommandOptionType.Boolean,
+				required: true,
+			},
+		],
+		async execute(ctx) {
+			const enabled = Boolean(ctx.getBooleanOption("enabled"));
+			state.settings.WhatsAppAudioConversionFormat = enabled
+				? "mp3"
+				: "original";
+			await ctx.reply(
+				enabled
+					? "WhatsApp audio MP3 conversion is enabled. Install ffmpeg on the host for conversion."
+					: "WhatsApp audio MP3 conversion is disabled. WhatsApp audio will be mirrored in its original format.",
+			);
+		},
+	},
 	hidephonenumbers: {
 		description:
 			"Hide WhatsApp phone numbers on Discord (use pseudonyms when needed).",
@@ -4387,7 +4891,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether phone numbers should be hidden on Discord.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4409,7 +4913,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether Discord attachments should be uploaded to WhatsApp (vs sending as links).",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4429,7 +4933,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Temporary Baileys workaround: send newsletter image/video attachments as plain links.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4450,7 +4954,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether Discord embed text/media should be mirrored to WhatsApp.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4469,7 +4973,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether message deletions should be mirrored between Discord and WhatsApp.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4487,7 +4991,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether read receipts are enabled.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4534,22 +5038,14 @@ const commandHandlers = {
 			{
 				name: "rename",
 				description: "Rename channels to match WhatsApp names.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: false,
 			},
 		],
 		async execute(ctx) {
 			await ctx.defer();
-			await state.waClient.authState.keys.set({
-				"app-state-sync-version": { critical_unblock_low: null },
-			});
-			await state.waClient.resyncAppState(["critical_unblock_low"]);
-			const participatingGroups =
-				await state.waClient.groupFetchAllParticipating();
-			groupMetadataCache.prime(participatingGroups);
-			for (const [jid, attributes] of Object.entries(participatingGroups)) {
-				state.waClient.contacts[jid] = attributes.subject;
-			}
+			const { contactCount, groupCount } =
+				await resyncWhatsAppContactsAndGroups(state.waClient);
 			const shouldRename = Boolean(ctx.getBooleanOption("rename"));
 			if (shouldRename) {
 				try {
@@ -4558,7 +5054,9 @@ const commandHandlers = {
 					state.logger?.error(err);
 				}
 			}
-			await ctx.reply("Re-synced!");
+			await ctx.reply(
+				`Re-synced ${contactCount} WhatsApp contacts/groups (${groupCount} participating groups refreshed).`,
+			);
 		},
 	},
 	localdownloads: {
@@ -4568,7 +5066,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether large WhatsApp attachments should be downloaded locally.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4594,7 +5092,7 @@ const commandHandlers = {
 			{
 				name: "message",
 				description: "Template text.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4620,7 +5118,7 @@ const commandHandlers = {
 			{
 				name: "path",
 				description: "Directory path for downloads.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4636,7 +5134,7 @@ const commandHandlers = {
 			{
 				name: "size",
 				description: "Size limit in gigabytes.",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: true,
 			},
 		],
@@ -4656,7 +5154,7 @@ const commandHandlers = {
 			{
 				name: "bytes",
 				description: "Maximum size in bytes.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -4678,7 +5176,7 @@ const commandHandlers = {
 				name: "count",
 				description:
 					"Attachment count per Discord upload batch for WhatsApp media bursts (1-10).",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -4702,7 +5200,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether the local download server should be running.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4727,7 +5225,7 @@ const commandHandlers = {
 			{
 				name: "port",
 				description: "Port number.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -4749,7 +5247,7 @@ const commandHandlers = {
 			{
 				name: "host",
 				description: "Hostname or IP for the download server.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4767,7 +5265,7 @@ const commandHandlers = {
 			{
 				name: "host",
 				description: "Bind host (e.g., 127.0.0.1 or 0.0.0.0).",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4785,7 +5283,7 @@ const commandHandlers = {
 			{
 				name: "seconds",
 				description: "Seconds until links expire.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -4808,7 +5306,7 @@ const commandHandlers = {
 			{
 				name: "days",
 				description: "Maximum age in days.",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: true,
 			},
 		],
@@ -4829,7 +5327,7 @@ const commandHandlers = {
 			{
 				name: "gb",
 				description: "Minimum free space in gigabytes.",
-				type: ApplicationCommandOptionTypes.NUMBER,
+				type: ApplicationCommandOptionType.Number,
 				required: true,
 			},
 		],
@@ -4854,7 +5352,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether HTTPS should be enabled for the local download server.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4874,13 +5372,13 @@ const commandHandlers = {
 			{
 				name: "key_path",
 				description: "Path to the TLS key.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 			{
 				name: "cert_path",
 				description: "Path to the TLS certificate.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 			},
 		],
@@ -4900,7 +5398,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether messages sent to news channels should be cross-posted automatically.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4920,7 +5418,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether change notifications and WhatsApp Status mirroring are enabled.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -4939,7 +5437,7 @@ const commandHandlers = {
 			{
 				name: "seconds",
 				description: "Number of seconds between saves.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -4955,7 +5453,7 @@ const commandHandlers = {
 			{
 				name: "size",
 				description: "Number of messages to keep.",
-				type: ApplicationCommandOptionTypes.INTEGER,
+				type: ApplicationCommandOptionType.Integer,
 				required: true,
 			},
 		],
@@ -4971,7 +5469,7 @@ const commandHandlers = {
 			{
 				name: "direction",
 				description: "Choose direction or disable one-way.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "discord", value: "discord" },
@@ -5001,7 +5499,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether bot messages should be redirected.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5019,7 +5517,7 @@ const commandHandlers = {
 			{
 				name: "enabled",
 				description: "Whether webhook messages should be redirected.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5039,7 +5537,7 @@ const commandHandlers = {
 				name: "enabled",
 				description:
 					"Whether announcement/crosspost webhook messages should be redirected.",
-				type: ApplicationCommandOptionTypes.BOOLEAN,
+				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
 		],
@@ -5073,7 +5571,7 @@ const commandHandlers = {
 			{
 				name: "channel",
 				description: "Release channel.",
-				type: ApplicationCommandOptionTypes.STRING,
+				type: ApplicationCommandOptionType.String,
 				required: true,
 				choices: [
 					{ name: "stable", value: "stable" },
@@ -5231,7 +5729,7 @@ const slashCommands = Object.entries(commandHandlers)
 
 const buildInviteLink = () =>
 	client?.user?.id
-		? `https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=${BOT_PERMISSIONS}`
+		? `https://discord.com/oauth2/authorize?client_id=${client.user.id}&scope=bot%20applications.commands&permissions=${DISCORD_BOT_PERMISSIONS}`
 		: null;
 
 const registerSlashCommands = async () => {
@@ -5275,7 +5773,9 @@ const handleInteractionCommand = async (interaction, commandName) => {
 const isUnknownInteractionError = (err) =>
 	Number(err?.code) === 10062 ||
 	Number(err?.rawError?.code) === 10062 ||
-	String(err?.message || "").toLowerCase().includes("unknown interaction");
+	String(err?.message || "")
+		.toLowerCase()
+		.includes("unknown interaction");
 
 const handleInteractionCommandFailure = async ({
 	interaction,
@@ -5342,7 +5842,8 @@ client.on("interactionCreate", async (interaction) => {
 	} catch (err) {
 		await handleInteractionCommandFailure({
 			interaction,
-			commandName: interaction.commandName?.toLowerCase() || interaction.customId,
+			commandName:
+				interaction.commandName?.toLowerCase() || interaction.customId,
 			err,
 		});
 	}
@@ -5422,10 +5923,7 @@ client.on("messageCreate", async (message) => {
 		return;
 	}
 
-	if (
-		message.type === MessageType.ChannelPinnedMessage ||
-		message.type === "CHANNEL_PINNED_MESSAGE"
-	) {
+	if (message.type === MessageType.ChannelPinnedMessage) {
 		return;
 	}
 

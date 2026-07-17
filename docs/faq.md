@@ -31,6 +31,12 @@ WA2DC can mirror Discord voice-style attachments to WhatsApp voice notes (`ptt`)
 - For best compatibility, install `ffmpeg` on the host running WA2DC. The bridge will transcode Discord voice uploads to Opus/Ogg mono before sending.
 - If `ffmpeg` is not installed, WA2DC still attempts a raw audio send, but some voice uploads may fail on WhatsApp clients.
 
+## Playing WhatsApp audio on older Discord clients or phones
+WhatsApp audio is mirrored to Discord in its original format by default, which is best for modern clients.
+
+- Some older devices support Ogg Vorbis but not WhatsApp's usual Ogg/Opus audio. Use `/waaudiomp3 enabled:true` to convert WhatsApp audio to MP3 before Discord upload.
+- MP3 conversion requires `ffmpeg`. If `ffmpeg` is missing or conversion fails, WA2DC falls back to the original WhatsApp audio attachment.
+
 ## Why did a WhatsApp GIF arrive on Discord as a video?
 WhatsApp usually exposes GIF sends as short `videoMessage` payloads flagged with `gifPlayback`, not as literal `.gif` files.
 
@@ -47,6 +53,12 @@ Discord stickers are now mirrored as real WhatsApp stickers when possible. Stati
 ## Can I bridge WhatsApp calls to Discord?
 No. The WhatsApp Web protocol used by the bot does not expose the real-time audio or video streams of a call. Incoming and missed calls are only sent as notifications to Discord, so the bot cannot relay or receive live WhatsApp calls.
 
+## How do I change the log verbosity?
+Set the `WA2DC_LOG_LEVEL` environment variable to one of `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent` (default: `info`). Setting it to `debug` is useful for diagnosing connection or pairing issues. If you set an invalid value, the bot will fail to start.
+
+## Can the standalone executable read `.env`?
+Yes. Put `.env` beside the packaged executable and restart it. Source runs read `.env` from the working directory instead. Operating-system environment variables override values from the file, a missing file is ignored, and unreadable files stop startup. The file can contain secrets, so restrict it to the runtime account (for example, `chmod 600 .env` on macOS/Linux) and never share it.
+
 ## Is it possible to run on Docker?
 Yes. You can build the image manually or use the provided `docker-compose.yml`. Copy `.env.example` to `.env`, set your Discord token inside and run `docker compose up -d` to start the container.
 
@@ -61,4 +73,5 @@ The bot is built publicly on [GitHub actions](https://github.com/arespawn/WhatsA
 1. Run `npm run build:bin` to bundle + package for your current OS/CPU (output goes to `build/`)
     - Optional smoke test: `npm run build:bin:smoke`
 1. Keep the generated `runtime/` folder next to the executable. Packaged builds use that sidecar for native modules such as `sharp`.
+1. Optionally copy `.env.example` to `.env` beside the executable. Values set by the operating system take precedence.
 1. That's it. You will have your executable in the `build` folder.

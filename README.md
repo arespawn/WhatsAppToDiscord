@@ -40,8 +40,7 @@ Detailed options and platform notes are documented in [`docs/install-scripts.md`
 ## Persistence
 
 - WA2DC stores app state and WhatsApp auth keys in `storage/wa2dc.sqlite` (embedded SQLite, no external database service required).
-- On first boot after upgrade, legacy file-based data is migrated automatically from `storage/settings`, `storage/chats`, `storage/contacts`, `storage/lastMessages`, `storage/lastTimestamp`, and `storage/baileys/*`.
-- Migrated legacy files are moved to `storage/legacy-backup-<timestamp>/`.
+- Legacy flat-file storage is no longer migrated at startup; keep or restore `storage/wa2dc.sqlite` when moving installs.
 - Optional payload encryption-at-rest is available through `WA2DC_DB_PASSPHRASE` (set it before first DB creation).
 - If the DB is encrypted and `WA2DC_DB_PASSPHRASE` is missing or wrong, WA2DC exits during startup instead of running with invalid auth state.
 

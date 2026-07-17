@@ -38,7 +38,7 @@ Use these docs for detailed guidance:
 
 ## Critical guardrails
 
-- Preserve backward compatibility for persisted state under `storage/`.
+- Follow the current SQLite-only storage contract in `docs/dev/storage-and-side-effects.md`.
 - Do not loosen storage permissions (`0700` dirs / `0600` files).
 - Avoid bridge echo loops; maintain sender-tracking protections.
 - Respect whitelist and one-way routing checks when touching message flows.

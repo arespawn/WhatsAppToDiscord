@@ -7,17 +7,20 @@
 ## Persistence contract
 
 Persisted app/auth state lives under `storage/wa2dc.sqlite` (embedded SQLite).
-Do not make breaking format changes casually; preserve upgrade compatibility.
+Legacy flat-file storage is no longer migrated at startup; installs must already have `storage/wa2dc.sqlite`.
 
-Startup automatically migrates legacy files (`storage/settings`, `storage/chats`, `storage/contacts`, `storage/lastMessages`, `storage/lastTimestamp`, `storage/baileys/*`) into SQLite and moves originals into `storage/legacy-backup-<timestamp>/`.
-
-Settings defaults come from `src/state.js`, while persisted values are loaded/merged by `src/storage.js`.
+Settings defaults and validation live in `src/contracts.js`, while persisted values are loaded by `src/storage.js`.
 Optional encryption-at-rest is enabled by `WA2DC_DB_PASSPHRASE`; passphrase handling is implemented in `src/persistence/sqliteStore.js`.
+
+Chat-link records in persisted `chats` state now store the webhook host `channelId` plus an optional `threadId` for thread-mode links.
+Channel-only string records are unsupported and ignored.
+Thread-mode settings such as `DefaultChatType`, `DefaultThreadHostName`, `ThreadNotificationsEnabled`, `ThreadNotificationRoles`, and `ThreadNotificationUsers` are regular persisted settings.
 
 ## Runtime artifacts
 
 The app creates/uses these files in the working directory:
 
+- `.env`: optional startup configuration for source runs; packaged binaries instead look beside the executable
 - `storage/`: persistent bridge/auth state
 - `downloads/`: optional local media download destination
 - `logs.txt`: structured logs (pino)
@@ -35,6 +38,8 @@ If behavior around these files changes, document it here and in user-facing docs
 - Files: `0600`
 
 Never loosen these defaults.
+
+WA2DC does not create or change permissions on `.env`. Operators should restrict it to the runtime account (for example, `chmod 600 .env` on Unix-like systems), because it can contain the Discord token and database passphrase.
 
 Docker note: the official image entrypoint may normalize ownership of mounted `storage/` to `node:node` before startup, then run the app as `node`. This is a container-start side effect and is intended to preserve write access after upgrades from older root-running images.
 

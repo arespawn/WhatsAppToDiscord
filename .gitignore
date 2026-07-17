@@ -14,3 +14,5 @@ out.cjs
 .vscode/settings.json
 __pycache__/
 tests/__pycache__/
+testing env/
+.DS_Store

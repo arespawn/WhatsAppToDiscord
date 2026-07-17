@@ -8,6 +8,7 @@
 		"start": "node src/runner.js",
 		"postinstall": "node scripts/patchBaileysAndroidBrowser.js",
 		"docs": "npx -y docsify-cli@4.4.4 serve docs",
+		"docs:check": "node --test tests/docs.test.js",
 		"bundle": "esbuild src/runner.js --bundle --platform=node --format=esm --external:sharp --external:qrcode-terminal --external:link-preview-js --target=node24 --banner:js=\"import { createRequire as __esbuildCreateRequire } from 'module'; const require = __esbuildCreateRequire(import.meta.url);\" --outfile=out.js",
 		"bundle:pkg": "node scripts/buildPkgBundle.js",
 		"build:bin": "node scripts/buildBinary.js",

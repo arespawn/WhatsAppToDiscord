@@ -19,26 +19,26 @@
     <meta property="og:site_name" content="WhatsApp To Discord" />
     <meta property="og:title" content="WhatsApp To Discord | Self-hosted WhatsApp-Discord Bridge" />
     <meta property="og:description" content="Official project website for WhatsAppToDiscord (WA2DC), including setup, commands, and troubleshooting." />
-    <meta property="og:url" content="https://arespawn.github.io/WhatsAppToDiscord/" />
-    <meta property="og:image" content="https://arespawn.github.io/WhatsAppToDiscord/_media/logo.png" />
+    <meta property="og:url" content="https://arespawn.com/" />
+    <meta property="og:image" content="https://arespawn.com/_media/logo.png" />
     <meta property="og:image:alt" content="WhatsApp To Discord logo" />
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="WhatsApp To Discord | Self-hosted WhatsApp-Discord Bridge" />
     <meta name="twitter:description" content="Official project website for WhatsAppToDiscord (WA2DC), including setup, commands, and troubleshooting." />
-    <meta name="twitter:image" content="https://arespawn.github.io/WhatsAppToDiscord/_media/logo.png" />
+    <meta name="twitter:image" content="https://arespawn.com/_media/logo.png" />
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": "SoftwareSourceCode",
         "name": "WhatsAppToDiscord",
         "description": "A self-hosted bridge that mirrors WhatsApp chats into Discord.",
-        "url": "https://arespawn.github.io/WhatsAppToDiscord/",
+        "url": "https://arespawn.com/",
         "codeRepository": "https://github.com/arespawn/WhatsAppToDiscord",
         "programmingLanguage": "JavaScript",
         "license": "https://github.com/arespawn/WhatsAppToDiscord/blob/main/LICENSE.txt"
       }
     </script>
-    <link id="docsify-theme" rel="stylesheet" href="//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css" />
+    <link id="docsify-theme" rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify@4.13.1/lib/themes/vue.css" />
     <style>
       .wa2dc-theme-toggle {
         display: flex;
@@ -72,8 +72,9 @@
         <ul>
           <li><a href="README.md">Home</a></li>
           <li><a href="setup.md">Setup</a></li>
+          <li><a href="configuration.md">Configuration</a></li>
           <li><a href="commands.md">Commands</a></li>
-          <li><a href="faq.md">FAQ</a></li>
+          <li><a href="faq.md">Troubleshooting &amp; FAQ</a></li>
           <li><a href="sponsor.md">Sponsor</a></li>
           <li><a href="privacypolicy.txt">Privacy Policy</a></li>
         </ul>
@@ -82,10 +83,10 @@
     <script>
       const WA2DC_DOCS_THEME_STORAGE_KEY = 'wa2dc_docs_theme';
       const WA2DC_DOCS_THEMES = Object.freeze({
-        light: '//cdn.jsdelivr.net/npm/docsify@4/lib/themes/vue.css',
-        dark: '//cdn.jsdelivr.net/npm/docsify@4/lib/themes/dark.css',
+        light: 'https://cdn.jsdelivr.net/npm/docsify@4.13.1/lib/themes/vue.css',
+        dark: 'https://cdn.jsdelivr.net/npm/docsify@4.13.1/lib/themes/dark.css',
       });
-      const WA2DC_DOCS_BASE_URL = 'https://arespawn.github.io/WhatsAppToDiscord/';
+      const WA2DC_DOCS_BASE_URL = 'https://arespawn.com/';
       const WA2DC_DOCS_LOGO = '_media/logo.png';
       const WA2DC_DOCS_OG_IMAGE_URL = `${WA2DC_DOCS_BASE_URL}_media/logo.png`;
       const WA2DC_DOCS_DEFAULT_SEO = Object.freeze({
@@ -105,10 +106,20 @@
           description:
             'Complete WA2DC slash command reference for conversation management, whitelist controls, downloads, and maintenance.',
         }),
-        '/faq': Object.freeze({
-          title: 'FAQ | WhatsApp To Discord',
+        '/configuration': Object.freeze({
+          title: 'Configuration | WhatsApp To Discord',
           description:
-            'Frequently asked questions for WA2DC, including hosting, permissions, troubleshooting, and common setup issues.',
+            'Configure WA2DC environment variables, persisted bridge defaults, SQLite backups, media tooling, and update behavior.',
+        }),
+        '/install-scripts': Object.freeze({
+          title: 'Installer Scripts | WhatsApp To Discord',
+          description:
+            'Install or update WA2DC source deployments on Linux, macOS, and Windows with the bundled scripts.',
+        }),
+        '/faq': Object.freeze({
+          title: 'Troubleshooting & FAQ | WhatsApp To Discord',
+          description:
+            'Troubleshoot WA2DC pairing, Discord permissions, SQLite storage, Docker, media tooling, and packaged updates.',
         }),
         '/sponsor': Object.freeze({
           title: 'Sponsor | WhatsApp To Discord',
@@ -124,6 +135,8 @@
       const WA2DC_DOCS_ROUTE_CANONICAL = Object.freeze({
         '/': '',
         '/setup': 'setup.md',
+        '/configuration': 'configuration.md',
+        '/install-scripts': 'install-scripts.md',
         '/commands': 'commands.md',
         '/faq': 'faq.md',
         '/sponsor': 'sponsor.md',
@@ -293,6 +306,6 @@
       };
     </script>
     <!-- Docsify v4 -->
-    <script src="//cdn.jsdelivr.net/npm/docsify@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/docsify@4.13.1"></script>
   </body>
 </html>

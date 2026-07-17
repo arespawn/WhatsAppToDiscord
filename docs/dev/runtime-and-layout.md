@@ -1,68 +1,80 @@
-# Runtime And Layout
+# Runtime and Layout
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-05-13
-> Scope: Runtime model, startup, and repository map.
+> Last reviewed: 2026-07-17
+> Scope: Process lifecycle, startup invariants, module ownership, and packaged runtime behavior.
 
-## Runtime model
+## Process model
 
-WA2DC bridges WhatsApp and Discord:
+`src/loadRuntimeEnvironment.js` is imported before runtime modules inspect `process.env`. Source runs load `.env` from the working directory; packaged runs load it beside the executable. Existing environment values win, missing files are ignored, and other read failures stop startup.
 
-- WhatsApp side: Baileys (`@whiskeysockets/baileys`)
-- Discord side: Discord bot (`discord.js`)
-- State: local persistence in `storage/`
-- Process supervision: watchdog runner in `src/runner.js`
-- Environment loading: source runs optionally read `.env` from the working directory, while packaged binaries read `.env` beside the executable. Existing operating-system variables take precedence, missing files are ignored, and other read failures stop startup. Loading happens before runtime options and handlers inspect `process.env`.
-- Runtime logging: `WA2DC_LOG_LEVEL` sets the Pino threshold for both the watchdog and worker loggers. Supported values are `trace`, `debug`, `info`, `warn`, `error`, `fatal`, and `silent`; the default is `info`, and invalid values prevent startup. It controls structured `logs.txt` entries and pretty Pino console output, while raw process warnings or dependency `console` output can still reach `terminal.log`. Debug logs can contain operational identifiers such as WhatsApp JIDs and Discord channel/message IDs, so treat diagnostic logs as sensitive.
+Normal source and packaged startup uses the watchdog:
 
-Primary flow:
+1. `src/runner.js` configures supervisor logging and starts the worker.
+2. `src/index.js` initializes SQLite-backed app/auth state, handlers, autosave, and crash reporting.
+3. `src/discordHandler.js` and `src/whatsappHandler.js` connect the transports and register bridge events.
+4. The runner handles explicit restart flags, bounded crash restarts, exponential backoff, and packaged post-update rollback validation.
 
-1. `src/runner.js` starts worker process and handles restart/backoff.
-2. `src/index.js` bootstraps state/storage and starts platform handlers.
-3. Discord/WhatsApp handlers mirror messages and control commands.
+The official Docker entrypoint starts `src/index.js` directly and relies on the container restart policy rather than nesting the watchdog inside the container.
 
-WhatsApp startup guardrails:
+`WA2DC_LOG_LEVEL` configures the Pino threshold for watchdog and worker loggers. Accepted levels are `trace`, `debug`, `info`, `warn`, `error`, `fatal`, and `silent`; the default is `info`. Structured entries go to `logs.txt`, while watchdog-captured stdout/stderr also goes to `terminal.log`. Raw dependency/process output can bypass structured filtering, and debug logs can contain WhatsApp JIDs or Discord IDs.
 
-- `src/whatsappHandler.js` intentionally does not process WhatsApp history-sync payloads beyond push-name updates. The bridge only needs live/offline message delivery, and history payload processing can make Baileys allocate large decoded batches during reconnects after pairing.
-- Do not eagerly call `groupFetchAllParticipating()` on WhatsApp reconnect or `/resync`. Group metadata is refreshed through live group events and `/resync` uses a lightweight `@g.us` participating-groups query that does not request every participant roster/description; full all-groups fetches can allocate very large Baileys response structures after pairing.
-- Pass Baileys a bounded logger wrapper instead of the root pino logger. Baileys errors can include bundled `data:text/javascript;base64...` stack traces and binary payloads; keep those summarized so `logs.txt` and `terminal.log` stay useful and do not drive heap pressure.
-- Keep WhatsApp startup memory probes around socket creation, WA connection, real initial buffer flushes, and LID session migration. These probes are intentionally small structured logs used to diagnose packaged OOM rollbacks.
-- The Baileys rc13 postinstall patch skips startup event buffering when history sync is disabled, avoids buffer-and-immediate-flush on the disabled-history path, preserves delivered receipts for inbound messages while WA2DC stays unavailable, and bounds tctoken pruning so large auth stores do not trigger single huge heap allocations while the socket is coming online.
+## WhatsApp startup invariants
 
-## Developer quick start
+- Do not process history-sync batches beyond required push-name updates. WA2DC needs live/offline delivery, not decoded reconnect history.
+- Do not call `groupFetchAllParticipating()` during reconnect or `/resync`. Use live group events and the lightweight participating-group query.
+- Keep the bounded Baileys logger wrapper. Baileys errors can contain bundled data URLs, stack payloads, or binary structures that must be summarized.
+- Preserve memory probes around socket creation, connection, genuine initial-buffer flushes, and LID migration. They diagnose packaged startup rollback/OOM failures.
+- Fresh sessions default to the Android browser profile for view-once behavior. Pairing-code flows may temporarily select a Chrome profile; changing the profile of a registered session can require clearing WhatsApp auth and pairing again.
+- Prefer `fetchLatestWaWebVersion()` for fresh pairing, falling back to `fetchLatestBaileysVersion()` only when the live lookup fails.
+- Keep the pinned-Baileys postinstall patch synchronized with its tests. It covers the Android profile, disabled-history buffering, delivered receipts while unavailable, pre-auth/incomplete pairing notifications, LID migration probes, and bounded tctoken pruning.
 
-- Install deps: `npm ci`
-- Run with watchdog: `npm start`
+## Module ownership
+
+Runtime and configuration:
+
+- `src/runner.js` / `src/runnerLogic.js`: supervision, restart/backoff, restart flags, and automatic packaged rollback
+- `src/index.js`: worker bootstrap, autosave, crash reports, and platform lifecycle
+- `src/runtimeEnvironment.js`: `.env` path and loading semantics
+- `src/contracts.js`: settings defaults/normalization, one-way modes, browser-profile values, Discord permissions, and newsletter timing constants
+- `src/state.js`: mutable in-memory runtime state
+
+Persistence and routing:
+
+- `src/storage.js` and `src/persistence/sqliteStore.js`: app state, auth state, SQLite permissions, encryption, and transactions
+- `src/auth/sqliteAuthState.js`: Baileys auth key/credential adapter
+- `src/messageStore.js`: bounded TTL message cache stored in SQLite
+- `src/chatLinks.js`: channel/thread link normalization and host/target resolution
+- `src/newsletterBridge.js`: outbound/server ID correlation, ack tracking, and bounded newsletter diagnostics
+
+Transports and normalization:
+
+- `src/discordHandler.js`: Discord client, slash commands, channel/thread routing, and Discord-side events
+- `src/whatsappHandler.js`: Baileys socket, WhatsApp-side events, pairing profiles, and bridge dispatch
+- `src/clientFactories.js`: Discord/Baileys client construction, version selection, and injectable test overrides
+- `src/whatsappResync.js`: lightweight contact/participating-group refresh
+- `src/groupMetadataCache.js` / `src/groupMetadataRefresh.js`: bounded metadata caching and scheduled refresh
+- `src/pollUtils.js`: WhatsApp poll option and encryption-key extraction
+- `src/internal/`: sticker, image, GIF, and audio send/receive normalization
+- `src/utils.js`: transport helpers, mentions, link previews, download server, updater, file delivery, and JID migration helpers
+- `src/processErrors.js` / `src/processExitReporting.js`: recoverable process errors and bounded exit/crash content
+
+## Developer commands
+
+- Install: `npm ci`
+- Run watchdog: `npm start`
 - Serve docs: `npm run docs`
-- Bundle for Node smoke: `npm run bundle`
-- Bundle for pkg: `npm run bundle:pkg`
-- Build local binary: `npm run build:bin`
-  packaged output includes the executable plus `build/runtime/` for runtime sidecar modules such as `sharp`, `canvas`, `jsdom`, and `lottie-web`
-  release automation also publishes a signed `${binary}.runtime.tar.gz` archive so packaged self-update can replace the sidecar automatically
-  packaged startup will also try to bootstrap `runtime/` from the matching signed release asset when the sidecar is missing or unusable
+- Check docs: `npm run docs:check`
+- Static checks: `npm run check`
+- Tests: `npm test`
+- ESM bundle: `npm run bundle`
+- pkg-safe bundle: `npm run bundle:pkg`
+- Local packaged build: `npm run build:bin`
+- Packaged build and smoke: `npm run build:bin:smoke`
+- Worker smoke: `WA2DC_SMOKE_TEST=1 node src/index.js`
 
-Smoke startup without external connections:
+## Packaged runtime model
 
-- `WA2DC_SMOKE_TEST=1 node src/index.js`
+`npm run build:bin` creates an executable plus `build/runtime/`. The runtime sidecar contains modules that cannot be relied on inside the pkg bundle, including `sharp`, `canvas`, `jsdom`, and `lottie-web`.
 
-## Repository map
-
-Core runtime (`src/`):
-
-- `src/index.js`: app bootstrap and top-level lifecycle
-- `src/runner.js`: watchdog, restart, and crash-loop handling
-- `src/state.js`: in-memory state and default settings
-- `src/storage.js`: persistence and first-run initialization
-- `src/discordHandler.js`: Discord client + slash command handling
-- `src/whatsappHandler.js`: Baileys event handling and bridge flow
-- `src/utils.js`: shared helpers (formatting, updater, networking, migrations)
-- `src/clientFactories.js`: injectable factories for tests
-- `src/groupMetadataCache.js`: chat metadata cache
-- `src/groupMetadataRefresh.js`: metadata refresh scheduling
-- `src/messageStore.js`: TTL message cache for edits/polls/pins
-- `src/pollUtils.js`: poll formatting/state helpers
-
-Tests and CI:
-
-- `tests/`: Node test runner coverage (`npm test`)
-- `.github/workflows/ci-tests.yml`: CI test workflow
+Release automation publishes a matching signed `${binary}.runtime.tar.gz` archive. Packaged startup can bootstrap a missing/unusable `runtime/`, `/update` replaces the executable and sidecar together, and rollback restores both matching backups. Do not describe moving a packaged executable without its runtime sidecar as fully supported.

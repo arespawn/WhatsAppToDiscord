@@ -18,6 +18,7 @@ WhatsAppToDiscord (WA2DC) is a self-hosted bridge that mirrors WhatsApp chats in
 - Install: `npm ci`
 - Run bot: `npm start`
 - Run docs: `npm run docs`
+- Check docs: `npm run docs:check`
 - Lint: `npm run lint` (Biome)
 - Test: `npm test`
 - Bundle: `npm run bundle`
@@ -35,11 +36,12 @@ Use these docs for detailed guidance:
 - `docs/dev/change-playbooks.md`: slash command and settings change procedures
 - `docs/dev/testing-and-release.md`: test matrix, CI, bundling/pkg constraints
 - `docs/dev/security-and-privacy.md`: secret handling and safety boundaries
+- Public operator configuration: `docs/configuration.md`
 
 ## Critical guardrails
 
 - Follow the current SQLite-only storage contract in `docs/dev/storage-and-side-effects.md`.
-- Do not loosen storage permissions (`0700` dirs / `0600` files).
+- Do not loosen explicitly enforced storage/download permissions (`0700` dirs / `0600` files).
 - Avoid bridge echo loops; maintain sender-tracking protections.
 - Respect whitelist and one-way routing checks when touching message flows.
 - Do not hardcode PN vs LID assumptions for WhatsApp identifiers.
@@ -58,6 +60,8 @@ The app may create/use:
 - `terminal.log`
 - `crash-report.txt`
 - `restart.flag`
+- packaged `runtime/` and `runtime.oldVersion/`
+- packaged `${executable}.oldVersion`
 
 If your change affects these files or their semantics, update `docs/dev/storage-and-side-effects.md`.
 

@@ -1,24 +1,39 @@
-# Security And Privacy
+# Security and Privacy
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-02-12
-> Scope: Data handling, logging boundaries, and network-safety expectations.
+> Last reviewed: 2026-07-17
+> Scope: Secret handling, logging, network access, local file serving, updates, and authorization boundaries.
 
-WA2DC handles sensitive data including WhatsApp session state, Discord tokens, and mirrored message content.
+WA2DC processes Discord tokens, WhatsApp authentication material, contact identifiers, mirrored content, attachments, message mappings, logs, and operator configuration.
 
-## Logging boundaries
+## Secrets and persisted data
 
-- Never log secrets (tokens, QR codes, auth blobs, raw credential payloads).
-- Keep crash reports useful but avoid dumping sensitive state.
-- Review added logs in both normal and failure paths.
+- Never log or expose Discord tokens, QR/pairing codes, passphrases, raw credentials, Signal keys, auth blobs, or unredacted pairing nodes.
+- Tests and issue reports must use synthetic data and isolated temporary SQLite storage.
+- Preserve `0700` storage/download directory and `0600` database/download file enforcement where implemented.
+- Treat logs, SQLite sidecars, crash reports, restart flags, `.env`, runtime sidecars, backups, and rollback files as sensitive even when code does not enforce their mode.
+- Encryption at rest covers encoded SQLite payload values, not live memory, network traffic, metadata required to open the store, or unrelated runtime artifacts.
 
-## Network-safety boundaries
+## Logging and failure reporting
 
-Link preview fetching includes safeguards against local/internal network abuse.
-Do not weaken protections that block loopback/private/link-local targets.
+- Bound error serialization, nested causes, Baileys payloads, data URLs, and memory diagnostics.
+- Review success, retry, fallback, shutdown, and crash paths for identifier/content leakage.
+- Crash reports should contain actionable bounded errors and logs, never entire runtime state.
+- Debug logging may include JIDs and Discord IDs; public docs must warn operators before requesting logs.
 
-## Principle of least exposure
+## Network boundaries
 
-- Keep control-channel data access restricted at the Discord permission layer.
-- Avoid broadening command surface area without clear authorization expectations.
-- Preserve privacy-first defaults for self-hosted deployments.
+- Link-preview fetching must continue to block loopback, private, link-local, and unsafe redirect targets and enforce size/time limits for pages and thumbnails.
+- Signed packaged updates must validate executable and runtime-sidecar signatures before replacement; restore matching backups on partial failure.
+- The local download server defaults to loopback. Binding publicly requires explicit operator configuration; path-safe signed URLs do not replace authentication, firewalling, TLS, expiry, or reverse-proxy controls.
+- Do not introduce new outbound services, analytics, or telemetry without explicit documentation and operator control.
+
+## Authorization
+
+WA2DC intentionally uses Discord's guild, channel, role, and application-command permissions. Keep the control channel private and do not imply per-user authorization exists in WA2DC.
+
+Command changes must consider whether they reveal stored data, change routing, delete remote resources, expose files, restart the process, or update binaries. Destructive operations require explicit options/confirmation and clear user-facing scope.
+
+## Public statements
+
+Do not claim that self-hosting means data never leaves the host. Mirroring transmits data through WhatsApp and Discord, link previews contact destination hosts, and update checks contact GitHub. Keep `docs/privacypolicy.txt`, public configuration, and this page aligned with actual code.

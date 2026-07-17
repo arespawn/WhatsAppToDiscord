@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://arespawn.github.io/WhatsAppToDiscord/sitemap.xml
+Sitemap: https://arespawn.com/sitemap.xml

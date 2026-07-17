@@ -1,34 +1,26 @@
 # Security Policy
 
-## Supported Versions
+## Supported versions
 
-Security fixes are applied to the latest `main` branch and most recent release line.
-Older versions may not receive patches.
+Security fixes target the latest `main` branch and the most recent maintained release line. Older releases may not receive patches.
 
-## Reporting A Vulnerability
+## Report a vulnerability privately
 
-Please do **not** open public issues for suspected vulnerabilities.
+Do **not** open a public issue for a suspected vulnerability. Open a [private GitHub security advisory](https://github.com/arespawn/WhatsAppToDiscord/security/advisories/new) instead.
 
-Report privately with:
+Include only the minimum information needed to reproduce and assess the issue:
 
-- Affected version/commit
-- Reproduction steps or proof-of-concept
-- Impact assessment (confidentiality/integrity/availability)
-- Any known mitigations
+- Affected version or commit
+- Reproduction steps or a minimal proof of concept
+- Expected confidentiality, integrity, or availability impact
+- Known mitigations
 
-Contact: open a private security advisory in this repository, or email the maintainers if advisory access is unavailable.
+Never include a real Discord token, WhatsApp QR/pairing code, session blob, encrypted database passphrase, private message, contact list, production database, or unredacted log. Use disposable test accounts and synthetic data.
 
-## Disclosure Process
+## Disclosure process
 
-After confirmation:
+After a report is confirmed, maintainers will triage it, develop and validate a fix, coordinate disclosure when practical, and publish an advisory and patched release.
 
-1. Maintainers acknowledge receipt and start triage.
-2. A fix is developed and validated.
-3. A coordinated disclosure timeline is agreed when practical.
-4. A patch release and advisory are published.
+## Security boundaries
 
-## Scope Notes
-
-- Never include secrets/tokens/session blobs in reports.
-- Minimize test data to non-sensitive samples.
-- Respect privacy boundaries for bridged chat content.
+WA2DC is self-hosted and intentionally relies on Discord permissions to control access to commands and bridged channels. Operators remain responsible for protecting the host, `.env`, `storage/`, logs, downloads, backups, and local download-server exposure. See [Privacy and Data Handling](docs/privacypolicy.txt) and the [developer security guidance](docs/dev/security-and-privacy.md).

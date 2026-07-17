@@ -8,6 +8,8 @@
 
 WhatsAppToDiscord (WA2DC) is a self-hosted bridge that mirrors WhatsApp chats into Discord through [Baileys](https://github.com/WhiskeySockets/Baileys) and [discord.js](https://github.com/discordjs/discord.js).
 
+Originally created by [Fatih Kilic](https://github.com/FKLC), the project is now maintained by [arespawn](https://github.com/arespawn) with the blessing of the previous author.
+
 Start with the documentation at [arespawn.com](https://arespawn.com/):
 
 - [Setup](https://arespawn.com/#/setup)
@@ -50,4 +52,4 @@ Contributor guidance starts in [AGENTS.md](AGENTS.md) and [docs/dev/](docs/dev/R
 ## Disclaimer
 
 > [!CAUTION]
-> WA2DC is not affiliated with or endorsed by WhatsApp or Discord. It uses unofficial WhatsApp Web integration and may be affected by upstream protocol changes or account restrictions. Use it responsibly; do not use it for spam, stalkerware, bulk messaging, or activity that violates platform terms.
+> WA2DC is not affiliated with or endorsed by WhatsApp or Discord. WhatsApp and related names, marks, emblems, and images are trademarks of their respective owners. WA2DC uses unofficial WhatsApp Web integration and may be affected by upstream protocol changes or account restrictions. Use it responsibly; do not use it for spam, stalkerware, bulk messaging, or activity that violates platform terms.

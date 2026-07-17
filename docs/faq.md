@@ -42,6 +42,10 @@ Enable **Message Content Intent** on the Discord application's Bot page, then re
 
 Slash commands can be invoked in any channel shared with the bot; replies are ephemeral outside `#control-room`. `/restart` is deliberately limited to the control channel. Use Discord role, channel, and command permissions to restrict access.
 
+### `/ping` reports negative or unexpectedly high latency
+
+`/ping` compares Discord's interaction timestamp with the WA2DC host's system clock. An incorrect or drifting host clock can therefore produce a negative or unusually large value. Enable automatic time synchronization on the host, then try the command again.
+
 ### LID migration created a duplicate Discord channel
 
 Relink the WhatsApp chat to the original target with `/link contact:<contact> channel:<#old-channel> force:true`. To reuse the webhook from the duplicate target, use `/move from:<#duplicate-channel> to:<#old-channel> force:true`. Do not edit SQLite manually.

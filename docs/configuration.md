@@ -75,4 +75,6 @@ The built-in server is local-only by default. To expose it to other devices, con
 | Docker | Yes | No | Pull a previous image tag and recreate the service |
 | Node.js source | Yes | No | Check out the previous source revision and run `npm ci` |
 
+Official container releases publish immutable version tags plus the moving `latest` tag for stable releases and `unstable` for prereleases. Docker Compose uses `latest` by default. Use `unstable` only when deliberately following prereleases, and pin an immutable version tag when predictable rollback is important.
+
 The packaged watchdog automatically restores the previous executable and runtime sidecar after two nonzero startup exits inside the 120-second update-validation window.

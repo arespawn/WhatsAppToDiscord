@@ -51,8 +51,10 @@ Transports and normalization:
 
 - `src/discordHandler.js`: Discord client, slash commands, channel/thread routing, and Discord-side events
 - `src/whatsappHandler.js`: Baileys socket, WhatsApp-side events, pairing profiles, and bridge dispatch
+- `src/clientFactories.js`: Discord/Baileys client construction, version selection, and injectable test overrides
 - `src/whatsappResync.js`: lightweight contact/participating-group refresh
 - `src/groupMetadataCache.js` / `src/groupMetadataRefresh.js`: bounded metadata caching and scheduled refresh
+- `src/pollUtils.js`: WhatsApp poll option and encryption-key extraction
 - `src/internal/`: sticker, image, GIF, and audio send/receive normalization
 - `src/utils.js`: transport helpers, mentions, link previews, download server, updater, file delivery, and JID migration helpers
 - `src/processErrors.js` / `src/processExitReporting.js`: recoverable process errors and bounded exit/crash content

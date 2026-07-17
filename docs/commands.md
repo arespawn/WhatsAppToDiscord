@@ -220,6 +220,8 @@ Usage: `/listwhitelist`
 
 ## Formatting, privacy, and mentions
 
+Mention translation only uses real platform metadata: select a WhatsApp contact from the mention picker or a Discord user from autocomplete. Plain typed `@name` text is left unchanged. In WhatsApp groups, a real `@all` mention becomes Discord `@everyone`; real Discord `@everyone` or `@here` becomes WhatsApp `@all`. Plain typed versions are never promoted to group-wide mentions.
+
 ### `/setdcprefix`
 
 Set a static prefix for Discord-to-WhatsApp messages. Omit `prefix` to return to sender usernames.

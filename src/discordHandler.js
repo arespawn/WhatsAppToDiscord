@@ -1347,7 +1347,7 @@ const endTypingPresenceSession = (channelId) => {
 
 const maybeSendComposingPresence = (channelId) => {
 	const session = typingPresenceSessions.get(channelId);
-	if (!session || !session.jid) return;
+	if (!session?.jid) return;
 	if (!state.waClient?.sendPresenceUpdate) return;
 
 	const now = Date.now();
@@ -4033,9 +4033,11 @@ const commandHandlers = {
 			const isRoleTarget = Boolean(role);
 			const targetId = String(role?.id || user?.id || "");
 			const targetLabel = isRoleTarget ? `<@&${targetId}>` : `<@${targetId}>`;
-			const list = isRoleTarget
-				? (state.settings.ThreadNotificationRoles ??= [])
-				: (state.settings.ThreadNotificationUsers ??= []);
+			const notificationListKey = isRoleTarget
+				? "ThreadNotificationRoles"
+				: "ThreadNotificationUsers";
+			state.settings[notificationListKey] ??= [];
+			const list = state.settings[notificationListKey];
 			const alreadyConfigured = list.includes(targetId);
 
 			if (action === "add") {

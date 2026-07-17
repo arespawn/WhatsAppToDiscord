@@ -150,7 +150,7 @@ const buildLottieAnimationRenderer = async (animationData) => {
 	const playerSource = await loadLottiePlayerSource(lottiePlayerPath);
 	const patchedSource = playerSource.replace(
 		"function ImagePreloaderFactory() {",
-		`${String.raw`function createImgData(assetData) {
+		`function createImgData(assetData) {
   var path = getAssetsPath(assetData, this.assetsPath, this.path);
   var ob = { assetData };
   loadImage(path).then(image => {
@@ -158,7 +158,7 @@ const buildLottieAnimationRenderer = async (animationData) => {
     this._imageLoaded();
   });
   return ob;
-}`}; function ImagePreloaderFactory() {`,
+}; function ImagePreloaderFactory() {`,
 	);
 	const { Canvas, createCanvas, loadImage } = canvasMod;
 	const width = Math.max(
@@ -182,12 +182,12 @@ const buildLottieAnimationRenderer = async (animationData) => {
 		"navigator",
 		"Canvas",
 		"loadImage",
-		`${String.raw`const exports = undefined;
+		`const exports = undefined;
 const module = undefined;
 const self = window;
 const global = window;
 const globalThis = window;
-const Image = Canvas.Image;`}
+const Image = Canvas.Image;
 ${patchedSource}
 return window.lottie;`,
 	);

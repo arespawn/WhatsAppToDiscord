@@ -1,77 +1,117 @@
-# Frequently Asked Questions
-Here you will find frequently asked questions on [GitHub issues](https://github.com/arespawn/WhatsAppToDiscord/issues)
+# Troubleshooting & FAQ
 
-## What is a whitelist?
-A whitelist allows you to receive messages only from the conversations that are on the list. A blacklist would do the opposite, but WhatsApp already has that feature called blocking.
+Start with `logs.txt` and, when using the watchdog runner, `terminal.log`. Increase structured log detail with `WA2DC_LOG_LEVEL=debug`, but treat diagnostic logs as sensitive because they can contain WhatsApp JIDs and Discord identifiers.
 
-## Can I use this bot on a public server?
-You can do whatever you want with the bot. Just make sure that you get the permissions right. You can enable Discord prefix and whitelist your school's/institution's WhatsApp group, basically creating a bridge between two platforms. Also, make sure that you restrict public access to `#control-room` so that people won't mess with the whitelist.
+## WhatsApp pairing and sessions
 
-## Flagged as a virus
-The bot is completely open-source, even the compilation is done publicly using [GitHub Actions](https://github.com/arespawn/WhatsAppToDiscord/actions). Is it possible for me to replace the binaries? Technically yes, but that would be a really bad reputation. I believe the main reason the bot gets flagged as a virus is the download count. This project is quite small, and it doesn't get many downloads. Microsoft SmartScreen also tries to deter users from running executables from unknown developers. A code signing certificate would probably help, but they are quite pricey and are not worth for an open-source project in my opinion. If you want to make sure nothing shady happens, you can simply clone the repo and compile/run your own version after inspecting the code.
+### Pairing ends with `restartRequired (515)`
 
-## Negative or sky-high ping
-This is due to the time difference between Discords' servers and your computer. As the ping is measured in milliseconds, even small differences can produce a huge/weird number. This can be fixed, but just syncing the time is an easier solution.
+WhatsApp can require a socket restart immediately after successful pairing. WA2DC saves credentials and reconnects; wait for the next control-channel status before retrying.
 
-## Bot only responds with `Unknown command type help...`
-This is due to [Discord Intents](https://discord.com/developers/docs/topics/gateway#privileged-intents). You have to enable message content intent. You can do this by going to [Discord Developer Portal](https://discord.com/developers/applications/) > Your Application > Bot > Scroll down > Enable *"MESSAGE CONTENT INTENT"*.
+### Pairing times out with `QR refs attempts ended (408)`
 
-## Lost my bot token, how to regenerate one?
-You can do this by going to [Discord Developer Portal](https://discord.com/developers/applications/) > Your Application > Bot > Click *"Reset Token"*. A new token will be issued. You can simply copy and paste it to the bot.
+Scan the next fresh QR code or rerun `/pairwithcode` only after WA2DC posts a new pairing prompt. WA2DC prefers WhatsApp's current Web revision and falls back to Baileys' published revision when the live lookup is unavailable. This works around the upstream [Baileys pairing-version issue](https://github.com/WhiskeySockets/Baileys/issues/2679).
 
-## Where do I type the commands?
-When you invite the bot, it should create a text channel called `#control-room`. There, you can use all the [commands](commands.md).
+### `/pairwithcode` causes a restart
 
-## Can I host the bot on a server so that it runs on 7/24?
-Possibly, but be aware you may get banned. On GitHub, I've seen two instances ([#1](https://github.com/FKLC/WhatsAppToDiscord/issues/75#issuecomment-1179018481), [#2](https://github.com/FKLC/WhatsAppToDiscord/issues/88#issuecomment-1229547828)) of running the bot on a server, and apparently, it is fine, but always be cautious.
+Fresh sessions use the Android browser profile for view-once support. Pairing codes can be more reliable under a Chrome profile, so WA2DC may store a temporary pairing profile, clear only the unregistered auth stub, and restart. Run `/pairwithcode` again after the new prompt.
 
-## Sending voice messages on Discord
-WA2DC can mirror Discord voice-style attachments to WhatsApp voice notes (`ptt`).
+### Pairing reports `failed to ack notification` or `Invalid buffer`
 
-- For best compatibility, install `ffmpeg` on the host running WA2DC. The bridge will transcode Discord voice uploads to Opus/Ogg mono before sending.
-- If `ffmpeg` is not installed, WA2DC still attempts a raw audio send, but some voice uploads may fail on WhatsApp clients.
+The pinned Baileys release can receive incomplete or pre-auth pairing notifications. WA2DC applies bounded patches that safely acknowledge and skip incomplete payloads without logging cryptographic data. The incomplete-link-code case is tracked upstream in [Baileys issue #2600](https://github.com/WhiskeySockets/Baileys/issues/2600).
 
-## Playing WhatsApp audio on older Discord clients or phones
-WhatsApp audio is mirrored to Discord in its original format by default, which is best for modern clients.
+### The updated build rolls back after startup crashes
 
-- Some older devices support Ogg Vorbis but not WhatsApp's usual Ogg/Opus audio. Use `/waaudiomp3 enabled:true` to convert WhatsApp audio to MP3 before Discord upload.
-- MP3 conversion requires `ffmpeg`. If `ffmpeg` is missing or conversion fails, WA2DC falls back to the original WhatsApp audio attachment.
+Packaged updates are validated for 120 seconds. Two nonzero exits in that window trigger automatic restoration of the previous executable and runtime sidecar. Inspect the WhatsApp startup memory probes in `terminal.log`. As a temporary diagnostic, try `WA2DC_WHATSAPP_BROWSER=macos-chrome` or `baileys`, understanding that a profile change may require fresh pairing.
 
-## Why did a WhatsApp GIF arrive on Discord as a video?
-WhatsApp usually exposes GIF sends as short `videoMessage` payloads flagged with `gifPlayback`, not as literal `.gif` files.
+### WhatsApp repeatedly disconnects
 
-- For best compatibility, install `ffmpeg` on the host running WA2DC. The bridge will transcode WhatsApp GIF-playback videos into real Discord GIF attachments when possible.
-- If `ffmpeg` is not installed or transcoding fails, WA2DC falls back to mirroring the original WhatsApp video attachment, so Discord may show a play button instead of an inline GIF.
+Transient connection loss is retried with backoff. If the session never recovers, restart once and pair again only after ordinary network, DNS, clock, and firewall problems have been ruled out.
 
-## Why did a Discord image arrive on WhatsApp as a file?
-WA2DC now normalizes static unsupported Discord image formats such as pasted WebP before sending them to WhatsApp. This normalization relies on `sharp`. If `sharp` is unavailable in the current runtime or the image still cannot be decoded safely, the bridge falls back to sending it as a regular document so the message is still delivered instead of being dropped.
+## Discord setup and routing
 
-GIF uploads prefer Discord's animated video rendition when Discord exposes both a file entry and a preview embed for the same media, so the same GIF should not be mirrored twice.
+### Slash commands are missing
 
-Discord stickers are now mirrored as real WhatsApp stickers when possible. Static and animated Discord stickers are converted to WhatsApp-safe WebP sticker payloads by the bridge runtime.
+Use WA2DC's generated authorization URL to invite the bot again. The authorization must include both `bot` and `applications.commands` scopes. Also confirm the bot can access the configured server and channel.
 
-## Can I bridge WhatsApp calls to Discord?
-No. The WhatsApp Web protocol used by the bot does not expose the real-time audio or video streams of a call. Incoming and missed calls are only sent as notifications to Discord, so the bot cannot relay or receive live WhatsApp calls.
+### Messages are empty or do not bridge from Discord
 
-## How do I change the log verbosity?
-Set the `WA2DC_LOG_LEVEL` environment variable to one of `trace`, `debug`, `info`, `warn`, `error`, `fatal` or `silent` (default: `info`). Setting it to `debug` is useful for diagnosing connection or pairing issues. If you set an invalid value, the bot will fail to start.
+Enable **Message Content Intent** on the Discord application's Bot page, then restart WA2DC. Also check `/oneway`, the whitelist, and the `redirectbots`/`redirectwebhooks` settings.
 
-## Can the standalone executable read `.env`?
-Yes. Put `.env` beside the packaged executable and restart it. Source runs read `.env` from the working directory instead. Operating-system environment variables override values from the file, a missing file is ignored, and unreadable files stop startup. The file can contain secrets, so restrict it to the runtime account (for example, `chmod 600 .env` on macOS/Linux) and never share it.
+### Where can commands be used?
 
-## Is it possible to run on Docker?
-Yes. You can build the image manually or use the provided `docker-compose.yml`. Copy `.env.example` to `.env`, set your Discord token inside and run `docker compose up -d` to start the container.
+Slash commands can be invoked in any channel shared with the bot; replies are ephemeral outside `#control-room`. `/restart` is deliberately limited to the control channel. Use Discord role, channel, and command permissions to restrict access.
 
-## How to build an executable of the program
-The bot is built publicly on [GitHub actions](https://github.com/arespawn/WhatsAppToDiscord/actions), but here's a walkthrough of the whole process.
-1. Install Node and NPM [here](https://nodejs.org/en/download).
-1. Install Git [here](https://git-scm.com/downloads)
-1. Execute the following commands to clone and enter bot's folder:
-    1. `git clone https://github.com/arespawn/WhatsAppToDiscord.git`
-    1. `cd WhatsAppToDiscord` 
-1. Run `npm ci` to install dependencies
-1. Run `npm run build:bin` to bundle + package for your current OS/CPU (output goes to `build/`)
-    - Optional smoke test: `npm run build:bin:smoke`
-1. Keep the generated `runtime/` folder next to the executable. Packaged builds use that sidecar for native modules such as `sharp`.
-1. Optionally copy `.env.example` to `.env` beside the executable. Values set by the operating system take precedence.
-1. That's it. You will have your executable in the `build` folder.
+### LID migration created a duplicate Discord channel
+
+Relink the WhatsApp chat to the original target with `/link contact:<contact> channel:<#old-channel> force:true`. To reuse the webhook from the duplicate target, use `/move from:<#duplicate-channel> to:<#old-channel> force:true`. Do not edit SQLite manually.
+
+### A forum thread cannot be linked
+
+WA2DC accepts forum threads and regular text/news channels. Threads created under ordinary text channels are not supported because webhook routing and recovery depend on the forum host relationship.
+
+## Storage and startup
+
+### Startup cannot find existing state
+
+Confirm that `storage/wa2dc.sqlite` was copied with the install and is readable and writable by the runtime account. Legacy flat files are not migrated or loaded.
+
+### Startup fails with a passphrase error
+
+Use the exact `WA2DC_DB_PASSPHRASE` present when the encrypted database was created. A missing or wrong passphrase cannot be repaired; restore a matching backup and passphrase. Setting a passphrase after an unencrypted database already exists does not encrypt that database.
+
+### Docker reports `unable to open database file`
+
+The mounted `./storage` directory is not writable by the container runtime. The official entrypoint repairs its ownership when it starts as root, then runs WA2DC as the unprivileged `node` user. Custom non-root deployments must set compatible host ownership before startup.
+
+### The standalone executable does not read `.env`
+
+Place `.env` beside the packaged executable. Source runs use `.env` from the current working directory. Operating-system environment variables override the file; unreadable files stop startup. See [Configuration](configuration.md).
+
+## Media
+
+### Discord voice messages fail on WhatsApp
+
+Install `ffmpeg` for the most compatible Opus/Ogg voice-note conversion. Without it, WA2DC attempts a raw audio send that some WhatsApp clients may reject.
+
+### WhatsApp audio does not play on an older Discord client
+
+Run `/waaudiomp3 enabled:true` and install `ffmpeg`. If conversion is unavailable or fails, WA2DC preserves the original attachment.
+
+### A WhatsApp GIF arrives as a video
+
+WhatsApp represents GIF playback as a video payload. WA2DC uses `ffmpeg` to create a real Discord GIF when available and otherwise sends the original video.
+
+### A Discord image arrives as a file
+
+WA2DC uses `sharp` to normalize unsupported static images. If the runtime sidecar is missing or the image cannot be decoded safely, it falls back to a document rather than dropping it.
+
+### A Discord sticker is not converted
+
+Static and animated conversion depends on packaged runtime modules such as `sharp`, `canvas`, `jsdom`, and `lottie-web`. Keep the packaged `runtime/` sidecar beside the executable or allow signed bootstrap to restore it.
+
+### View-once media behavior
+
+WA2DC mirrors supported WhatsApp view-once media to Discord as spoiler attachments. Availability depends on the active WhatsApp browser profile and upstream protocol behavior.
+
+## Operations and releases
+
+### Why is the binary flagged as unknown or suspicious?
+
+WA2DC releases may not carry platform publisher notarization, so reputation-based tools can warn about them. Download only from the official [release page](https://github.com/arespawn/WhatsAppToDiscord/releases), verify the published SHA-256 checksum, and run from source if you require independent inspection. Never bypass a warning for a file obtained elsewhere.
+
+### Can WA2DC run continuously on a server?
+
+Yes, but it uses unofficial WhatsApp Web integration and could be affected by account restrictions or protocol changes. Secure the host, control Discord access, keep backups, and use the software at your own risk.
+
+### Can WhatsApp calls be bridged to Discord?
+
+No. WhatsApp Web does not expose live call audio or video streams. WA2DC can only post incoming or missed call notifications.
+
+### How are packaged updates rolled back?
+
+`/update` keeps the previous executable and matching runtime sidecar when possible. `/rollback` restores them manually; the watchdog also rolls back automatically after an unhealthy updated startup. Docker users should pin or pull an older image tag, and source users should check out an older revision.
+
+### How do I build a binary?
+
+Install Node.js 24 or newer, run `npm ci`, then `npm run build:bin`. Output is written to `build/`, including the executable and `runtime/` sidecar. `npm run build:bin:smoke` also runs the packaged smoke test. Full packaging constraints live in [Testing and Release](dev/testing-and-release.md).

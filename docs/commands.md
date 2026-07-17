@@ -1,436 +1,541 @@
-# Commands
+# Slash Command Reference
 
-All bot controls now run exclusively through Discord slash commands. Type `/` in any channel to see the available commands (the bot must share the server) or narrow the list by typing `/wa` and selecting the desired action. Commands can be invoked anywhere, but responses are ephemeral outside the control channel. The legacy `#control-room` text commands have been removed—use slash commands or the persistent buttons in the control channel.
+WA2DC controls are Discord slash commands. Type `/` in a server shared with the bot, then search for the command name. Commands may be used in any linked server channel; replies are ephemeral outside the control channel. `/restart` is restricted to the control channel.
 
----
+Required options use angle brackets. Optional options use square brackets. Discord also shows each command's live option descriptions and allowed values.
 
-## Conversation Management
+## Conversations and threads
 
 ### `/pairwithcode`
-Request a pairing code for a specific phone number.  
-Usage: `/pairwithcode phone:<E.164 phone number>`  
-Note: `phone` can include a leading `+`, spaces, dashes, dots, or parentheses; WA2DC normalizes it before requesting the pairing code. Run this while WhatsApp is showing a fresh QR/pairing prompt, then enter the code immediately in WhatsApp. WA2DC waits briefly after the WhatsApp pairing prompt before requesting a code and refuses to request codes for already registered sessions. If WhatsApp closes or times out the current pairing window, run `/pairwithcode` again after WA2DC posts the next fresh prompt. Pairing codes are still less reliable than QR scanning because WhatsApp may reject or rate-limit them.
 
-Advanced troubleshooting: WA2DC starts fresh/unregistered WhatsApp sessions with the Android browser profile by default because it has better view-once media support. When `/pairwithcode` is used from Android, WA2DC stores a temporary `macos-chrome` pairing profile, clears the unregistered WhatsApp auth stub, and restarts; run `/pairwithcode phone:<number>` again after the restart to receive the code. The command warns that this profile is less reliable for WhatsApp view-once media. Set `WA2DC_WHATSAPP_BROWSER` before startup to force a specific profile; supported values are `android`, `macos-chrome`, `windows-chrome`, `ubuntu-chrome`, and `baileys`. For prerelease startup OOM isolation, `WA2DC_WHATSAPP_BROWSER=macos-chrome` or `WA2DC_WHATSAPP_BROWSER=baileys` can be used temporarily without changing the default for other installs.
+Request a WhatsApp pairing code for a phone number. QR pairing is generally more reliable. The number may contain a leading `+`, spaces, dashes, dots, or parentheses; WA2DC normalizes it before sending the request. See [Troubleshooting & FAQ](faq.md) for browser-profile restarts and pairing failures.
+
+Usage: `/pairwithcode phone:<E.164 phone number>`
 
 ### `/chatinfo`
-Show which WhatsApp chat the current channel/thread is linked to (JID + type), plus the Discord target mode.  
+
+Show the WhatsApp JID, chat type, and Discord channel/thread mode linked to the current target.
+
 Usage: `/chatinfo`
 
 ### `/start`
-Create a brand-new WhatsApp conversation and link it using the current default chat mode (`channel` or `thread`).  
-Usage: `/start contact:<phone number or saved contact name>`
+
+Start a conversation with a saved contact or phone number. WA2DC creates a Discord channel or forum thread according to `/defaultchat`.
+
+Usage: `/start contact:<name or phone number>`
 
 ### `/defaultchat`
-Choose whether new WhatsApp chats are created as regular Discord channels or as forum threads under managed forum channels.  
-Usage: `/defaultchat mode:<channel|thread> host_name:<optional forum name>`
+
+Choose whether newly discovered WhatsApp chats become regular Discord channels or forum threads. In thread mode, `host_name` selects the managed forum name; otherwise WA2DC uses `whatsapp-threads`, adding a numeric suffix when needed.
+
+Usage: `/defaultchat mode:<channel|thread> host_name:[forum name]`
 
 ### `/threadnotifications`
-Toggle the one-time notification post WA2DC sends when it creates a new WhatsApp thread.  
+
+Toggle the one-time notification sent when WA2DC creates a new WhatsApp forum thread. Notifications are not repeated for every mirrored message.
+
 Usage: `/threadnotifications enabled:<true|false>`
 
 ### `/threadtargets`
-Manage which Discord roles/users are pinged when WA2DC creates a new WhatsApp thread. This is the single add/remove/list command for thread notification targets.  
-Usage: `/threadtargets action:<add|remove|list> user:<optional @user> role:<optional @role>`  
-Pick exactly one of `user` or `role` when using `add` or `remove`.
+
+Add, remove, or list the Discord users and roles notified when a new WhatsApp thread is created. For `add` and `remove`, provide exactly one user or role.
+
+Usage: `/threadtargets action:<add|remove|list> user:[@user] role:[@role]`
 
 ### `/link`
-Link an existing Discord text/news channel or forum thread to an existing WhatsApp chat without creating anything new.  
-Usage: `/link contact:<name or number> channel:<#channel> force:<true|false>`  
-Enable `force` to override a channel/thread that is already linked to another chat.  
-Note: thread targets must be forum threads; WA2DC does not support linking raw text-channel threads.
+
+Link an existing WhatsApp chat to an existing Discord text/news channel or forum thread. Raw threads under text channels are unsupported. Set `force` only when intentionally replacing another chat's link.
+
+Usage: `/link contact:<name or phone number> channel:<#channel or forum thread> force:[true|false]`
 
 ### `/move`
-Move an existing WhatsApp link (and webhook) from one Discord target to another.  
-Usage: `/move from:<#current-channel> to:<#new-channel> force:<true|false>`
+
+Move an existing WhatsApp link and its webhook to another Discord target. Set `force` only when intentionally replacing the destination's current link.
+
+Usage: `/move from:<#current target> to:<#new target> force:[true|false]`
 
 ### `/list`
-List all known contacts and groups, optionally filtered.  
-Usage: `/list query:<optional text>`
+
+List known WhatsApp contacts and groups, optionally filtered by text. Use `/resync` if expected entries are missing.
+
+Usage: `/list query:[search text]`
 
 ### `/poll`
-Create a WhatsApp poll from Discord.  
-Usage: `/poll question:"text" options:"opt1,opt2,..." select:<count> announcement:<true|false>`  
-Notes: Poll messages and live vote updates are mirrored to Discord, voting can only be done directly in WhatsApp. In newsletter-linked channels, WA2DC now tries an interactive poll first, then falls back to a text poll summary if WhatsApp rejects the payload.
+
+Create a WhatsApp poll from a linked Discord target. Supply at least two comma-separated options; `select` defaults to one. Polls and vote updates mirror to Discord, but voting happens in WhatsApp. Newsletter polls fall back to a text summary when WhatsApp rejects the interactive payload.
+
+Usage: `/poll question:<text> options:<comma-separated choices> select:[count] announcement:[true|false]`
 
 ### `/setpinduration`
-Set the default expiration time (24h, 7d, or 30d) for WhatsApp pins created from Discord.  
+
+Set the default expiry for WhatsApp pins created from Discord.
+
 Usage: `/setpinduration duration:<24h|7d|30d>`
 
-Thread mode notes:
+## Newsletters
 
-- `channel` is the default.
-- In `thread` mode, WA2DC creates forum threads under auto-managed forum channels named `whatsapp-threads`, `whatsapp-threads-2`, and so on, unless you provide `host_name`.
-- `host_name` is sanitized into a Discord channel name and only affects newly created managed forum channels.
-- Existing channel links continue working unchanged after you switch the default.
-- Thread notification pings are sent only once when the thread is first created, never on every mirrored message.
-
-### Newsletters
-
-Once a newsletter is linked to a Discord channel, regular outbound sends flow through the same `sendMessage(...)` bridge path used for DMs/groups (no special send command needed). Newsletter edits/deletes from Discord are not currently supported by Baileys, so WA2DC shows an in-channel reminder to edit/delete directly in WhatsApp on phone. Reactions are routed through the newsletter reaction API.
-
-Important: Until upstream Baileys newsletter image/video posting is fixed, use `/newsletterurlfallback enabled:true` as the temporary alternative for newsletter image/video attachments.
-
-Newsletter attachment behavior:
-
-- WhatsApp newsletter posting currently supports only image/video media from WA2DC.
-- Other attachment types are skipped, and WA2DC posts a notice with WhatsApp’s guidance: https://faq.whatsapp.com/549900560675125
-- URL fallback for newsletter image/video attachments is controlled by `/newsletterurlfallback` (default: disabled) and is the temporary workaround for current upstream Baileys newsletter media restrictions.
+Newsletter commands accept a `jid` when shown. If it is omitted, the current Discord target must already be linked to a newsletter. Regular messages use the normal bridge; Discord-side newsletter edits and deletes are not sent to WhatsApp. Perform those actions in the WhatsApp phone app.
 
 ### `/newslettercreate`
-Create a WhatsApp newsletter and automatically link it to a Discord channel.  
-Usage: `/newslettercreate name:"title" description:"optional text"`
+
+Create a WhatsApp newsletter and link it to a new Discord channel.
+
+Usage: `/newslettercreate name:<title> description:[text]`
 
 ### `/newsletterupdate`
-Update a newsletter's name and/or description.  
-Usage: `/newsletterupdate jid:<optional ...@newsletter> name:"optional" description:"optional"`  
-If `jid` is omitted, the current channel must already be linked to a newsletter.
+
+Update a newsletter's name, description, or both.
+
+Usage: `/newsletterupdate jid:[...@newsletter] name:[new title] description:[new text]`
 
 ### `/newsletterpicture`
-Set or remove the newsletter picture.  
-Usage: `/newsletterpicture mode:<set|remove> url:<required when mode=set> jid:<optional ...@newsletter>`
+
+Set or remove the newsletter picture. `url` is required when `mode` is `set`.
+
+Usage: `/newsletterpicture mode:<set|remove> url:[image URL] jid:[...@newsletter]`
 
 ### `/newsletteradmincount`
-Fetch the newsletter admin count.  
-Usage: `/newsletteradmincount jid:<optional ...@newsletter>`
+
+Fetch the newsletter administrator count.
+
+Usage: `/newsletteradmincount jid:[...@newsletter]`
 
 ### `/newslettersubscribers`
-Fetch the current newsletter subscriber count.  
-Usage: `/newslettersubscribers jid:<optional ...@newsletter>`
+
+Fetch the current newsletter subscriber count.
+
+Usage: `/newslettersubscribers jid:[...@newsletter]`
 
 ### `/newsletterfollow`
-Follow a newsletter.  
-Usage: `/newsletterfollow jid:<optional ...@newsletter> invite:<optional invite code or link>`
-If `jid` is omitted, WA2DC will try to resolve the newsletter via `invite`.
+
+Follow a newsletter. An invite code or link can be used instead of a JID.
+
+Usage: `/newsletterfollow jid:[...@newsletter] invite:[invite code or link]`
 
 ### `/newsletterunfollow`
-Unfollow a newsletter.  
-Usage: `/newsletterunfollow jid:<optional ...@newsletter>`
+
+Unfollow a newsletter.
+
+Usage: `/newsletterunfollow jid:[...@newsletter]`
 
 ### `/newslettermute`
-Mute a newsletter.  
-Usage: `/newslettermute jid:<optional ...@newsletter>`
+
+Mute a newsletter.
+
+Usage: `/newslettermute jid:[...@newsletter]`
 
 ### `/newsletterunmute`
-Unmute a newsletter.  
-Usage: `/newsletterunmute jid:<optional ...@newsletter>`
+
+Unmute a newsletter.
+
+Usage: `/newsletterunmute jid:[...@newsletter]`
 
 ### `/newsletterupdatename`
-Update only the newsletter name.  
-Usage: `/newsletterupdatename name:"new title" jid:<optional ...@newsletter>`
+
+Update only the newsletter name.
+
+Usage: `/newsletterupdatename name:<new title> jid:[...@newsletter]`
 
 ### `/newsletterupdatedescription`
-Update only the newsletter description.  
-Usage: `/newsletterupdatedescription description:"new text" jid:<optional ...@newsletter>`
+
+Update only the newsletter description.
+
+Usage: `/newsletterupdatedescription description:<new text> jid:[...@newsletter]`
 
 ### `/newslettermessages`
-Fetch recent messages from a newsletter.  
-Usage: `/newslettermessages jid:<optional ...@newsletter> count:<1-50> before:<unix seconds> after:<unix seconds>`
+
+Fetch recent newsletter messages. `count` accepts 1–50 and defaults to 10; `before` and `after` are Unix timestamps in seconds.
+
+Usage: `/newslettermessages jid:[...@newsletter] count:[1-50] before:[Unix seconds] after:[Unix seconds]`
 
 ### `/newslettermessagedebug`
-Inspect WA2DC mapping/debug data for a newsletter-linked Discord message.  
-Usage: `/newslettermessagedebug messageid:<discord message id> jid:<optional ...@newsletter>`  
-Shows Discord->WhatsApp ID mapping, resolved `server_id`, pending correlation, sent flags, cached ack errors, and recent per-message newsletter operation history.
+
+Inspect WA2DC's mapping, `server_id`, acknowledgement, pending-correlation, and recent operation data for a newsletter-backed Discord message.
+
+Usage: `/newslettermessagedebug messageid:<Discord message ID> jid:[...@newsletter]`
 
 ### `/newslettersubscribeupdates`
-Request newsletter live updates subscription metadata.  
-Usage: `/newslettersubscribeupdates jid:<optional ...@newsletter>`
+
+Request newsletter live-update subscription metadata.
+
+Usage: `/newslettersubscribeupdates jid:[...@newsletter]`
 
 ### `/newslettermetadata`
-Fetch raw newsletter metadata (including viewer role if exposed by WhatsApp).  
-Usage: `/newslettermetadata jid:<optional ...@newsletter>`
+
+Fetch newsletter metadata, including the viewer role when WhatsApp exposes it.
+
+Usage: `/newslettermetadata jid:[...@newsletter]`
 
 ### `/newsletterinviteinfo`
-Show the newsletter invite code/link exposed by WhatsApp metadata.  
-Usage: `/newsletterinviteinfo jid:<optional ...@newsletter>`
+
+Show the invite link or code exposed by newsletter metadata.
+
+Usage: `/newsletterinviteinfo jid:[...@newsletter]`
 
 ### `/newsletterchangeowner`
-Transfer newsletter ownership to another WhatsApp user JID/number.  
-Usage: `/newsletterchangeowner user:<jid or number> jid:<optional ...@newsletter>`
+
+Transfer newsletter ownership to another WhatsApp user. Verify the destination carefully before running this command.
+
+Usage: `/newsletterchangeowner user:<WhatsApp JID or number> jid:[...@newsletter]`
 
 ### `/newsletterdemote`
-Demote a newsletter admin by WhatsApp user JID/number.  
-Usage: `/newsletterdemote user:<jid or number> jid:<optional ...@newsletter>`
+
+Demote a newsletter administrator.
+
+Usage: `/newsletterdemote user:<WhatsApp JID or number> jid:[...@newsletter]`
 
 ### `/newsletterdelete`
-Delete a newsletter (irreversible) and remove its local bridge mapping.  
-Usage: `/newsletterdelete confirm:true jid:<optional ...@newsletter>`
+
+Permanently delete a newsletter and remove its local bridge mapping. This action is irreversible and requires explicit confirmation.
+
+Usage: `/newsletterdelete confirm:<true> jid:[...@newsletter]`
 
 ### `/newsletterurlfallback`
-Toggle the temporary plain-URL workaround for newsletter image/video attachments.  
-Usage: `/newsletterurlfallback enabled:<true|false>`  
-When enabled, WA2DC sends image/video attachments as plain links (no thumbnail/attachment payload).  
-This is the recommended temporary alternative until upstream Baileys newsletter image/video posting is fixed.  
-When disabled (default), image/video attachments are not sent to newsletters and WA2DC posts an in-channel explanation.
 
----
+Toggle the temporary plain-URL fallback for newsletter image/video attachments. It is disabled by default. When disabled, unsupported media is skipped with an explanation; other attachment types are not sent to newsletters.
 
-## Whitelist Controls
+Usage: `/newsletterurlfallback enabled:<true|false>`
 
-### `/listwhitelist`
-Show the conversations currently allowed to bridge when the whitelist is enabled.
+## Whitelist
+
+An empty whitelist allows every linked chat. Once entries are added, only listed chats bridge.
 
 ### `/addtowhitelist`
-Add a linked channel to the whitelist.  
-Usage: `/addtowhitelist channel:<#channel>`
+
+Add the WhatsApp chat linked to a Discord channel or thread to the whitelist.
+
+Usage: `/addtowhitelist channel:<#linked target>`
 
 ### `/removefromwhitelist`
-Remove a linked channel from the whitelist.  
-Usage: `/removefromwhitelist channel:<#channel>`
 
----
+Remove the WhatsApp chat linked to a Discord channel or thread from the whitelist.
 
-## Formatting & Prefixes
+Usage: `/removefromwhitelist channel:<#linked target>`
+
+### `/listwhitelist`
+
+List the chats currently in the whitelist.
+
+Usage: `/listwhitelist`
+
+## Formatting, privacy, and mentions
 
 ### `/setdcprefix`
-Override the prefix prepended to Discord → WhatsApp messages.  
-Usage: `/setdcprefix prefix:<optional text>` (omit to reset to usernames)
+
+Set a static prefix for Discord-to-WhatsApp messages. Omit `prefix` to return to sender usernames.
+
+Usage: `/setdcprefix prefix:[text]`
 
 ### `/dcprefix`
-Toggle whether the configured prefix is used.  
+
+Toggle Discord sender prefixes on messages sent to WhatsApp.
+
 Usage: `/dcprefix enabled:<true|false>`
 
 ### `/waprefix`
-Toggle whether WhatsApp sender names are prepended inside Discord messages.  
+
+Toggle WhatsApp sender-name prefixes on messages mirrored to Discord.
+
 Usage: `/waprefix enabled:<true|false>`
 
 ### `/waplatformsuffix`
-Toggle whether WhatsApp messages mirrored to Discord include a suffix showing the sender platform (Android/iOS/Desktop/Web).  
+
+Toggle the Android/iOS/Desktop/Web sender-platform suffix on WhatsApp messages mirrored to Discord.
+
 Usage: `/waplatformsuffix enabled:<true|false>`
 
----
-
-## Privacy
-
 ### `/hidephonenumbers`
-Hide WhatsApp phone numbers on Discord (use pseudonyms when a real contact name isn’t available).  
+
+Hide WhatsApp phone numbers on Discord, using stable pseudonyms when a real contact name is unavailable.
+
 Usage: `/hidephonenumbers enabled:<true|false>`
 
----
-
-## Mentions
-
-WA2DC can optionally translate WhatsApp @mentions into Discord user mentions, if you link a WhatsApp contact to a Discord user.
-This only works for **real WhatsApp mentions** (select the person from WhatsApp’s mention picker); manually typing `@name` without selecting won’t include mention metadata and can’t be translated reliably.
-WhatsApp group-wide `@all` mentions are mirrored as Discord `@everyone` mentions when WhatsApp includes mention-all metadata; plain typed `@all` text is left unchanged.
-If a WhatsApp contact is linked, WA2DC will also translate **Discord user @mentions** into **WhatsApp mentions** when forwarding messages from Discord to WhatsApp (you must use a real Discord mention — select the user from autocomplete so Discord inserts a `<@...>` mention). In WhatsApp group chats, real Discord `@everyone` / `@here` mentions are forwarded as WhatsApp `@all`; plain typed text is left unchanged.
-
 ### `/linkmention`
-Link a WhatsApp contact to a Discord user so future WhatsApp @mentions ping them in Discord.  
-Usage: `/linkmention contact:<phone number or saved contact name> user:<@user>`
-Note: phone numbers can include `+`, spaces, or dashes; WA2DC normalizes them automatically.
-Note: WhatsApp can represent the same person as a phone JID (`...@s.whatsapp.net`, “PN”) and/or a Linked-Device ID (`...@lid`, “LID”). If mentions don’t ping even though the link exists, you may be receiving **LID mentions**. You can link the LID directly by passing it as the contact value, e.g. `/linkmention contact:<someid@lid> user:<@user>`. On older versions, you may need to link **both** the PN and LID for the same contact.
+
+Link a WhatsApp contact to a Discord user so real WhatsApp mentions can ping that user. WA2DC also translates real Discord mentions back to WhatsApp when possible. PN and LID identifiers are both supported.
+
+Usage: `/linkmention contact:<name, number, or JID> user:<@user>`
 
 ### `/unlinkmention`
-Remove a WhatsApp→Discord mention link for a contact.  
-Usage: `/unlinkmention contact:<phone number or saved contact name>`
+
+Remove a WhatsApp-to-Discord mention link.
+
+Usage: `/unlinkmention contact:<name, number, or JID>`
 
 ### `/mentionlinks`
-List all configured WhatsApp→Discord mention links.
+
+List configured WhatsApp-to-Discord mention links.
+
+Usage: `/mentionlinks`
 
 ### `/jidinfo`
-Show the known WhatsApp IDs (PN `@s.whatsapp.net` and/or LID `@lid`) for a contact, and whether those IDs are linked for mention pings.  
-Usage: `/jidinfo contact:<phone number or saved contact name>`
-How to find PN/LID:
-- Easiest: run `/jidinfo contact:<name or number>` and look for lines marked `(PN)` and `(LID)`.
-- Advanced: open `storage/contacts` and search for the contact name; keys ending in `@s.whatsapp.net` are PN, keys ending in `@lid` are LID.
 
----
+Show known PN (`@s.whatsapp.net`) and LID (`@lid`) variants for a contact and whether they are linked for mentions. Use this command instead of inspecting the SQLite database manually.
 
-## Attachments & Downloads
+Usage: `/jidinfo contact:<name, number, or JID>`
 
-Defaults (out of the box):
+## Media and downloads
 
-- WhatsApp → Discord media bursts use batches of `10` attachments (`/setwamediaburstsize` can lower this for slower machines or unstable connections).
-- WhatsApp audio is mirrored in its original format by default (`/waaudiomp3 enabled:true` opts in to MP3 conversion for older clients).
-- Local downloads are disabled (`/localdownloads enabled:true` to turn on).
-- Download directory is `./downloads` and pruning is disabled (`/setdownloadlimit`, `/setdownloadmaxage`, `/setdownloadminfree` all default to `0` = off).
-- Local download server is disabled; when enabled it defaults to local-only (`127.0.0.1` bind, `localhost` URLs, port `8080`).
-- WhatsApp view-once media is mirrored to Discord as spoiler attachments.
-
-### `/setwamediaburstsize`
-Set how many WhatsApp attachments WA2DC uploads to Discord per batch when mirroring media bursts.  
-Usage: `/setwamediaburstsize count:<1-10>`  
-Default: `10`  
-Lower values can help on slower machines or unstable connections, at the cost of producing more Discord messages for large WhatsApp image bursts.
-- Download links are signed (survive restarts) and never expire by default (`/setdownloadlinkttl seconds:0`).
+Defaults: WhatsApp-to-Discord media batches contain up to 10 attachments; WhatsApp audio remains in its original format; local downloads and the download server are disabled; pruning and link expiry are disabled; the server binds to `127.0.0.1:8080` and generates `localhost` URLs when enabled.
 
 ### `/waaudiomp3`
-Toggle MP3 conversion for WhatsApp audio before uploading it to Discord.  
-Usage: `/waaudiomp3 enabled:<true|false>`  
-Default: `false` (original WhatsApp audio is preserved).  
-Requires `ffmpeg`; if conversion is unavailable or fails, WA2DC falls back to the original WhatsApp audio.
 
-To make download links reachable from other devices (phone/PC), you usually want:
+Toggle MP3 conversion for WhatsApp audio uploaded to Discord. Conversion requires `ffmpeg`; WA2DC falls back to the original file when conversion is unavailable or fails.
 
-- `/setlocaldownloadserverbindhost host:0.0.0.0` (listen on all interfaces)
-- `/setlocaldownloadserverhost host:<LAN IP or domain>` (generate URLs recipients can reach)
-- Ensure firewall/port forwarding allows the configured port (default `8080`)
+Usage: `/waaudiomp3 enabled:<true|false>`
 
 ### `/waupload`
-Toggle whether Discord attachments are uploaded to WhatsApp (vs sending as links).  
+
+Toggle whether Discord attachments are uploaded to WhatsApp instead of sent as links.
+
 Usage: `/waupload enabled:<true|false>`
 
 ### `/waembeds`
-Toggle whether Discord embed content (text and supported media) is mirrored to WhatsApp.  
-Usage: `/waembeds enabled:<true|false>`  
-Default: `false` (disabled).
+
+Toggle mirroring supported Discord embed text and media to WhatsApp. Disabled by default.
+
+Usage: `/waembeds enabled:<true|false>`
 
 ### `/localdownloads`
-Control whether large WhatsApp attachments are downloaded locally when they exceed Discord’s upload limit.  
+
+Toggle downloading WhatsApp attachments locally when they exceed Discord's configured upload limit.
+
 Usage: `/localdownloads enabled:<true|false>`
 
 ### `/getdownloadmessage`
+
 Show the current local-download notification template.
 
+Usage: `/getdownloadmessage`
+
 ### `/setdownloadmessage`
-Update the notification template.  
-Usage: `/setdownloadmessage message:"text with {url}/{fileName}/..."`.
+
+Set the local-download notification template. Supported placeholders are `{abs}`, `{resolvedDownloadDir}`, `{downloadDir}`, `{fileName}`, and `{url}`.
+
+Usage: `/setdownloadmessage message:<template text>`
 
 ### `/getdownloaddir`
-Show the folder used for downloaded files.
+
+Show the configured download directory.
+
+Usage: `/getdownloaddir`
 
 ### `/setdownloaddir`
-Change the download directory.  
-Usage: `/setdownloaddir path:<folder>`
+
+Set the download directory. Ensure the WA2DC runtime account can create and protect files there.
+
+Usage: `/setdownloaddir path:<directory>`
 
 ### `/setdownloadlimit`
-Limit the download directory size (GB).  
-Usage: `/setdownloadlimit size:<number>`
 
-### `/setdownloadmaxage`
-Delete downloaded files older than the given age (days).  
-Usage: `/setdownloadmaxage days:<number>` (0 disables age-based cleanup)
+Set the maximum download-directory size in gigabytes. `0` disables size-based pruning.
 
-### `/setdownloadminfree`
-Keep at least the given free disk space (GB) by pruning old downloads.  
-Usage: `/setdownloadminfree gb:<number>` (0 disables free-space pruning)
+Usage: `/setdownloadlimit size:<gigabytes>`
 
 ### `/setfilesizelimit`
-Override the Discord upload size limit used to decide when to download instead of re-uploading.  
-Usage: `/setfilesizelimit bytes:<integer>`
 
-### `/setdownloadlinkttl`
-Set local download link expiry in seconds.  
-Usage: `/setdownloadlinkttl seconds:<integer>` (0 = never expire)
+Override the Discord upload-size threshold, in bytes, used to decide when local download handling is needed.
+
+Usage: `/setfilesizelimit bytes:<positive integer>`
+
+### `/setwamediaburstsize`
+
+Set the number of WhatsApp attachments uploaded to Discord per batch. Valid values are 1–10; lower values can help slow or unreliable hosts.
+
+Usage: `/setwamediaburstsize count:<1-10>`
 
 ### `/localdownloadserver`
-Start/stop the built-in HTTP(S) server that serves downloaded files.  
+
+Start or stop the built-in server for locally downloaded attachments. Exposing it beyond localhost requires deliberate bind, host, firewall, and TLS configuration.
+
 Usage: `/localdownloadserver enabled:<true|false>`
 
-### `/setlocaldownloadserverhost`
-Configure the hostname used in generated download URLs.  
-Usage: `/setlocaldownloadserverhost host:<value>`
-
-### `/setlocaldownloadserverbindhost`
-Configure which interface the download server listens on.  
-Usage: `/setlocaldownloadserverbindhost host:<value>` (e.g., `127.0.0.1` or `0.0.0.0`)
-
 ### `/setlocaldownloadserverport`
-Configure which port the download server listens on.  
+
+Set the local download server port. Valid values are 1–65535.
+
 Usage: `/setlocaldownloadserverport port:<1-65535>`
 
+### `/setlocaldownloadserverhost`
+
+Set the hostname or IP inserted into generated download URLs. This does not control the listening interface.
+
+Usage: `/setlocaldownloadserverhost host:<hostname or IP>`
+
+### `/setlocaldownloadserverbindhost`
+
+Set the interface on which the local download server listens. `127.0.0.1` is local-only; `0.0.0.0` listens on all IPv4 interfaces.
+
+Usage: `/setlocaldownloadserverbindhost host:<bind address>`
+
+### `/setdownloadlinkttl`
+
+Set signed download-link lifetime in seconds. `0` means links do not expire.
+
+Usage: `/setdownloadlinkttl seconds:<zero or positive integer>`
+
+### `/setdownloadmaxage`
+
+Delete downloaded files older than the configured number of days. `0` disables age-based pruning.
+
+Usage: `/setdownloadmaxage days:<zero or positive number>`
+
+### `/setdownloadminfree`
+
+Prune old downloads to keep at least the configured free disk space in gigabytes. `0` disables free-space pruning.
+
+Usage: `/setdownloadminfree gb:<zero or positive number>`
+
 ### `/httpsdownloadserver`
-Toggle HTTPS for the download server (requires certificates).  
+
+Toggle HTTPS for the local download server. Configure a key and certificate before enabling it.
+
 Usage: `/httpsdownloadserver enabled:<true|false>`
 
 ### `/sethttpscert`
-Set TLS certificate paths for the download server.  
-Usage: `/sethttpscert key_path:<file> cert_path:<file>`
 
----
+Set the TLS private-key and certificate paths used by the local download server.
 
-## Messaging Behavior
+Usage: `/sethttpscert key_path:<key file> cert_path:<certificate file>`
+
+## Messaging behavior
 
 ### `/deletes`
-Toggle mirrored message deletions between Discord and WhatsApp.  
+
+Toggle mirrored message deletions between Discord and WhatsApp.
+
 Usage: `/deletes enabled:<true|false>`
 
 ### `/readreceipts`
-Turn read receipts on or off entirely.  
+
+Enable or disable bridge read-receipt notifications.
+
 Usage: `/readreceipts enabled:<true|false>`
 
-### `/dmreadreceipts`, `/publicreadreceipts`, `/reactionreadreceipts`
-Pick the delivery style when read receipts are enabled (DM, short channel reply, or ☑️ reaction).
+### `/dmreadreceipts`
+
+Deliver enabled read receipts by direct message.
+
+Usage: `/dmreadreceipts`
+
+### `/publicreadreceipts`
+
+Deliver enabled read receipts as short channel replies. This is the default mode.
+
+Usage: `/publicreadreceipts`
+
+### `/reactionreadreceipts`
+
+Deliver enabled read receipts as ☑️ reactions.
+
+Usage: `/reactionreadreceipts`
+
+### `/publishing`
+
+Toggle automatic cross-posting for messages sent into Discord announcement channels.
+
+Usage: `/publishing enabled:<true|false>`
 
 ### `/changenotifications`
-Toggle profile-picture / status-change alerts and WhatsApp Status (stories) mirroring (posted into the `status@broadcast` / `#status` channel).  
+
+Toggle profile/status change alerts and WhatsApp Status mirroring into the linked `status@broadcast` target.
+
 Usage: `/changenotifications enabled:<true|false>`
 
 ### `/oneway`
-Restrict the bridge to one direction or keep it bidirectional.  
+
+Set the bridge direction. `discord` sends only WhatsApp → Discord, `whatsapp` sends only Discord → WhatsApp, and `disabled` restores bidirectional bridging.
+
 Usage: `/oneway direction:<discord|whatsapp|disabled>`
 
 ### `/redirectbots`
-Allow or block Discord bot messages from being forwarded to WhatsApp.  
+
+Toggle forwarding messages from other Discord bots to WhatsApp. Enabled by default.
+
 Usage: `/redirectbots enabled:<true|false>`
 
 ### `/redirectwebhooks`
-Allow or block Discord webhook messages from being forwarded to WhatsApp.  
+
+Toggle forwarding Discord webhook messages to WhatsApp. Disabled by default.
+
 Usage: `/redirectwebhooks enabled:<true|false>`
 
 ### `/redirectannouncements`
-Allow or block Discord announcement/crosspost webhooks from being forwarded to WhatsApp.  
-Usage: `/redirectannouncements enabled:<true|false>`  
-Default: `false` (disabled).
 
-### Typing indicators (automatic)
-When someone starts typing in a linked Discord channel, WA2DC sends WhatsApp presence updates (`composing` / `paused`) to the linked chat so your WhatsApp account shows “typing…”. This only runs when Discord → WhatsApp bridging is enabled (bidirectional or `/oneway direction:whatsapp`). WhatsApp cannot show *which* Discord user is typing—only that the bridge account is.
+Toggle forwarding Discord announcement/crosspost webhook messages to WhatsApp. Disabled by default.
 
-### `/publishing`
-Toggle automatic cross-posting for messages sent to Discord news channels.  
-Usage: `/publishing enabled:<true|false>`
+Usage: `/redirectannouncements enabled:<true|false>`
+
+Discord typing indicators are automatic when Discord-to-WhatsApp bridging is enabled. WhatsApp shows that the bridge account is typing, not which Discord user is typing.
+
+## Maintenance
 
 ### `/ping`
-Return the current bot latency.
 
----
+Show the current Discord bot latency.
 
-## Maintenance & Settings
+Usage: `/ping`
 
-### `/restart`
-Safely save state and restart the bot (requires running via the watchdog runner).  
-Usage: `/restart` (control channel only)
+### `/help`
+
+Show the WA2DC documentation link.
+
+Usage: `/help`
 
 ### `/resync`
-Re-sync WhatsApp contacts/groups. Set `rename:true` to rename Discord channels to match WhatsApp subjects. The group refresh uses a lightweight group list query and does not download every group participant roster.
+
+Refresh WhatsApp contacts and participating groups. Set `rename` to update linked Discord target names. The group refresh avoids downloading every participant roster.
+
+Usage: `/resync rename:[true|false]`
 
 ### `/autosaveinterval`
-Change how often the bot persists state (seconds).  
-Usage: `/autosaveinterval seconds:<integer>`
+
+Set how often WA2DC persists app state, in seconds. The default is 300 seconds.
+
+Usage: `/autosaveinterval seconds:<positive integer>`
 
 ### `/lastmessagestorage`
-Limit how many WhatsApp messages remain editable/deletable from Discord.  
-Usage: `/lastmessagestorage size:<integer>`
 
-### `/localdownloadserver`, `/setlocaldownloadserverhost`, `/setlocaldownloadserverbindhost`, `/setlocaldownloadserverport`, `/setdownloadlinkttl`, `/httpsdownloadserver`, `/sethttpscert`
-See “Attachments & Downloads” above (listed again here for visibility).
+Set how many recent message mappings remain available for edits, deletions, quotes, pins, and reactions. The default is 500.
 
----
+Usage: `/lastmessagestorage size:<positive integer>`
 
-## Update Management
+### `/restart`
 
-The control channel now shows a persistent update card with “Update”, “Skip update”, and “Roll back” buttons that survive restarts. These buttons trigger the same slash commands listed below.
+Persist state and request a safe restart. This command works only in the control channel and requires the watchdog runner; Docker relies on its container restart policy instead.
+
+Usage: `/restart`
+
+## Updates
+
+The control channel contains persistent update, skip, and rollback controls. Source and Docker deployments receive notifications but update through their normal deployment workflow.
 
 ### `/updatechannel`
-Switch between the stable and unstable release channels.  
+
+Switch between stable releases and prereleases.
+
 Usage: `/updatechannel channel:<stable|unstable>`
 
+### `/update`
+
+Install the available signed update on a supported packaged binary. The executable and matching runtime sidecar are updated together. Unsupported source and Docker installs receive manual-update guidance.
+
+Usage: `/update`
+
 ### `/checkupdate`
-Manually check for updates on the active channel.
+
+Check the active release channel immediately and refresh the persistent update card.
+
+Usage: `/checkupdate`
 
 ### `/skipupdate`
-Dismiss the current update notification without installing.
 
-### `/update`
-Download and install the available release (packaged installs only). Docker/source deployments will be reminded to pull and restart manually.  
-For packaged installs, the updater refreshes both the executable and the matching signed `runtime/` sidecar archive when the release publishes one.  
-If the updated packaged install crash-loops during startup, the watchdog runner automatically rolls back to the previous `.oldVersion` executable and `runtime/` sidecar (2 non-zero exits before 120 seconds uptime).
+Dismiss the current update notification without installing it.
+
+Usage: `/skipupdate`
 
 ### `/rollback`
-Restore the previous packaged binary when one is available. The dedicated “Roll back” button only appears if a backup exists.  
-This is still useful for manual recovery, but update failures are now auto-rolled back by the watchdog runner when possible.
 
----
+Restore the previous packaged executable and runtime sidecar when a backup is available. Docker and source deployments must roll back using their normal deployment tools.
 
-Need help remembering the command names? Type `/wa` inside Discord and let the client autocomplete each slash command along with its required options. All commands are self-documented via Discord’s UI, so you no longer have to memorize legacy text formats.
+Usage: `/rollback`

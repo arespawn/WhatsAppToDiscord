@@ -5719,7 +5719,7 @@ const commandHandlers = {
 	},
 };
 
-const slashCommands = Object.entries(commandHandlers)
+export const slashCommands = Object.entries(commandHandlers)
 	.filter(([, def]) => def.register !== false)
 	.map(([name, def]) => ({
 		name,

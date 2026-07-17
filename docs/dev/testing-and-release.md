@@ -1,48 +1,61 @@
-# Testing And Release
+# Testing and Release
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-05-13
-> Scope: Validation commands, CI expectations, and packaging constraints.
+> Last reviewed: 2026-07-17
+> Scope: Validation commands, documentation checks, CI, bundling, and packaged release constraints.
 
 ## Validation matrix
 
 Preferred checks before handoff:
 
-- `npm run lint` (Biome)
-- `npm test`
+- `npm run docs:check` for commands, usage options, relative links, and historical setup assets
+- `npm run check` for Biome lint/format validation of source, tests, and scripts
+- `npm test` for the full Node test suite
+- `npm run bundle` for runtime bundle compatibility
 - `WA2DC_SMOKE_TEST=1 node src/index.js` for startup-sensitive changes
+- `npm run build:bin:smoke` when packaging or runtime-sidecar behavior changes
 
-CI executes the following on `ubuntu-latest`, `macos-latest`, and `windows-latest`:
+The `ci-tests` workflow runs tests, the ESM bundle, bundled watchdog smoke, and packaged binary smoke on current Ubuntu, macOS, and Windows runners with Node.js 24. The separate lint workflow enforces Biome.
 
-- `npm test`
-- `npm run bundle`
-- bundled smoke boot from `out.js` (`WA2DC_SMOKE_TEST=1`)
-- packaged binary build + smoke (`npm run build:bin:smoke`)
+## Documentation checks
+
+`tests/docs.test.js` imports the named `slashCommands` registration metadata and verifies that:
+
+- every registered command appears exactly once in `docs/commands.md`
+- every section has one normalized usage line
+- documented option names/order match registration
+- relative Markdown links and image targets resolve
+- all historical setup JPGs remain embedded
+
+Keep these checks dependency-free and network-free. External links are verified manually against authoritative sources to avoid flaky CI.
 
 ## Packaging model
 
-Release pipeline builds packaged binaries from a pkg-safe CJS runtime bundle:
+- `npm run bundle` bundles `src/runner.js` to ESM `out.js` for Node smoke checks.
+- `npm run bundle:pkg` bundles the same entry to pkg-safe CJS `out.cjs`; avoid base64 data-URL bootstraps that inflate packaged stacks and startup heap.
+- `@yao-pkg/pkg` is pinned by the build scripts/workflow and packages `out.cjs` with `--no-bytecode`.
+- Builds stage `build/runtime/` for `sharp`, `canvas`, `jsdom`, and `lottie-web`.
+- Release automation publishes a signed `${binary}.runtime.tar.gz` for every packaged binary.
+- Packaged startup may download and verify the matching sidecar when `runtime/` is missing or unusable.
+- `/update` and rollback must treat the executable and runtime sidecar as one versioned unit.
+- `process.pkg` is the supported packaged/source runtime distinction.
 
-- esbuild bundles `src/runner.js` to `out.js` (ESM) for Node smoke checks
-- esbuild also bundles `src/runner.js` directly to `out.cjs` (CJS) for pkg; avoid base64 `data:` URL bootstraps because they inflate packaged stack/source strings and startup heap
-- pinned `@yao-pkg/pkg` produces platform binaries from `out.cjs` with `--no-bytecode`
-- packaged builds also stage `build/runtime/` as a sidecar for runtime-only media dependencies (`sharp`, `canvas`, `jsdom`, `lottie-web`) so native image normalization and Discord sticker rendering remain available in packaged runtimes
-- release builds publish a signed `${binary}.runtime.tar.gz` archive for each packaged binary so `/update` can refresh the sidecar automatically
-- packaged startup may download that signed runtime archive on demand when a packaged install is missing `runtime/`
-- runtime may branch on `process.pkg` for packaged-vs-source behavior
-- WhatsApp socket startup prefers `fetchLatestWaWebVersion()` so fresh pairing uses WhatsApp's current web client revision, then falls back to `fetchLatestBaileysVersion()` when the live lookup is unavailable (see [Baileys issue #2679](https://github.com/WhiskeySockets/Baileys/issues/2679))
-- `postinstall` patches Baileys rc13 for the Android browser profile, disabled-history startup buffering, inbound delivered receipts while unavailable, pre-auth notification ACKs during pairing, incomplete link-code pairing notifications, LID migration probes, and bounded tctoken pruning; release builds must run after that patch has been applied
-- WhatsApp may send an empty `link_code_companion_reg` notice before the complete pairing payload; the patch checks all three required cryptographic fields before decoding, ACKs and skips incomplete notices, and logs only missing field names, stage, and child tags (see [Baileys issue #2600](https://github.com/WhiskeySockets/Baileys/issues/2600))
+## Baileys compatibility
 
-## Packaging-safe dependency rules
+The repository pins a Baileys release and patches it during `postinstall`. Release builds must run after the patch succeeds. Tests must cover each source replacement marker so an upstream package change fails installation visibly rather than producing a partially patched runtime.
 
-When adding/changing dependencies, verify:
+The current patch set covers:
 
-- esbuild can bundle the runtime entry successfully
-- ESM-only dependencies and packages that use top-level `await` must be verified against the pkg CJS bundle path
-- pkg can resolve/load any runtime assets
-- dynamic fs/native addon behavior is explicitly handled when required
-- packaged releases keep the executable and `runtime/` sidecar together; moving the binary without its sidecar can disable native modules such as `sharp` or the Discord sticker renderer stack
-- packaged self-update must refresh both the executable and the matching signed runtime sidecar archive, and rollback paths must restore both artifacts together
+- Android browser-profile support
+- disabled-history startup buffering and receipt behavior while unavailable
+- pre-auth notification acknowledgements and incomplete link-code pairing notices
+- LID migration probes
+- bounded tctoken indexing/pruning
 
-Generated artifacts (`out.js`, `out.cjs`, `build/`) should not be manually edited.
+Fresh pairing prefers `fetchLatestWaWebVersion()` and falls back to `fetchLatestBaileysVersion()`. Keep the associated pairing regression tests and upstream issue references current when the pinned Baileys version changes.
+
+## Dependency and artifact rules
+
+When changing dependencies, verify ESM bundle, pkg CJS bundle, native/dynamic assets, and sidecar install/update/rollback paths. Packages with top-level `await`, runtime filesystem lookup, or native addons require explicit packaged verification.
+
+Generated `out.js`, `out.cjs`, and `build/` artifacts must not be edited or committed manually.

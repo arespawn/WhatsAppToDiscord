@@ -1,72 +1,74 @@
 # Bridge Constraints
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-05-07
-> Scope: Message-routing and identity constraints that prevent regressions.
+> Last reviewed: 2026-07-17
+> Scope: Routing, identity, anti-loop, thread/newsletter, and transport constraints that prevent regressions.
 
-## Echo-loop prevention
+## Echo-loop and message tracking
 
-Bridge bounce protection relies on state trackers:
+Mirrored events must not bounce indefinitely between transports. Preserve and extend the relevant trackers when adding event types:
 
 - `state.sentMessages`
 - `state.sentReactions`
 - `state.sentPins`
+- bidirectional recent-message mappings in `state.lastMessages`
+- TTL message payloads in `src/messageStore.js`
 
-When adding new mirrored events, extend loop-prevention tracking accordingly.
+Newsletter pending-send/server-ID correlation has separate bounded state in `src/newsletterBridge.js`; do not substitute ordinary Baileys outbound IDs where WhatsApp requires a newsletter `server_id`.
 
-## JID/LID migration hygiene
+## WhatsApp identity
 
-WhatsApp identifiers may be PN-based JIDs or LID-based JIDs.
-Use shared helpers instead of assumptions:
+WhatsApp contacts may be represented by PN JIDs, LIDs, or discovered PN↔LID pairs. Use shared helpers such as:
 
 - `utils.whatsapp.formatJid(...)`
 - `utils.whatsapp.hydrateJidPair(...)`
 - `utils.whatsapp.migrateLegacyJid(...)`
 
-Do not hardcode behavior to `@s.whatsapp.net` or `@lid` only.
-
-## Discord platform limits
-
-Respect transport constraints when emitting output:
-
-- 2000-character message limit
-- use `utils.discord.partitionText(...)` for long responses
-- only enable Discord `@everyone` parsing for WhatsApp `@all` messages when WhatsApp includes mention-all metadata (`contextInfo.nonJidMentions`)
-- only set WhatsApp `mentionAll` for Discord `@everyone` / `@here` when Discord includes real everyone-mention metadata and the target is a WhatsApp group chat
-- respect file-size gating (for example `DiscordFileSizeLimit`)
-- keep WhatsApp-backed Discord attachment uploads bounded during media bursts; honor `state.settings.WhatsAppDiscordMediaBurstSize` and do not exceed Discord's 10-file upload limit
-- treat transient Discord upload transport failures from both Undici and Node HTTP/2 stream errors as retryable so WhatsApp-backed media bursts can recover or emit a fallback notice instead of dropping silently
-- preserve Discord -> WhatsApp attachment delivery for unsupported static image formats by normalizing them to WhatsApp-safe image payloads when possible, and fall back to document delivery instead of dropping the message when normalization fails
-- precompute outbound `jpegThumbnail` data for Discord -> WhatsApp image sends when possible so packaged Baileys builds do not need to discover image tooling at send time
-- when a Discord message contains multiple album-eligible image/video attachments for a normal WhatsApp chat, prefer relaying them as a WhatsApp media album instead of separate standalone sends; keep mixed/unsupported attachment sets on the sequential fallback path
-- preserve WhatsApp ephemeral-media intent where Discord allows it: WhatsApp view-once media should be uploaded to Discord as spoiler attachments
-- do not flatten or duplicate animated Discord media just to satisfy static image normalization paths; when Discord exposes both a GIF file entry and its preview video for the same upload, prefer a single animated send candidate
-- when Discord GIF providers (for example Tenor/Giphy) expose extensionless video URLs plus static preview thumbnails, infer the animated video send from the provider embed and suppress the duplicate preview image
-- when WhatsApp exposes GIFs as `videoMessage` payloads with `gifPlayback`, prefer transcoding them into real Discord GIF attachments when runtime tooling (`ffmpeg`) is available; if transcoding is unavailable or fails, fall back to the original video attachment instead of dropping media
-- keep WhatsApp audio mirroring in the original format by default; only convert WhatsApp audio to MP3 when `WhatsAppAudioConversionFormat` is `mp3`, and fall back to the original attachment if `ffmpeg` is unavailable or conversion fails
-- prefer the sticker asset URL exposed by Discord over reconstructing sticker CDN/proxy URLs locally; convert Discord sticker assets into WhatsApp sticker payloads when possible, including animated Lottie stickers via the dedicated renderer path
-- keep Discord -> WhatsApp bare-URL normalization narrow enough that plain email addresses are forwarded unchanged instead of being rewritten into malformed `https://.../@domain` text
+Do not hardcode a contact as exclusively `@s.whatsapp.net` or `@lid`. Identity-aware behavior includes chat links, whitelists, mention links, sender tracking, contact naming, and quoted-message attribution.
 
 ## Routing gates
 
-Routing may be restricted by deployment settings. Message-flow changes must preserve:
+Every new message/event flow must preserve:
 
-- `state.settings.oneWay` (`bidirectional`, `to-discord`, or `to-whatsapp`)
-- whitelist checks via `state.settings.Whitelist`
-- helper checks via `utils.whatsapp.inWhitelist(...)`
-- broadcast delivery mode for WhatsApp `@broadcast` chats (`sendMessage(..., ..., { broadcast: true })`
-  on Discord -> WhatsApp sends)
-- newsletter delivery mode for WhatsApp `@newsletter` chats:
-  outbound sends should use standard `sendMessage(...)` payloads like DMs/groups where possible.
-  image/video attachments should follow `state.settings.NewsletterMediaUrlFallback`:
-  when enabled, send them as plain URLs (no WhatsApp media payload) as a temporary workaround until upstream Baileys newsletter media posting is fixed.
-  when disabled (default), do not send image/video attachments; emit an in-channel explanation.
-  non-image/video attachments should be skipped with a user-facing notice and WhatsApp FAQ link (`https://faq.whatsapp.com/549900560675125`).
-  newsletter edit/delete from Discord are intentionally not dispatched to WhatsApp; emit a Discord reminder to perform edit/delete in the WhatsApp phone app instead.
-  consume raw newsletter `live_updates` notifications (when present) to map pending outbound IDs to `server_id` values as early as possible for supported flows.
-  reactions should use `newsletterReactMessage(jid, serverId, reaction?)` when available.
-  Poll sends to newsletters should still try interactive payload first, then fall back to text on send or ack rejection (commonly ack error `479`).
-  Mirror incoming WhatsApp newsletter reactions via `newsletter.reaction` and/or raw `live_updates` notifications, keyed by `server_id`.
+- `state.settings.oneWay`: `bidirectional`, `to-discord`, or `to-whatsapp`
+- whitelist checks through `state.settings.Whitelist` and `utils.whatsapp.inWhitelist(...)`
+- sent-event tracking before mirrored events can be observed on the opposite transport
+- `broadcast: true` for Discord-to-WhatsApp `@broadcast` sends
+- the resolved Discord thread target ID while retaining the parent webhook host channel ID
 
-When Discord links target forum threads instead of plain channels, resolve routing through the thread target ID while preserving the parent webhook host channel ID for webhook operations and recovery.
-Managed forum host discovery is scoped by the configured host name and the Discord bot owner marker in the forum topic so separate WA2DC bot users do not silently share the same default thread host.
+Managed forum hosts are selected by configured name and a bot-owner marker in the forum topic. Separate WA2DC bot users must not silently share a managed host. Only forum threads are supported bridge thread targets; raw threads under text channels are rejected.
+
+## Mentions and Discord limits
+
+- Partition long Discord output with `utils.discord.partitionText(...)`; Discord messages are limited to 2,000 characters.
+- Enable Discord `@everyone` parsing for WhatsApp `@all` only when WhatsApp includes mention-all metadata.
+- Send WhatsApp `mentionAll` for Discord `@everyone`/`@here` only when Discord includes real everyone-mention metadata and the target is a WhatsApp group.
+- Translate individual mentions only from real platform mention metadata; do not interpret arbitrary typed `@name` text.
+- Respect `DiscordFileSizeLimit` and local-download fallback behavior.
+
+## Media delivery
+
+- Bound WhatsApp-to-Discord attachment batches with `WhatsAppDiscordMediaBurstSize`; never exceed Discord's 10-file upload limit.
+- Retry transient Discord upload failures from Undici and Node HTTP/2 streams, then emit a fallback notice instead of silently dropping media.
+- Normalize unsupported static Discord images when possible, fall back to WhatsApp document delivery on failure, and precompute outbound JPEG thumbnails when tooling is available.
+- Send album-eligible image/video sets to ordinary WhatsApp chats as media albums; keep mixed or unsupported sets on the sequential fallback path.
+- Mirror WhatsApp view-once media as Discord spoiler attachments.
+- Deduplicate Discord animated uploads/provider embeds and prefer the true animated candidate over static previews.
+- Convert WhatsApp `gifPlayback` video to a Discord GIF when `ffmpeg` is available; preserve the original video on failure.
+- Preserve WhatsApp audio by default. Convert to MP3 only when configured and fall back to the original attachment.
+- Prefer Discord's sticker asset URL. Convert static and animated stickers through the dedicated renderer when available.
+- Keep Discord-to-WhatsApp bare-URL normalization narrow enough that email addresses remain unchanged.
+
+## Newsletters
+
+Treat newsletters as standard `sendMessage(...)` destinations where supported, with these exceptions:
+
+- Image/video attachments follow `NewsletterMediaUrlFallback`: send plain URLs when enabled; otherwise skip and explain the limitation.
+- Other attachment types are skipped with a user-facing notice and the [WhatsApp newsletter-media guidance link](https://faq.whatsapp.com/549900560675125/).
+- Discord-originated newsletter edit/delete is not dispatched; remind the user to perform it in the phone app.
+- Pending outbound IDs are correlated with raw `live_updates` `server_id` values as early as possible.
+- Reactions use `newsletterReactMessage(jid, serverId, reaction?)` when available.
+- Newsletter polls try the interactive payload first and fall back to text after send failure or acknowledgement rejection.
+- Incoming reactions may arrive through `newsletter.reaction`, raw `live_updates`, or both; correlate by `server_id` and deduplicate.
+
+Keep newsletter ack, pending-send, and debug state bounded by TTL and per-message/per-JID limits.

@@ -1,38 +1,48 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
-    <loc>https://arespawn.github.io/WhatsAppToDiscord/</loc>
+    <loc>https://arespawn.com/</loc>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://arespawn.github.io/WhatsAppToDiscord/README.md</loc>
+    <loc>https://arespawn.com/README.md</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://arespawn.github.io/WhatsAppToDiscord/setup.md</loc>
+    <loc>https://arespawn.com/setup.md</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://arespawn.com/configuration.md</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.9</priority>
+  </url>
+  <url>
+    <loc>https://arespawn.com/commands.md</loc>
     <changefreq>weekly</changefreq>
     <priority>0.9</priority>
   </url>
   <url>
-    <loc>https://arespawn.github.io/WhatsAppToDiscord/commands.md</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.9</priority>
-  </url>
-  <url>
-    <loc>https://arespawn.github.io/WhatsAppToDiscord/faq.md</loc>
-    <changefreq>weekly</changefreq>
+    <loc>https://arespawn.com/faq.md</loc>
+    <changefreq>monthly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
-    <loc>https://arespawn.github.io/WhatsAppToDiscord/sponsor.md</loc>
+    <loc>https://arespawn.com/install-scripts.md</loc>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://arespawn.github.io/WhatsAppToDiscord/privacypolicy.txt</loc>
+    <loc>https://arespawn.com/sponsor.md</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
+    <loc>https://arespawn.com/privacypolicy.txt</loc>
     <changefreq>yearly</changefreq>
-    <priority>0.4</priority>
+    <priority>0.5</priority>
   </url>
 </urlset>

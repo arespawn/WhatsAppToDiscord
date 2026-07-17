@@ -4,49 +4,50 @@
   <img src="docs/_media/logo.png" alt="WA2DC logo" width="180" />
 </p>
 
-[![Latest release](https://img.shields.io/github/v/release/arespawn/WhatsAppToDiscord?display_name=tag&sort=semver&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/releases/latest) [![Total downloads](https://img.shields.io/github/downloads/arespawn/WhatsAppToDiscord/total?logo=github)](https://github.com/arespawn/WhatsAppToDiscord/releases) [![License](https://img.shields.io/github/license/arespawn/WhatsAppToDiscord)](LICENSE.txt) [![Tests](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/ci-tests.yml?label=tests&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/ci-tests.yml) [![Lint](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/lint.yml?label=lint&logo=biome)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/lint.yml) [![Docker images](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/docker-publish.yml?label=docker&logo=docker)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/docker-publish.yml) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?logo=github)](https://github.com/arespawn/WhatsAppToDiscord/pulls)
+[![Latest release](https://img.shields.io/github/v/release/arespawn/WhatsAppToDiscord?display_name=tag&sort=semver&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/releases/latest) [![Total downloads](https://img.shields.io/github/downloads/arespawn/WhatsAppToDiscord/total?logo=github)](https://github.com/arespawn/WhatsAppToDiscord/releases) [![License](https://img.shields.io/github/license/arespawn/WhatsAppToDiscord)](LICENSE.txt) [![Tests](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/ci-tests.yml?label=tests&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/ci-tests.yml) [![Lint](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/lint.yml?label=lint&logo=biome)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/lint.yml) [![Docker images](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/docker-publish.yml?label=docker&logo=docker)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/docker-publish.yml)
 
-WhatsAppToDiscord (WA2DC) is a self-hosted bridge that mirrors WhatsApp chats into Discord using WhatsApp Web (via [Baileys](https://github.com/WhiskeySockets/Baileys)) and a Discord bot (via [discord.js](https://github.com/discordjs/discord.js)).
+WhatsAppToDiscord (WA2DC) is a self-hosted bridge that mirrors WhatsApp chats into Discord through [Baileys](https://github.com/WhiskeySockets/Baileys) and [discord.js](https://github.com/discordjs/discord.js).
 
-Originally created by [Fatih Kilic](https://github.com/FKLC), the project is now maintained by [arespawn](https://github.com/arespawn) with the blessing of the previous author.
+Start with the documentation at [arespawn.com](https://arespawn.com/):
 
-> [!IMPORTANT]
-> The documentation website is the best place to start (setup, commands, configuration, troubleshooting): https://arespawn.github.io/WhatsAppToDiscord/
-
-## Requirements
-
-- Node.js 24 or higher
-
-## Installer scripts
-
-For source installs/updates with automatic dependency setup:
-
-- Linux/macOS: `./install_script.sh`
-- Windows PowerShell: `.\install_script.ps1`
-
-Detailed options and platform notes are documented in [`docs/install-scripts.md`](docs/install-scripts.md).
+- [Setup](https://arespawn.com/#/setup)
+- [Configuration](https://arespawn.com/#/configuration)
+- [Slash commands](https://arespawn.com/#/commands)
+- [Troubleshooting](https://arespawn.com/#/faq)
 
 ## Highlights
 
-- Mirrors messages, media, reactions, and edits between WhatsApp and Discord
-- Lets you whitelist which chats appear in Discord
-- Bridges WhatsApp polls into Discord (creation and live updates; voting stays in WhatsApp due to API limits)
-- Self-hosted: runs on your own machine/server
+- Bidirectional message, media, reaction, edit, delete, poll, and pin bridging
+- Whitelist and one-way routing controls
+- Discord channels or forum threads for WhatsApp conversations
+- PN/LID-aware WhatsApp identity handling
+- Newsletter and broadcast support
+- Packaged binaries, Docker images, and Node.js source installs
 
-## Security notes
+## Installation choices
 
-- WA2DC intentionally relies on Discord permissions for access control. Keep the control channel private and restrict who can use bot commands using Discord role/channel permissions.
+- **Packaged binary:** download a signed release asset from [GitHub Releases](https://github.com/arespawn/WhatsAppToDiscord/releases/latest).
+- **Docker:** copy `.env.example` to `.env`, set `WA2DC_TOKEN`, then run `docker compose up -d`.
+- **Source:** install Node.js 24 or newer, run `npm ci`, then `npm start`. The [installer scripts](docs/install-scripts.md) can automate this path.
 
-## Persistence
+## Data and security
 
-- WA2DC stores app state and WhatsApp auth keys in `storage/wa2dc.sqlite` (embedded SQLite, no external database service required).
-- Legacy flat-file storage is no longer migrated at startup; keep or restore `storage/wa2dc.sqlite` when moving installs.
-- Optional payload encryption-at-rest is available through `WA2DC_DB_PASSPHRASE` (set it before first DB creation).
-- If the DB is encrypted and `WA2DC_DB_PASSPHRASE` is missing or wrong, WA2DC exits during startup instead of running with invalid auth state.
+WA2DC runs on your host, but bridging necessarily sends messages and media through WhatsApp and Discord. It stores app state and WhatsApp authentication in `storage/wa2dc.sqlite`; optional payload encryption is available through `WA2DC_DB_PASSPHRASE` when the database is first created.
+
+Keep the Discord control channel private, restrict bridged channels with Discord permissions, protect `.env` and `storage/`, and never share tokens, QR codes, session data, logs, or database copies. See [Privacy and Data Handling](docs/privacypolicy.txt) and [Security Policy](SECURITY.md).
+
+## Development
+
+```bash
+npm ci
+npm run check
+npm test
+WA2DC_SMOKE_TEST=1 node src/index.js
+```
+
+Contributor guidance starts in [AGENTS.md](AGENTS.md) and [docs/dev/](docs/dev/README.md).
 
 ## Disclaimer
 
 > [!CAUTION]
-> This project is not affiliated, associated, authorized, endorsed by, or in any way officially connected with WhatsApp or any of its subsidiaries or its affiliates. The official WhatsApp website can be found at whatsapp.com. "WhatsApp" as well as related names, marks, emblems and images are registered trademarks of their respective owners.
->
-> The maintainers do not in any way condone the use of this application in practices that violate the Terms of Service of WhatsApp. The maintainers of this application call upon the personal responsibility of its users to use this application in a fair way, as it is intended to be used. Use at your own discretion. Do not spam people with this. We discourage any stalkerware, bulk or automated messaging usage.
+> WA2DC is not affiliated with or endorsed by WhatsApp or Discord. It uses unofficial WhatsApp Web integration and may be affected by upstream protocol changes or account restrictions. Use it responsibly; do not use it for spam, stalkerware, bulk messaging, or activity that violates platform terms.

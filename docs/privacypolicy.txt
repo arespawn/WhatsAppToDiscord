@@ -1,5 +1,33 @@
-# Privacy Policy
+# Privacy and Data Handling
 
-WA2DC does not collect any personal data from its users.
+WA2DC is self-hosted software. The project maintainers do not operate your bridge and WA2DC does not include maintainer-controlled analytics or telemetry. The operator of each installation controls its local data and Discord/WhatsApp connections.
 
-WA2DC is hosted on GitHub Pages, and as such, GitHub may collect usage data as described in the GitHub Privacy Statement.
+## Data processed by a WA2DC installation
+
+Depending on enabled features, the installation can process or store:
+
+- Discord bot tokens and server/channel identifiers
+- WhatsApp authentication credentials, keys, JIDs/LIDs, contact names, and group metadata
+- Chat/webhook links, message-ID mappings, settings, and TTL message-cache entries
+- Mirrored message text, attachments, reactions, polls, pins, edits, and deletes while forwarding them
+- Locally downloaded media and signed download-link metadata
+- Structured and terminal logs, including operational identifiers and failure details
+- Crash reports and packaged update/rollback artifacts
+
+Persistent app and WhatsApp authentication state is stored in `storage/wa2dc.sqlite`. Optional `WA2DC_DB_PASSPHRASE` encryption protects stored payload columns at rest when enabled before database creation; it does not protect data while WA2DC is running or being transmitted.
+
+## External services
+
+Bridging necessarily sends data through WhatsApp and Discord according to their services and privacy terms. WA2DC may also:
+
+- Fetch public URLs and thumbnails from the WA2DC host to create link previews
+- Contact GitHub to check for releases and download signed packaged updates/runtime sidecars
+- Serve locally downloaded files over the optional operator-configured download server
+
+The documentation site is hosted through GitHub Pages and loads Docsify assets from jsDelivr. Those providers may process access data under their own privacy policies.
+
+## Operator responsibilities
+
+Operators should restrict Discord access, protect `.env`, databases, logs, downloads, backups, and rollback files, and avoid exposing the local download server without suitable network controls. Before bridging conversations involving other people, consider their expectations, applicable law, and the policies of WhatsApp and Discord.
+
+Deleting a local WA2DC installation does not delete copies already delivered to WhatsApp, Discord, recipients, backups, or external logs controlled by those services or users.

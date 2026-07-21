@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isRecoverableUnhandledRejection } from "../src/processErrors.js";
+import {
+	isRecoverableUndiciError,
+	shouldIgnoreProcessError,
+} from "../src/processErrors.js";
 
 test("classifies undici terminated socket close as recoverable", () => {
 	const socketError = new Error("other side closed");
@@ -12,7 +15,10 @@ test("classifies undici terminated socket close as recoverable", () => {
 	reason.stack =
 		"TypeError: terminated\n    at Fetch.onAborted (node:internal/deps/undici/undici:12707:53)";
 
-	assert.equal(isRecoverableUnhandledRejection(reason), true);
+	assert.equal(isRecoverableUndiciError(reason), true);
+	assert.equal(shouldIgnoreProcessError("unhandledRejection", reason), true);
+	assert.equal(shouldIgnoreProcessError("uncaughtException", reason), true);
+	assert.equal(shouldIgnoreProcessError("SIGTERM", reason), false);
 });
 
 test("classifies undici TLS fetch failures as recoverable", () => {
@@ -24,7 +30,16 @@ test("classifies undici TLS fetch failures as recoverable", () => {
 	reason.stack =
 		"TypeError: fetch failed\n    at node:internal/deps/undici/undici:16416:13";
 
-	assert.equal(isRecoverableUnhandledRejection(reason), true);
+	assert.equal(isRecoverableUndiciError(reason), true);
+});
+
+test("does not classify application errors named terminated as recoverable", () => {
+	const reason = new TypeError("terminated");
+	reason.stack =
+		"TypeError: terminated\n    at file:///app/src/handler.js:10:5";
+
+	assert.equal(isRecoverableUndiciError(reason), false);
+	assert.equal(shouldIgnoreProcessError("uncaughtException", reason), false);
 });
 
 test("does not classify generic coding errors as recoverable", () => {
@@ -34,5 +49,5 @@ test("does not classify generic coding errors as recoverable", () => {
 	reason.stack =
 		"TypeError: Cannot read properties of undefined (reading 'x')\n    at file:///app/src/handler.js:10:5";
 
-	assert.equal(isRecoverableUnhandledRejection(reason), false);
+	assert.equal(isRecoverableUndiciError(reason), false);
 });

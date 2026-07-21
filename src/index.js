@@ -7,7 +7,7 @@ import pretty from "pino-pretty";
 import packageInfo from "../package.json" with { type: "json" };
 import discordHandler from "./discordHandler.js";
 import { resolveLogLevel } from "./logLevel.js";
-import { isRecoverableUnhandledRejection } from "./processErrors.js";
+import { shouldIgnoreProcessError } from "./processErrors.js";
 import {
 	buildProcessExitReportContent,
 	getProcessExitCode,
@@ -69,11 +69,11 @@ suppressSecretBearingDependencyConsoleLogs();
 	["SIGINT", "SIGTERM", "uncaughtException", "unhandledRejection"].forEach(
 		(eventName) => {
 			process.on(eventName, async (err) => {
-				if (
-					eventName === "unhandledRejection" &&
-					isRecoverableUnhandledRejection(err)
-				) {
-					state.logger.warn({ err }, "Ignoring recoverable network rejection");
+				if (shouldIgnoreProcessError(eventName, err)) {
+					state.logger.warn(
+						{ err, eventName },
+						"Ignoring recoverable Undici network error",
+					);
 					return;
 				}
 				if (shuttingDown) {

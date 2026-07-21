@@ -508,6 +508,14 @@ const readBodyWithLimit = async (body, maxBytes) => {
 	return Buffer.concat(chunks, total);
 };
 
+const discardResponseBody = async (response) => {
+	try {
+		await response?.body?.cancel();
+	} catch (err) {
+		void err;
+	}
+};
+
 const validatePreviewTargetUrl = (candidate = "") => {
 	let url;
 	try {
@@ -560,6 +568,7 @@ const fetchPreviewResponse = async (
 			const status = Number(response.status) || 0;
 			if (status >= 300 && status < 400) {
 				const locationHeader = response.headers.get("location") || "";
+				await discardResponseBody(response);
 				if (!locationHeader) {
 					throw new Error("Redirect without location");
 				}
@@ -576,6 +585,7 @@ const fetchPreviewResponse = async (
 			}
 
 			if (status < 200 || status >= 300) {
+				await discardResponseBody(response);
 				throw new Error(`Unexpected status ${status}`);
 			}
 
@@ -586,6 +596,7 @@ const fetchPreviewResponse = async (
 
 			const contentLength = Number(headers["content-length"]);
 			if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+				await discardResponseBody(response);
 				const err = new Error("Response too large");
 				err.code = "WA2DC_PREVIEW_TOO_LARGE";
 				throw err;
@@ -600,6 +611,8 @@ const fetchPreviewResponse = async (
 			if (treatAsText) {
 				const buffer = await readBodyWithLimit(response.body, maxBytes);
 				data = buffer.toString("utf8");
+			} else {
+				await discardResponseBody(response);
 			}
 
 			return {
@@ -649,6 +662,7 @@ const fetchPreviewBuffer = async (
 			const status = Number(response.status) || 0;
 			if (status >= 300 && status < 400) {
 				const locationHeader = response.headers.get("location") || "";
+				await discardResponseBody(response);
 				if (!locationHeader) {
 					throw new Error("Redirect without location");
 				}
@@ -661,6 +675,7 @@ const fetchPreviewBuffer = async (
 			}
 
 			if (status < 200 || status >= 300) {
+				await discardResponseBody(response);
 				throw new Error(`Unexpected status ${status}`);
 			}
 
@@ -671,6 +686,7 @@ const fetchPreviewBuffer = async (
 
 			const contentLength = Number(headers["content-length"]);
 			if (Number.isFinite(contentLength) && contentLength > maxBytes) {
+				await discardResponseBody(response);
 				const err = new Error("Response too large");
 				err.code = "WA2DC_PREVIEW_TOO_LARGE";
 				throw err;

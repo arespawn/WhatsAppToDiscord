@@ -1,4 +1,8 @@
 const MAX_ERROR_CAUSE_DEPTH = 6;
+const RECOVERABLE_PROCESS_EVENTS = new Set([
+	"uncaughtException",
+	"unhandledRejection",
+]);
 const RECOVERABLE_NETWORK_MESSAGE_HINTS = [
 	"terminated",
 	"fetch failed",
@@ -42,7 +46,7 @@ const collectErrorChain = (reason) => {
 const includesHint = (text, hints) =>
 	hints.some((hint) => text.includes(asLower(hint)));
 
-export const isRecoverableUnhandledRejection = (reason) => {
+export const isRecoverableUndiciError = (reason) => {
 	const chain = collectErrorChain(reason);
 	if (!chain.length) {
 		return false;
@@ -59,9 +63,7 @@ export const isRecoverableUnhandledRejection = (reason) => {
 	const looksLikeUndici =
 		stackText.includes("node:internal/deps/undici/undici") ||
 		stackText.includes("/undici/") ||
-		codeText.includes("und_err") ||
-		messageText.includes("fetch failed") ||
-		messageText.includes("terminated");
+		codeText.includes("und_err");
 	if (!looksLikeUndici) {
 		return false;
 	}
@@ -71,3 +73,6 @@ export const isRecoverableUnhandledRejection = (reason) => {
 		includesHint(codeText, RECOVERABLE_NETWORK_CODE_HINTS)
 	);
 };
+
+export const shouldIgnoreProcessError = (eventName, reason) =>
+	RECOVERABLE_PROCESS_EVENTS.has(eventName) && isRecoverableUndiciError(reason);

@@ -57,7 +57,7 @@ Transports and normalization:
 - `src/pollUtils.js`: WhatsApp poll option and encryption-key extraction
 - `src/internal/`: sticker, image, GIF, and audio send/receive normalization
 - `src/utils.js`: transport helpers, mentions, link previews, download server, updater, file delivery, and JID migration helpers
-- `src/processErrors.js` / `src/processExitReporting.js`: recoverable process errors and bounded exit/crash content
+- `src/processErrors.js` / `src/processExitReporting.js`: tightly identified Undici transport failures remain non-fatal across both process error events; other failures retain bounded exit/crash reporting
 
 ## Developer commands
 

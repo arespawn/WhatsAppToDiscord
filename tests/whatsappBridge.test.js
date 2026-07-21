@@ -1344,6 +1344,68 @@ test("Discord to WhatsApp sends include broadcast mode for broadcast chats", asy
 	}
 });
 
+test("Discord link preview failure sends the link and later previews still work", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
+	try {
+		let previewCalls = 0;
+		utils.whatsapp.generateLinkPreview = async () => {
+			previewCalls += 1;
+			if (previewCalls === 1) {
+				throw new TypeError("terminated");
+			}
+			return { title: "Working preview" };
+		};
+		const emitDiscordMessage = (id, content) =>
+			harness.fakeClient.ev.emit("discordMessage", {
+				jid: "15550002222@s.whatsapp.net",
+				message: {
+					id,
+					content,
+					cleanContent: content,
+					webhookId: null,
+					author: { username: "BridgeUser" },
+					member: { displayName: "BridgeUser" },
+					channel: { send: async () => {} },
+					attachments: new Map(),
+					stickers: new Map(),
+					embeds: [],
+					mentions: {
+						users: new Map(),
+						members: new Map(),
+						roles: new Map(),
+					},
+				},
+			});
+
+		emitDiscordMessage("dc-preview-failed", "https://example.com/first");
+		assert.equal(
+			await waitFor(() => harness.fakeClient.sendCalls.length === 1),
+			true,
+		);
+		emitDiscordMessage("dc-preview-recovered", "https://example.com/second");
+		assert.equal(
+			await waitFor(() => harness.fakeClient.sendCalls.length === 2),
+			true,
+		);
+
+		assert.equal(
+			harness.fakeClient.sendCalls[0]?.content?.text,
+			"https://example.com/first",
+		);
+		assert.equal(
+			harness.fakeClient.sendCalls[0]?.content?.linkPreview,
+			undefined,
+		);
+		assert.equal(
+			harness.fakeClient.sendCalls[1]?.content?.linkPreview?.title,
+			"Working preview",
+		);
+		assert.equal(previewCalls, 2);
+	} finally {
+		harness.cleanup();
+	}
+});
+
 test("Discord raw user and role mentions are converted before forwarding to WhatsApp", async () => {
 	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {

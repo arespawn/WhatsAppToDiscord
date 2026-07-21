@@ -65,15 +65,17 @@ test("Link preview blocks redirects to a different host (e.g., private)", async 
 	const originalFetch = global.fetch;
 	const logger = createLogger();
 	let fetchCalls = 0;
+	let response;
 
 	global.fetch = async () => {
 		fetchCalls += 1;
-		return new Response("", {
+		response = new Response("redirect body", {
 			status: 302,
 			headers: {
 				location: "http://127.0.0.1/private",
 			},
 		});
+		return response;
 	};
 
 	try {
@@ -83,6 +85,7 @@ test("Link preview blocks redirects to a different host (e.g., private)", async 
 		);
 		assert.equal(result, undefined);
 		assert.equal(fetchCalls, 1);
+		assert.equal(response.bodyUsed, true);
 		assert.ok(logger.calls.length >= 1);
 		assert.match(
 			logger.calls[0].payload?.err?.message || "",
@@ -97,16 +100,18 @@ test("Link preview enforces a maximum response size", async () => {
 	const originalFetch = global.fetch;
 	const logger = createLogger();
 	let fetchCalls = 0;
+	let response;
 
 	global.fetch = async () => {
 		fetchCalls += 1;
-		return new Response("", {
+		response = new Response("oversized body", {
 			status: 200,
 			headers: {
 				"content-length": String(1024 * 1024 + 1),
 				"content-type": "text/html",
 			},
 		});
+		return response;
 	};
 
 	try {
@@ -116,8 +121,111 @@ test("Link preview enforces a maximum response size", async () => {
 		);
 		assert.equal(result, undefined);
 		assert.equal(fetchCalls, 1);
+		assert.equal(response.bodyUsed, true);
 		assert.ok(logger.calls.length >= 1);
 		assert.equal(logger.calls[0].payload?.err?.code, "WA2DC_PREVIEW_TOO_LARGE");
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test("Link preview discards unused error and non-text response bodies", async () => {
+	const originalFetch = global.fetch;
+	const logger = createLogger();
+	const errorResponse = new Response("server error", { status: 503 });
+	const nonTextResponse = new Response("binary body", {
+		status: 200,
+		headers: { "content-type": "application/octet-stream" },
+	});
+	const responses = [errorResponse, nonTextResponse];
+	global.fetch = async () => responses.shift();
+
+	try {
+		assert.equal(
+			await utils.discord.generateLinkPreview("https://example.com/error", {
+				logger,
+			}),
+			undefined,
+		);
+		assert.equal(responses.length, 1);
+		const nonTextResult = await utils.discord.generateLinkPreview(
+			"https://example.com/binary",
+			{
+				logger,
+			},
+		);
+
+		assert.equal(responses.length, 0);
+		assert.equal(
+			nonTextResult?.["canonical-url"],
+			"https://example.com/binary",
+		);
+		assert.equal(errorResponse.bodyUsed, true);
+		assert.equal(nonTextResponse.bodyUsed, true);
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test("A failed link preview does not disable later previews", async () => {
+	const originalFetch = global.fetch;
+	const logger = createLogger();
+	let fetchCalls = 0;
+	global.fetch = async () => {
+		fetchCalls += 1;
+		if (fetchCalls === 1) {
+			const socketError = new Error("other side closed");
+			socketError.code = "UND_ERR_SOCKET";
+			throw new TypeError("terminated", { cause: socketError });
+		}
+		return new Response(
+			"<html><head><title>Working preview</title></head></html>",
+			{ headers: { "content-type": "text/html" } },
+		);
+	};
+
+	try {
+		const failed = await utils.discord.generateLinkPreview(
+			"https://example.com/first",
+			{ logger },
+		);
+		const recovered = await utils.discord.generateLinkPreview(
+			"https://example.com/second",
+			{ logger },
+		);
+
+		assert.equal(failed, undefined);
+		assert.equal(recovered?.title, "Working preview");
+		assert.equal(fetchCalls, 2);
+	} finally {
+		global.fetch = originalFetch;
+	}
+});
+
+test("An interrupted link preview body fails locally", async () => {
+	const originalFetch = global.fetch;
+	const logger = createLogger();
+	const socketError = new Error("other side closed");
+	socketError.code = "UND_ERR_SOCKET";
+	const terminated = new TypeError("terminated", { cause: socketError });
+	global.fetch = async () =>
+		new Response(
+			new ReadableStream({
+				pull(controller) {
+					controller.error(terminated);
+				},
+			}),
+			{ headers: { "content-type": "text/html" } },
+		);
+
+	try {
+		const result = await utils.discord.generateLinkPreview(
+			"https://example.com/interrupted",
+			{ logger },
+		);
+
+		assert.equal(result, undefined);
+		assert.equal(logger.calls[0]?.payload?.err, terminated);
 	} finally {
 		global.fetch = originalFetch;
 	}

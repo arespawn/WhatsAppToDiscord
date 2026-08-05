@@ -1,7 +1,7 @@
 # Testing and Release
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-07-17
+> Last reviewed: 2026-08-05
 > Scope: Validation commands, documentation checks, CI, bundling, and packaged release constraints.
 
 ## Validation matrix
@@ -42,7 +42,7 @@ Keep these checks dependency-free and network-free. External links are verified 
 
 ## Baileys compatibility
 
-The repository pins a Baileys release and patches it during `postinstall`. Release builds must run after the patch succeeds. Tests must cover each source replacement marker so an upstream package change fails installation visibly rather than producing a partially patched runtime.
+The repository currently pins Baileys `7.0.0-rc14` and patches it during `postinstall`. Release builds must run after the patch succeeds. Tests must cover each source replacement marker so an upstream package change fails installation visibly rather than producing a partially patched runtime.
 
 The current patch set covers:
 

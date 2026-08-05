@@ -1,7 +1,7 @@
 # Security and Privacy
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-07-17
+> Last reviewed: 2026-08-05
 > Scope: Secret handling, logging, network access, local file serving, updates, and authorization boundaries.
 
 WA2DC processes Discord tokens, WhatsApp authentication material, contact identifiers, mirrored content, attachments, message mappings, logs, and operator configuration.
@@ -24,6 +24,7 @@ WA2DC processes Discord tokens, WhatsApp authentication material, contact identi
 ## Network boundaries
 
 - Link-preview fetching must continue to block loopback, private, link-local, and unsafe redirect targets and enforce size/time limits for pages and thumbnails.
+- `link-preview-js` is only used to parse response content that WA2DC has already fetched; do not delegate network fetching to it or bypass WA2DC's URL, DNS/IP, redirect, timeout, and size checks.
 - Signed packaged updates must validate executable and runtime-sidecar signatures before replacement; restore matching backups on partial failure.
 - The local download server defaults to loopback. Binding publicly requires explicit operator configuration; path-safe signed URLs do not replace authentication, firewalling, TLS, expiry, or reverse-proxy controls.
 - Do not introduce new outbound services, analytics, or telemetry without explicit documentation and operator control.

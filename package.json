@@ -34,7 +34,7 @@
 	"repository": "https://github.com/arespawn/WhatsAppToDiscord",
 	"license": "MIT",
 	"engines": {
-		"node": ">=24"
+		"node": "^24.15.0 || >=26.0.0"
 	},
 	"dependencies": {
 		"@whiskeysockets/baileys": "7.0.0-rc14",

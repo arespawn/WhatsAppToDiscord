@@ -1,6 +1,6 @@
 # Installer Scripts
 
-These scripts automate **source** installation and updates for WA2DC and enforce the current runtime requirement (`Node.js >=24`). They do not install packaged release binaries or Docker images.
+These scripts automate **source** installation and updates for WA2DC and enforce the current runtime requirement (`Node.js ^24.15.0 || >=26.0.0`). They do not install packaged release binaries or Docker images.
 
 ## Files
 
@@ -36,7 +36,7 @@ The Windows script uses `winget` first, then falls back to `choco` if available.
 
 ## What the scripts do
 
-1. Ensure Node.js `>=24` is installed.
+1. Ensure Node.js `^24.15.0 || >=26.0.0` is installed.
 2. Ensure `git` is installed.
 3. Clone or update `https://github.com/arespawn/WhatsAppToDiscord.git`.
 4. Install dependencies with `npm ci`.

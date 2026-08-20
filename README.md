@@ -30,7 +30,7 @@ Start with the documentation at [arespawn.com](https://arespawn.com/):
 
 - **Packaged binary:** download a signed release asset from [GitHub Releases](https://github.com/arespawn/WhatsAppToDiscord/releases/latest).
 - **Docker:** copy `.env.example` to `.env`, set `WA2DC_TOKEN`, then run `docker compose up -d`.
-- **Source:** install Node.js 24 or newer, run `npm ci`, then `npm start`. The [installer scripts](docs/install-scripts.md) can automate this path.
+- **Source:** install Node.js 24.15.0–24.x or 26.0.0 and newer, run `npm ci`, then `npm start`. The [installer scripts](docs/install-scripts.md) can automate this path.
 
 ## Data and security
 

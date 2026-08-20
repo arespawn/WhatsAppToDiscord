@@ -18,6 +18,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $NodeMajorRequired = 24
+$NodeMinorRequired = 15
+$NodeMajorNextSupported = 26
+$NodeRequiredRange = "^24.15.0 || >=26.0.0"
 $RepoHint = "arespawn/WhatsAppToDiscord"
 
 function Write-Log {
@@ -54,12 +57,15 @@ function Invoke-Checked {
 	}
 }
 
-function Get-NodeMajor {
-	$major = node -p "Number(process.versions.node.split('.')[0])" 2>$null
-	if (-not $major) {
-		return 0
+function Test-NodeVersionSupported {
+	$version = node -p "process.versions.node" 2>$null
+	if (-not $version) {
+		return $false
 	}
-	return [int]$major
+	$parts = $version.Split(".")
+	$major = [int]$parts[0]
+	$minor = [int]$parts[1]
+	return (($major -eq $NodeMajorRequired -and $minor -ge $NodeMinorRequired) -or $major -ge $NodeMajorNextSupported)
 }
 
 function Install-WithWinget {
@@ -78,15 +84,14 @@ function Install-WithWinget {
 
 function Install-Node {
 	if (Test-Command "node") {
-		$existingMajor = Get-NodeMajor
-		if ($existingMajor -ge $NodeMajorRequired) {
-			Write-Log ("Node.js {0} already satisfies >={1}" -f (node -v), $NodeMajorRequired)
+		if (Test-NodeVersionSupported) {
+			Write-Log ("Node.js {0} already satisfies {1}" -f (node -v), $NodeRequiredRange)
 			return
 		}
-		Write-WarnLog ("Found Node.js {0}, upgrading to >={1}" -f (node -v), $NodeMajorRequired)
+		Write-WarnLog ("Found Node.js {0}, installing a version that satisfies {1}" -f (node -v), $NodeRequiredRange)
 	}
 	else {
-		Write-Log "Node.js not found, installing >=$NodeMajorRequired"
+		Write-Log "Node.js not found, installing a version that satisfies $NodeRequiredRange"
 	}
 
 	$installed = $false
@@ -99,7 +104,7 @@ function Install-Node {
 		$installed = $true
 	}
 	else {
-		Fail "Node.js install requires winget or choco. Install Node.js >=$NodeMajorRequired manually and re-run."
+		Fail "Node.js install requires winget or choco. Install Node.js $NodeRequiredRange manually and re-run."
 	}
 
 	if (-not $installed) {
@@ -113,9 +118,8 @@ function Install-Node {
 		Fail "Node.js installation completed but 'node' is not available in PATH. Open a new terminal and re-run."
 	}
 
-	$major = Get-NodeMajor
-	if ($major -lt $NodeMajorRequired) {
-		Fail ("Installed Node.js {0}, expected >={1}" -f (node -v), $NodeMajorRequired)
+	if (-not (Test-NodeVersionSupported)) {
+		Fail ("Installed Node.js {0}, expected {1}" -f (node -v), $NodeRequiredRange)
 	}
 
 	Write-Log ("Using Node.js {0}" -f (node -v))
@@ -146,7 +150,7 @@ function Install-Git {
 
 function Ensure-Npm {
 	if (-not (Test-Command "npm")) {
-		Fail "npm is missing. Ensure Node.js >=$NodeMajorRequired is installed correctly."
+		Fail "npm is missing. Ensure Node.js $NodeRequiredRange is installed correctly."
 	}
 }
 

@@ -51,7 +51,7 @@ body:
       placeholder: |
         OS: Windows 11 / Ubuntu 24.04 / macOS 15
         CPU: x64 / arm64 / armv7
-        Node.js: v24.0.0 (or N/A for packaged release)
+        Node.js: v24.15.0 (or N/A for packaged release)
         Started after upgrade?: Yes / No / Not sure
     validations:
       required: true

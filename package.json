@@ -40,7 +40,7 @@
 		"@whiskeysockets/baileys": "7.0.0-rc14",
 		"canvas": "^3.2.3",
 		"discord.js": "^14.25.1",
-		"jsdom": "^29.1.0",
+		"jsdom": "^30.0.1",
 		"link-preview-js": "3.2.0",
 		"lottie-web": "^5.13.0",
 		"pino": "^10.3.1",

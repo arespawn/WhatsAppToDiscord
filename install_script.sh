@@ -6,6 +6,9 @@ IFS=$'\n\t'
 REPO_URL="https://github.com/arespawn/WhatsAppToDiscord.git"
 REPO_HINT="arespawn/WhatsAppToDiscord"
 NODE_MAJOR_REQUIRED=24
+NODE_MINOR_REQUIRED=15
+NODE_MAJOR_NEXT_SUPPORTED=26
+NODE_REQUIRED_RANGE="^24.15.0 || >=26.0.0"
 INSTALL_DIR="WhatsAppToDiscord"
 REPO_REF=""
 START_AFTER_INSTALL=0
@@ -46,7 +49,7 @@ Options:
   --help            Show this help
 
 This script:
-  1) Ensures Node.js >=24 is installed
+  1) Ensures Node.js ^24.15.0 or >=26.0.0 is installed
   2) Clones or updates the WA2DC repository
   3) Installs dependencies with npm ci
 
@@ -162,8 +165,14 @@ ensure_git() {
 	require_cmd git
 }
 
-node_major_version() {
-	node -p "Number(process.versions.node.split('.')[0])" 2>/dev/null
+node_version_is_supported() {
+	local version major minor
+	version="$(node -p "process.versions.node" 2>/dev/null)" || return 1
+	IFS=. read -r major minor _ <<<"${version}"
+	((
+		(major == NODE_MAJOR_REQUIRED && minor >= NODE_MINOR_REQUIRED) ||
+			major >= NODE_MAJOR_NEXT_SUPPORTED
+	))
 }
 
 install_node_debian() {
@@ -193,7 +202,7 @@ install_node_macos() {
 	local brew_path
 	local node_prefix
 
-	brew_path="$(brew_bin)" || die "Install Homebrew first (https://brew.sh/) or install Node.js >=${NODE_MAJOR_REQUIRED} manually."
+	brew_path="$(brew_bin)" || die "Install Homebrew first (https://brew.sh/) or install Node.js ${NODE_REQUIRED_RANGE} manually."
 	log "Installing Node.js ${NODE_MAJOR_REQUIRED} with Homebrew"
 	"${brew_path}" install "node@${NODE_MAJOR_REQUIRED}"
 
@@ -203,15 +212,13 @@ install_node_macos() {
 
 ensure_node() {
 	if command -v node >/dev/null 2>&1; then
-		local major
-		major="$(node_major_version)"
-		if (( major >= NODE_MAJOR_REQUIRED )); then
-			log "Node.js $(node -v) already satisfies >=${NODE_MAJOR_REQUIRED}"
+		if node_version_is_supported; then
+			log "Node.js $(node -v) already satisfies ${NODE_REQUIRED_RANGE}"
 			return
 		fi
-		warn "Found Node.js $(node -v), upgrading to >=${NODE_MAJOR_REQUIRED}"
+		warn "Found Node.js $(node -v), installing a version that satisfies ${NODE_REQUIRED_RANGE}"
 	else
-		log "Node.js not found, installing >=${NODE_MAJOR_REQUIRED}"
+		log "Node.js not found, installing a version that satisfies ${NODE_REQUIRED_RANGE}"
 	fi
 
 	case "${OS_NAME}" in
@@ -221,9 +228,7 @@ ensure_node() {
 	esac
 
 	command -v node >/dev/null 2>&1 || die "Node.js installation did not provide 'node'"
-	local major
-	major="$(node_major_version)"
-	(( major >= NODE_MAJOR_REQUIRED )) || die "Installed Node.js $(node -v), expected >=${NODE_MAJOR_REQUIRED}"
+	node_version_is_supported || die "Installed Node.js $(node -v), expected ${NODE_REQUIRED_RANGE}"
 	log "Using Node.js $(node -v)"
 }
 

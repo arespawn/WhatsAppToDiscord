@@ -56,7 +56,7 @@ docker compose up -d wa2dc
 
 ### Node.js source
 
-Node.js 24 or newer is required.
+Node.js 24.15.0–24.x or 26.0.0 and newer is required.
 
 ```bash
 git clone https://github.com/arespawn/WhatsAppToDiscord.git

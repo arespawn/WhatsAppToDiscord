@@ -15,7 +15,7 @@ Preferred checks before handoff:
 - `WA2DC_SMOKE_TEST=1 node src/index.js` for startup-sensitive changes
 - `npm run build:bin:smoke` when packaging or runtime-sidecar behavior changes
 
-The `ci-tests` workflow runs tests, the ESM bundle, bundled watchdog smoke, and packaged binary smoke on current Ubuntu, macOS, and Windows runners with Node.js 24. The separate lint workflow runs `npm run ci:check`, using Biome's CI mode to enforce lint rules, formatting, and assist actions such as import organization.
+The `ci-tests` workflow runs tests, the ESM bundle, bundled watchdog smoke, and packaged binary smoke on current Ubuntu, macOS, and Windows runners with the latest Node.js 24 release, which must remain at or above the supported 24.15.0 floor. The separate lint workflow runs `npm run ci:check`, using Biome's CI mode to enforce lint rules, formatting, and assist actions such as import organization.
 
 ## Documentation checks
 

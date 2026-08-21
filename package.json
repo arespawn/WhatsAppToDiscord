@@ -41,7 +41,7 @@
 		"canvas": "^3.2.3",
 		"discord.js": "^14.25.1",
 		"jsdom": "^30.0.1",
-		"link-preview-js": "3.2.0",
+		"link-preview-js": "5.0.0",
 		"lottie-web": "^5.13.0",
 		"pino": "^10.3.1",
 		"pino-pretty": "^13.1.2",

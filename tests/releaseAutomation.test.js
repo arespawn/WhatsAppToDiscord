@@ -188,6 +188,15 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 	assert.match(ci, /sleep 10/u);
 	assert.match(release, /workflow_dispatch:/u);
 	assert.match(release, /ubuntu-24\.04-arm/u);
+	assert.equal(
+		[
+			...release.matchAll(
+				/^\s+client-id: \$\{\{ vars\.RELEASE_APP_CLIENT_ID \}\}$/gmu,
+			),
+		].length,
+		2,
+	);
+	assert.doesNotMatch(release, /^\s+app-id:/mu);
 	assert.match(
 		release,
 		/resolve:\r?\n[\s\S]*?permissions:\r?\n\s+# Draft releases[^\r\n]*\r?\n\s+contents: write/u,
@@ -201,6 +210,15 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 		),
 	);
 	assert.match(normalizedRelease, /GITHUB_REF_NAME.*branch/u);
+	assert.match(normalizedRelease, /RELEASE_SHA:.*resolve\.outputs\.sha/u);
+	assert.match(
+		normalizedRelease,
+		/if ! next_sha=.*branches\/next[\s\S]*?refs\/heads\/next[\s\S]*?sha="\$RELEASE_SHA"/u,
+	);
+	assert.match(
+		normalizedRelease,
+		/compare\/next\.\.\.main[\s\S]*?ahead_by[\s\S]*?== "0"/u,
+	);
 	for (const snippet of [
 		"  resolve:\n    needs: release_please\n    if: <EXPR> !cancelled() && (needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}",
 		"  verify:\n    needs: resolve\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' }}",

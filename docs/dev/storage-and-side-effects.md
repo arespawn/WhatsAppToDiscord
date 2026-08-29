@@ -1,7 +1,7 @@
 # Storage and Side Effects
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-07-17
+> Last reviewed: 2026-08-29
 > Scope: SQLite contracts, runtime artifacts, lifetimes, and explicit filesystem-permission enforcement.
 
 ## SQLite persistence contract
@@ -20,6 +20,8 @@ Table responsibilities:
 
 SQLite may create `wa2dc.sqlite-wal` and `wa2dc.sqlite-shm` while running. Stop WA2DC before filesystem-level backup so the copied database is consistent; copy the complete `storage/` directory rather than selecting individual files.
 
+On `SIGINT` or `SIGTERM`, WA2DC blocks reconnect work, independently quiesces download and WhatsApp ingress, and saves current app state before attempting its bounded Discord shutdown report. It then destroys Discord, saves once more, and closes SQLite last. Every stage has a deadline, so a stuck transport cannot prevent the final save/close attempt; operators should continue to stop WA2DC normally before copying storage.
+
 ## Encryption behavior
 
 `WA2DC_DB_PASSPHRASE` enables encryption of stored payload values when present at first database creation. The metadata needed to identify/derive the encrypted format remains readable. Setting a passphrase for an existing unencrypted database is ignored rather than silently converting it.
@@ -35,7 +37,8 @@ Working-directory artifacts:
 - `downloads/`: optional large-media destination and pruning target
 - `logs.txt`: structured Pino logs from worker and/or watchdog
 - `terminal.log`: watchdog tee of worker stdout/stderr; absent when no watchdog is used
-- `crash-report.txt`: fallback crash report consumed and removed after it can be posted to the control channel
+- `crash-report.txt`: legacy/interrupted fallback report atomically claimed into the pending spool at startup without being replaced by a newer fatal report
+- `crash-report.pending-*.txt`: private, uniquely written or atomically claimed crash reports; consecutive failures remain separate, successful delivery removes only its owned spool file, and failed delivery retains it for startup recovery
 - `restart.flag`: JSON restart request consumed and removed by `src/runner.js`
 
 Packaged-install artifacts beside the executable:
@@ -54,10 +57,11 @@ On non-Windows platforms, code explicitly enforces:
 
 - `storage/`: `0700`
 - `storage/wa2dc.sqlite`: `0600`
+- crash-report canonical, temporary, and pending spool files: `0600`
 - directories created for local downloads: `0700`
 - downloaded media files: `0600`
 
-Do not generalize those guarantees to `.env`, SQLite WAL/SHM sidecars, logs, crash reports, restart flags, packaged sidecars, or rollback files. Those artifacts follow their creation API and process umask unless separately protected. Treat them as sensitive and recommend restrictive host permissions without claiming WA2DC enforces them.
+Do not generalize those guarantees to `.env`, SQLite WAL/SHM sidecars, logs, restart flags, packaged sidecars, or rollback files. Those artifacts follow their creation API and process umask unless separately protected. Treat them as sensitive and recommend restrictive host permissions without claiming WA2DC enforces them.
 
 WA2DC does not create or chmod `.env`. Operators should restrict it to the runtime account, for example `chmod 600 .env` on Unix-like systems.
 

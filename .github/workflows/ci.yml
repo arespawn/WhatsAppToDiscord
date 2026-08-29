@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, next]
+  push:
+    branches: [main, next]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Validate Conventional Commit PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: node scripts/validatePrTitle.js
+
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run ci:check
+      - run: npm run docs:check
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15-intel, windows-2025]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run bundle
+      - name: Run bundled watchdog smoke (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          smoke_dir="$(mktemp -d)"
+          cd "$smoke_dir"
+          WA2DC_SMOKE_TEST=1 node "$GITHUB_WORKSPACE/out.js"
+      - name: Run bundled watchdog smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $smokeDir = Join-Path $env:RUNNER_TEMP ("wa2dc-bundle-smoke-" + [guid]::NewGuid())
+          New-Item -ItemType Directory -Path $smokeDir | Out-Null
+          Push-Location $smokeDir
+          try {
+            $env:WA2DC_SMOKE_TEST = "1"
+            node "$env:GITHUB_WORKSPACE/out.js"
+          }
+          finally {
+            Pop-Location
+          }
+      - run: npm run build:bin:smoke
+
+  promotion:
+    if: github.event_name == 'pull_request' && github.base_ref == 'main' && github.head_ref == 'next'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - name: Verify next HEAD is a published signed beta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+            echo "next must be promoted from a beta release commit; found $version" >&2
+            exit 1
+          fi
+          tag="v$version"
+          tag_sha="$(git rev-list -n 1 "$tag")"
+          if [[ "$tag_sha" != "$HEAD_SHA" ]]; then
+            echo "$tag does not point to next HEAD ($HEAD_SHA)" >&2
+            exit 1
+          fi
+          release_json="$(gh release view "$tag" --json isDraft,isPrerelease,assets)"
+          jq -e '.isDraft == false and .isPrerelease == true' <<<"$release_json" >/dev/null
+          jq -e '[.assets[].name] | index("update-manifest.json") and index("update-manifest.json.sig")' <<<"$release_json" >/dev/null

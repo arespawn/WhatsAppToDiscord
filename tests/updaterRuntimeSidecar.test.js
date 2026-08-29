@@ -26,12 +26,7 @@ test("packaged updater installs the matching runtime sidecar archive", async () 
 	const originalUpdater = {
 		isNode: utils.updater.isNode,
 		getCurrentExecutablePath: utils.updater.getCurrentExecutablePath,
-		downloadLatestVersion: utils.updater.downloadLatestVersion,
-		downloadSignature: utils.updater.downloadSignature,
-		downloadRuntimeArchive: utils.updater.downloadRuntimeArchive,
-		downloadRuntimeArchiveSignature:
-			utils.updater.downloadRuntimeArchiveSignature,
-		validateSignature: utils.updater.validateSignature,
+		stageReleaseArtifacts: utils.updater.stageReleaseArtifacts,
 	};
 	const defaultExeNameDescriptor = Object.getOwnPropertyDescriptor(
 		utils.updater,
@@ -87,27 +82,21 @@ test("packaged updater installs the matching runtime sidecar archive", async () 
 			configurable: true,
 			get: () => "WA2DC-Linux",
 		});
-		utils.updater.downloadLatestVersion = async (
-			_defaultExeName,
-			targetPath,
-		) => {
-			await fsPromises.writeFile(targetPath, "new-binary");
-			return true;
-		};
-		utils.updater.downloadSignature = async () => ({
-			result: Buffer.from("sig"),
+		const updateStage = await fsPromises.mkdtemp(
+			path.join(os.tmpdir(), "wa2dc-update-test-stage-"),
+		);
+		const stagedBinaryPath = path.join(updateStage, "WA2DC-Linux");
+		const stagedRuntimePath = path.join(
+			updateStage,
+			"WA2DC-Linux.runtime.tar.gz",
+		);
+		await fsPromises.writeFile(stagedBinaryPath, "new-binary");
+		await fsPromises.copyFile(archivePath, stagedRuntimePath);
+		utils.updater.stageReleaseArtifacts = async () => ({
+			directory: updateStage,
+			executablePath: stagedBinaryPath,
+			runtimeArchivePath: stagedRuntimePath,
 		});
-		utils.updater.downloadRuntimeArchive = async (
-			_defaultExeName,
-			targetPath,
-		) => {
-			await fsPromises.copyFile(archivePath, targetPath);
-			return true;
-		};
-		utils.updater.downloadRuntimeArchiveSignature = async () => ({
-			result: Buffer.from("sig"),
-		});
-		utils.updater.validateSignature = () => true;
 		state.settings.KeepOldBinary = true;
 
 		const result = await utils.updater.update("v9.9.9");
@@ -127,22 +116,12 @@ test("packaged updater installs the matching runtime sidecar archive", async () 
 			),
 			/0\.34\.5/u,
 		);
-		await assert.rejects(
-			() =>
-				fsPromises.stat(path.join(os.tmpdir(), "WA2DC-Linux.runtime.tar.gz")),
-			/ENOENT/,
-		);
+		await assert.rejects(() => fsPromises.stat(updateStage), /ENOENT/);
 	} finally {
 		utils.updater.isNode = originalUpdater.isNode;
 		utils.updater.getCurrentExecutablePath =
 			originalUpdater.getCurrentExecutablePath;
-		utils.updater.downloadLatestVersion = originalUpdater.downloadLatestVersion;
-		utils.updater.downloadSignature = originalUpdater.downloadSignature;
-		utils.updater.downloadRuntimeArchive =
-			originalUpdater.downloadRuntimeArchive;
-		utils.updater.downloadRuntimeArchiveSignature =
-			originalUpdater.downloadRuntimeArchiveSignature;
-		utils.updater.validateSignature = originalUpdater.validateSignature;
+		utils.updater.stageReleaseArtifacts = originalUpdater.stageReleaseArtifacts;
 		if (defaultExeNameDescriptor) {
 			Object.defineProperty(
 				utils.updater,
@@ -175,10 +154,7 @@ test("packaged startup bootstraps runtime sidecar when missing", async () => {
 		"pkg",
 	);
 	const originalUpdater = {
-		downloadRuntimeArchive: utils.updater.downloadRuntimeArchive,
-		downloadRuntimeArchiveSignature:
-			utils.updater.downloadRuntimeArchiveSignature,
-		validateSignature: utils.updater.validateSignature,
+		stageReleaseArtifacts: utils.updater.stageReleaseArtifacts,
 		getCurrentExecutablePath: utils.updater.getCurrentExecutablePath,
 	};
 	const defaultExeNameDescriptor = Object.getOwnPropertyDescriptor(
@@ -237,17 +213,19 @@ test("packaged startup bootstraps runtime sidecar when missing", async () => {
 			configurable: true,
 			get: () => "WA2DC-Linux",
 		});
-		utils.updater.downloadRuntimeArchive = async (
-			_defaultExeName,
-			targetPath,
-		) => {
-			await fsPromises.copyFile(archivePath, targetPath);
-			return true;
-		};
-		utils.updater.downloadRuntimeArchiveSignature = async () => ({
-			result: Buffer.from("sig"),
+		const updateStage = await fsPromises.mkdtemp(
+			path.join(os.tmpdir(), "wa2dc-runtime-bootstrap-stage-"),
+		);
+		const stagedRuntimePath = path.join(
+			updateStage,
+			"WA2DC-Linux.runtime.tar.gz",
+		);
+		await fsPromises.copyFile(archivePath, stagedRuntimePath);
+		utils.updater.stageReleaseArtifacts = async () => ({
+			directory: updateStage,
+			executablePath: null,
+			runtimeArchivePath: stagedRuntimePath,
 		});
-		utils.updater.validateSignature = () => true;
 		state.logger = { info() {}, warn() {}, error() {} };
 		state.settings.KeepOldBinary = false;
 
@@ -267,11 +245,7 @@ test("packaged startup bootstraps runtime sidecar when missing", async () => {
 		} else {
 			delete process.pkg;
 		}
-		utils.updater.downloadRuntimeArchive =
-			originalUpdater.downloadRuntimeArchive;
-		utils.updater.downloadRuntimeArchiveSignature =
-			originalUpdater.downloadRuntimeArchiveSignature;
-		utils.updater.validateSignature = originalUpdater.validateSignature;
+		utils.updater.stageReleaseArtifacts = originalUpdater.stageReleaseArtifacts;
 		utils.updater.getCurrentExecutablePath =
 			originalUpdater.getCurrentExecutablePath;
 		if (defaultExeNameDescriptor) {
@@ -370,5 +344,96 @@ test("runtime archive install falls back to copy when rename crosses filesystems
 		fs.promises.cp = originalCp;
 		await fsPromises.rm(tempDir, { recursive: true, force: true });
 		await fsPromises.rm(stagedRuntimeRoot, { recursive: true, force: true });
+	}
+});
+
+test("failed staging leaves the packaged installation untouched", async () => {
+	const tempDir = await fsPromises.mkdtemp(
+		path.join(os.tmpdir(), "wa2dc-update-preflight-"),
+	);
+	const currentExePath = path.join(tempDir, "WA2DC-Linux");
+	const original = {
+		isNode: utils.updater.isNode,
+		getCurrentExecutablePath: utils.updater.getCurrentExecutablePath,
+		stageReleaseArtifacts: utils.updater.stageReleaseArtifacts,
+	};
+	try {
+		await fsPromises.writeFile(currentExePath, "old-binary");
+		utils.updater.isNode = false;
+		utils.updater.getCurrentExecutablePath = () => currentExePath;
+		utils.updater.stageReleaseArtifacts = async () => {
+			throw new Error("release_asset_hash_mismatch:WA2DC-Linux");
+		};
+
+		assert.equal(await utils.updater.update("v2.5.0"), false);
+		assert.equal(
+			await fsPromises.readFile(currentExePath, "utf8"),
+			"old-binary",
+		);
+		await assert.rejects(
+			() => fsPromises.stat(`${currentExePath}.oldVersion`),
+			/ENOENT/,
+		);
+	} finally {
+		utils.updater.isNode = original.isNode;
+		utils.updater.getCurrentExecutablePath = original.getCurrentExecutablePath;
+		utils.updater.stageReleaseArtifacts = original.stageReleaseArtifacts;
+		await fsPromises.rm(tempDir, { recursive: true, force: true });
+	}
+});
+
+test("installation failure restores the previous executable and runtime", async () => {
+	const tempDir = await fsPromises.mkdtemp(
+		path.join(os.tmpdir(), "wa2dc-update-rollback-"),
+	);
+	const currentExePath = path.join(tempDir, "WA2DC-Linux");
+	const runtimePath = path.join(tempDir, "runtime");
+	const stageDir = await fsPromises.mkdtemp(
+		path.join(os.tmpdir(), "wa2dc-update-rollback-stage-"),
+	);
+	const stagedExePath = path.join(stageDir, "WA2DC-Linux");
+	const stagedRuntimePath = path.join(stageDir, "WA2DC-Linux.runtime.tar.gz");
+	const original = {
+		isNode: utils.updater.isNode,
+		getCurrentExecutablePath: utils.updater.getCurrentExecutablePath,
+		stageReleaseArtifacts: utils.updater.stageReleaseArtifacts,
+		installRuntimeArchive: utils.updater.installRuntimeArchive,
+	};
+	try {
+		await fsPromises.writeFile(currentExePath, "old-binary");
+		await fsPromises.mkdir(runtimePath);
+		await fsPromises.writeFile(
+			path.join(runtimePath, "package.json"),
+			"old-runtime",
+		);
+		await fsPromises.writeFile(stagedExePath, "new-binary");
+		await fsPromises.writeFile(stagedRuntimePath, "archive");
+		utils.updater.isNode = false;
+		utils.updater.getCurrentExecutablePath = () => currentExePath;
+		utils.updater.stageReleaseArtifacts = async () => ({
+			directory: stageDir,
+			executablePath: stagedExePath,
+			runtimeArchivePath: stagedRuntimePath,
+		});
+		utils.updater.installRuntimeArchive = async () => {
+			throw new Error("install failed");
+		};
+
+		assert.equal(await utils.updater.update("v2.5.0"), false);
+		assert.equal(
+			await fsPromises.readFile(currentExePath, "utf8"),
+			"old-binary",
+		);
+		assert.equal(
+			await fsPromises.readFile(path.join(runtimePath, "package.json"), "utf8"),
+			"old-runtime",
+		);
+	} finally {
+		utils.updater.isNode = original.isNode;
+		utils.updater.getCurrentExecutablePath = original.getCurrentExecutablePath;
+		utils.updater.stageReleaseArtifacts = original.stageReleaseArtifacts;
+		utils.updater.installRuntimeArchive = original.installRuntimeArchive;
+		await fsPromises.rm(tempDir, { recursive: true, force: true });
+		await fsPromises.rm(stageDir, { recursive: true, force: true });
 	}
 });

@@ -59,7 +59,7 @@ Do not edit SQLite rows while WA2DC is running. Use slash commands to change sup
 
 `ffmpeg` is optional and is not installed by WA2DC. It enables Discord voice-message normalization, WhatsApp GIF-to-GIF conversion, and opt-in WhatsApp audio-to-MP3 conversion. Each flow falls back to a compatible original payload when possible.
 
-Packaged binaries use `runtime/` for native modules such as `sharp`, `canvas`, `jsdom`, and `lottie-web`. Signed packaged updates refresh the executable and matching sidecar together, and packaged startup can bootstrap a missing sidecar from a matching signed release asset.
+Packaged binaries use `runtime/` for native modules such as `sharp`, `canvas`, `jsdom`, and `lottie-web`. Signed packaged updates download and verify the executable and matching sidecar in a private staging directory before replacing either installed artifact. Packaged startup can bootstrap a missing sidecar from a matching signed release asset.
 
 The official Docker image contains the native image/sticker libraries but does not currently include optional `ffmpeg`. Build a custom image if those conversions are required in Docker.
 
@@ -71,10 +71,16 @@ The built-in server is local-only by default. To expose it to other devices, con
 
 | Installation | Notification | Self-update | Rollback |
 | --- | --- | --- | --- |
-| Packaged binary | Yes | Yes, when matching signed assets exist | `/rollback` and automatic startup rollback when backups exist |
+| Linux x64 packaged binary | Yes | Yes | `/rollback` and automatic startup rollback when backups exist |
+| Linux ARM64 packaged binary | Yes | Yes | `/rollback` and automatic startup rollback when backups exist |
+| macOS Intel packaged binary | Yes | Yes | `/rollback` and automatic startup rollback when backups exist |
+| Windows x64 packaged binary | Yes | Yes | `/rollback` and automatic startup rollback when backups exist |
+| Other packaged platform, including macOS/Windows ARM | Yes | No update button; install manually | Manual replacement |
 | Docker | Yes | No | Pull a previous image tag and recreate the service |
 | Node.js source | Yes | No | Check out the previous source revision and run `npm ci` |
 
 Official container releases publish immutable version tags plus the moving `latest` tag for stable releases and `unstable` for prereleases. Docker Compose uses `latest` by default. Use `unstable` only when deliberately following prereleases, and pin an immutable version tag when predictable rollback is important.
 
 The packaged watchdog automatically restores the previous executable and runtime sidecar after two nonzero startup exits inside the 120-second update-validation window.
+
+Stable checks use GitHub's latest stable-release endpoint and never select a prerelease. The `unstable` channel follows beta releases only and scans enough release history to handle long beta cycles. WA2DC never offers an older release when the installed version is newer. Releases from `v2.5.0-beta.1` onward require the signed update manifest as well as the individual asset signatures; earlier releases retain the fixed legacy signature flow for compatibility.

@@ -1,7 +1,7 @@
 # Security and Privacy
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-08-05
+> Last reviewed: 2026-08-29
 > Scope: Secret handling, logging, network access, local file serving, updates, and authorization boundaries.
 
 WA2DC processes Discord tokens, WhatsApp authentication material, contact identifiers, mirrored content, attachments, message mappings, logs, and operator configuration.
@@ -25,7 +25,8 @@ WA2DC processes Discord tokens, WhatsApp authentication material, contact identi
 
 - Link-preview fetching must continue to block loopback, private, link-local, and unsafe redirect targets and enforce size/time limits for pages and thumbnails.
 - `link-preview-js` is only used to parse response content that WA2DC has already fetched; do not delegate network fetching to it or bypass WA2DC's URL, DNS/IP, redirect, timeout, and size checks.
-- Signed packaged updates must validate executable and runtime-sidecar signatures before replacement; restore matching backups on partial failure.
+- Signed packaged updates from `v2.5.0-beta.1` onward must verify the release manifest signature before parsing it, then validate the exact tag, channel, platform mapping, safe filenames, sizes, SHA-256 hashes, and per-asset signatures. Releases older than `2.5.0` use only the fixed legacy filename/signature contract.
+- Download the complete executable/runtime pair into a private staging directory before moving either installed artifact. Reject non-2xx responses, malformed or incomplete manifests, unsafe names, mismatches, and missing/bad signatures without touching the installation; restore matching backups on any later install failure.
 - The local download server defaults to loopback. Binding publicly requires explicit operator configuration; path-safe signed URLs do not replace authentication, firewalling, TLS, expiry, or reverse-proxy controls.
 - Do not introduce new outbound services, analytics, or telemetry without explicit documentation and operator control.
 
@@ -38,3 +39,13 @@ Command changes must consider whether they reveal stored data, change routing, d
 ## Public statements
 
 Do not claim that self-hosting means data never leaves the host. Mirroring transmits data through WhatsApp and Discord, link previews contact destination hosts, and update checks contact GitHub. Keep `docs/privacypolicy.txt`, public configuration, and this page aligned with actual code.
+
+## Release credentials
+
+The Release workflow uses separate trust boundaries:
+
+- The repository-scoped GitHub App may write Contents, Pull requests, and Issues so Release Please and synchronization PRs can trigger normal CI. Its ID/private key must remain repository variables/secrets and the App must not be installed organization-wide without a separate review.
+- `SIGN_KEY` belongs only in the restricted `release-signing` environment. Native build jobs upload unsigned artifacts and never receive it. One signing job validates the full expected asset set before using the key.
+- GitHub's per-run token receives only each job's declared permissions. Third-party actions remain pinned to immutable commits.
+
+Rotate either credential immediately if exposed. Rotating `SIGN_KEY` also requires shipping the matching public key through a reviewed compatibility plan; replacing only the private key makes all new in-app updates unverifiable.

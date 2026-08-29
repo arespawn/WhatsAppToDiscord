@@ -4,7 +4,7 @@
   <img src="docs/_media/logo.png" alt="WA2DC logo" width="180" />
 </p>
 
-[![Latest release](https://img.shields.io/github/v/release/arespawn/WhatsAppToDiscord?display_name=tag&sort=semver&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/releases/latest) [![Total downloads](https://img.shields.io/github/downloads/arespawn/WhatsAppToDiscord/total?logo=github)](https://github.com/arespawn/WhatsAppToDiscord/releases) [![License](https://img.shields.io/github/license/arespawn/WhatsAppToDiscord)](LICENSE.txt) [![Tests](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/ci-tests.yml?label=tests&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/ci-tests.yml) [![Lint](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/lint.yml?label=lint&logo=biome)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/lint.yml) [![Docker images](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/docker-publish.yml?label=docker&logo=docker)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/docker-publish.yml) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?logo=github)](https://github.com/arespawn/WhatsAppToDiscord/pulls)
+[![Latest release](https://img.shields.io/github/v/release/arespawn/WhatsAppToDiscord?display_name=tag&sort=semver&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/releases/latest) [![Total downloads](https://img.shields.io/github/downloads/arespawn/WhatsAppToDiscord/total?logo=github)](https://github.com/arespawn/WhatsAppToDiscord/releases) [![License](https://img.shields.io/github/license/arespawn/WhatsAppToDiscord)](LICENSE.txt) [![CI](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/ci.yml?label=CI&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/actions/workflow/status/arespawn/WhatsAppToDiscord/release.yml?label=release&logo=github)](https://github.com/arespawn/WhatsAppToDiscord/actions/workflows/release.yml) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?logo=github)](https://github.com/arespawn/WhatsAppToDiscord/pulls)
 
 WhatsAppToDiscord (WA2DC) is a self-hosted bridge that mirrors WhatsApp chats into Discord through [Baileys](https://github.com/WhiskeySockets/Baileys) and [discord.js](https://github.com/discordjs/discord.js).
 
@@ -47,7 +47,7 @@ npm test
 WA2DC_SMOKE_TEST=1 node src/index.js
 ```
 
-Contributor guidance starts in [AGENTS.md](AGENTS.md) and [docs/dev/](docs/dev/README.md).
+Contributor guidance starts in [CONTRIBUTING.md](CONTRIBUTING.md), [AGENTS.md](AGENTS.md), and [docs/dev/](docs/dev/README.md).
 
 ## Disclaimer
 

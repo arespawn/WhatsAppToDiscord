@@ -13,8 +13,10 @@ test("Watchdog runner keeps stdin available for first-run prompts", async () => 
 	const content = await fs.readFile(runnerPath, "utf8");
 
 	assert.ok(
-		/stdio:\s*\[\s*'inherit'\s*,\s*'pipe'\s*,\s*'pipe'\s*]/.test(content),
-		"Expected worker spawn to inherit stdin (so readline prompts work)",
+		/stdio:\s*\[\s*'inherit'\s*,\s*'pipe'\s*,\s*'pipe'\s*,\s*'ipc'\s*]/.test(
+			content,
+		),
+		"Expected worker spawn to inherit stdin and expose graceful-shutdown IPC",
 	);
 
 	assert.ok(

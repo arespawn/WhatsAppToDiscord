@@ -1,7 +1,7 @@
 # Runtime and Layout
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-07-17
+> Last reviewed: 2026-08-29
 > Scope: Process lifecycle, startup invariants, module ownership, and packaged runtime behavior.
 
 ## Process model
@@ -14,6 +14,10 @@ Normal source and packaged startup uses the watchdog:
 2. `src/index.js` initializes SQLite-backed app/auth state, handlers, autosave, and crash reporting.
 3. `src/discordHandler.js` and `src/whatsappHandler.js` connect the transports and register bridge events.
 4. The runner handles explicit restart flags, bounded crash restarts, exponential backoff, and packaged post-update rollback validation.
+
+`SIGINT` and `SIGTERM` use a bounded graceful-shutdown path. The watchdog requests shutdown over a validated internal IPC message, including on Windows where forwarding these POSIX signal names to a child can terminate it abruptly. The worker first blocks reconnect work, independently quiesces the download server and WhatsApp ingress, and, once startup hydration is complete, saves local state. It then makes a time-limited report attempt while Discord remains available, destroys Discord, saves again, and closes SQLite last. Each stage is bounded so a stuck transport cannot prevent the final persistence stages. A matching OS-signal/IPC copy delivered to the worker is coalesced briefly; two direct OS signals still force an immediate exit. The watchdog waits for the real worker exit event after graceful shutdown and after `SIGKILL`, using a short final deadline only if the child exit event never arrives.
+
+Queued crash-report delivery runs in the background after Discord startup so a slow Discord request cannot delay WhatsApp startup or QR generation. New fatal reports are atomically written directly to unique private `crash-report.pending-*.txt` spool files, so consecutive failures cannot overwrite one another or a legacy canonical `crash-report.txt`. Startup atomically claims any canonical report into the same spool. Success removes only the owned pending file, while failure leaves it for the next startup.
 
 The official Docker entrypoint starts `src/index.js` directly and relies on the container restart policy rather than nesting the watchdog inside the container.
 
@@ -57,7 +61,7 @@ Transports and normalization:
 - `src/pollUtils.js`: WhatsApp poll option and encryption-key extraction
 - `src/internal/`: sticker, image, GIF, and audio send/receive normalization
 - `src/utils.js`: transport helpers, mentions, link previews, download server, updater, file delivery, and JID migration helpers
-- `src/processErrors.js` / `src/processExitReporting.js`: tightly identified Undici transport failures remain non-fatal across both process error events; other failures retain bounded exit/crash reporting
+- `src/processErrors.js` / `src/processExitReporting.js` / `src/shutdown.js`: tightly identified Undici transport failures remain non-fatal across both process error events; other failures retain bounded exit/crash reporting, cleanup, and watchdog escalation
 
 ## Developer commands
 
@@ -72,6 +76,7 @@ Transports and normalization:
 - Local packaged build: `npm run build:bin`
 - Packaged build and smoke: `npm run build:bin:smoke`
 - Worker smoke: `WA2DC_SMOKE_TEST=1 node src/index.js`
+- Signal smoke: `WA2DC_SMOKE_TEST=1 WA2DC_SMOKE_WAIT_FOR_SIGNAL=1 node src/runner.js`, then send `SIGINT`
 
 ## Packaged runtime model
 

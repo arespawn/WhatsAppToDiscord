@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1-beta.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.0...v2.5.1-beta.1) (2026-08-29)
+
+
+### Bug Fixes
+
+* **deps:** refresh Biome and Sharp packages ([#288](https://github.com/arespawn/WhatsAppToDiscord/issues/288)) ([54d740a](https://github.com/arespawn/WhatsAppToDiscord/commit/54d740a753b8b37ed0acf86cf681433a1c727990))
+
 ## [2.5.0](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.0-beta.3...v2.5.0) (2026-08-29)
 
 

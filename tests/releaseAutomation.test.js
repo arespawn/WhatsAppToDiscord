@@ -189,7 +189,7 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 		assert.match(release, new RegExp(binary.replace(".", "\\."), "u"));
 	}
 	for (const line of release
-		.split("\n")
+		.split(/\r?\n/u)
 		.filter((entry) => entry.includes("uses:"))) {
 		assert.match(line, /@[a-f0-9]{40}(?:\s+#.*)?$/u, line);
 	}

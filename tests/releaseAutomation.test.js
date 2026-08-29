@@ -176,10 +176,21 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 		path.join(ROOT, ".github/workflows/release.yml"),
 		"utf8",
 	);
+	const dependabot = await fs.readFile(
+		path.join(ROOT, ".github/dependabot.yml"),
+		"utf8",
+	);
 	assert.match(ci, /branches: \[main, next\]/u);
 	assert.match(ci, /scripts\/validatePrTitle\.js/u);
 	assert.match(release, /workflow_dispatch:/u);
 	assert.match(release, /ubuntu-24\.04-arm/u);
+	assert.match(
+		release,
+		/resolve:\r?\n[\s\S]*?permissions:\r?\n\s+# Draft releases[^\r\n]*\r?\n\s+contents: write/u,
+	);
+	assert.match(dependabot, /prefix: "fix\(deps\)"/u);
+	assert.match(dependabot, /prefix-development: "fix\(deps\)"/u);
+	assert.doesNotMatch(dependabot, /include: "scope"/u);
 	for (const binary of [
 		"WA2DC-Linux",
 		"WA2DC-Linux-arm64",

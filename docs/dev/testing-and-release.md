@@ -26,7 +26,7 @@ The `CI` workflow runs for pull requests and pushes to `main` and `next`. It val
 - Release Please PRs own `package.json`, `package-lock.json`, `CHANGELOG.md`, and the release manifest version. Do not hand-edit versions during an ordinary release.
 - `feat` is minor; `fix`, `fix(deps)`, `perf`, and `revert` are patch; `!` or `BREAKING CHANGE` is major. Maintenance-only `docs`, `test`, `ci`, `build`, and `chore` commits do not independently release.
 
-Promotion CI requires the published beta tag to resolve to `next` HEAD and requires its signed update-manifest assets. This proves there are no commits after the tested beta. If `main` changed independently, synchronize it into `next` before publishing the final beta; a reconciliation after beta publication requires a new beta, forced with a `Release-As: X.Y.Z-beta.N` commit footer when it has no independently releasable changes. After stable publication, the GitHub App opens a `main` to `next` synchronization PR.
+Promotion CI requires the published beta tag to resolve to `next` HEAD and requires its signed update-manifest assets. The gate waits up to 10 minutes for the fail-closed release pipeline to publish the beta, avoiding a race between the release and promotion workflows. The promotion pull-request body must contain an exact `Release-As: X.Y.Z` line matching the beta version without its suffix; GitHub must use the pull-request title and body as the merge-commit title and message so Release Please prepares that stable version. Together these checks prove there are no commits after the tested beta and make the stable transition deterministic. If `main` changed independently, synchronize it into `next` before publishing the final beta; a reconciliation after beta publication requires a new beta, forced with a `Release-As: X.Y.Z-beta.N` commit footer when it has no independently releasable changes. After stable publication, the GitHub App opens a `main` to `next` synchronization PR.
 
 ## Automated release pipeline
 
@@ -53,7 +53,7 @@ Before enabling the workflow in GitHub:
 1. Create a repository-scoped GitHub App with Contents, Pull requests, and Issues read/write access, install it only on this repository, set its ID as the `RELEASE_APP_ID` repository variable, and store its private key as the `RELEASE_APP_PRIVATE_KEY` repository secret.
 2. Create the protected `release-signing` environment and store the existing RSA private key as its `SIGN_KEY` secret. Restrict environment deployment to `main` and `next`; require maintainer approval if the repository's threat model needs it.
 3. Merge the automation to `main`, create `next` from that exact commit, and protect both branches. Require `CI` checks, one or more reviews, resolved conversations, and block ordinary direct pushes. Allow the installed release App only where automation needs it.
-4. Enable squash merge for normal work into `next` and merge commits for the `next` to `main` promotion PR.
+4. Enable squash merge for normal work into `next` and merge commits for the `next` to `main` promotion PR. Configure merge-commit titles from the pull-request title and merge-commit messages from the pull-request body so the validated stable `Release-As` footer reaches Release Please.
 5. Publish and exercise `v2.5.0-beta.1`, including `/update` and rollback on each packaged target. Promote only after those checks pass.
 
 ## Documentation checks

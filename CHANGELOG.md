@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1-beta.4](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.1-beta.3...v2.5.1-beta.4) (2026-08-29)
+
+
+### Miscellaneous
+
+* checkpoint v2.5.1-beta.4 for stable promotion ([#294](https://github.com/arespawn/WhatsAppToDiscord/issues/294)) ([c932761](https://github.com/arespawn/WhatsAppToDiscord/commit/c932761b5bfdfb9a9e392b4459215cbe02382237))
+
 ## [2.5.1-beta.3](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.1-beta.2...v2.5.1-beta.3) (2026-08-29)
 
 

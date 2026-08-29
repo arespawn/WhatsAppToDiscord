@@ -33,6 +33,18 @@ import { createWhatsAppGifToDiscordFileNormalizer } from "./internal/whatsappGif
 import messageStore from "./messageStore.js";
 import state from "./state.js";
 import storage from "./storage.js";
+import {
+	compareVersionTags,
+	getReleasePlatformKey,
+	getReleaseTarget,
+	parseVersionTag,
+	RELEASE_VERSION_PATTERN,
+	requiresUpdateManifest,
+	sha256File,
+	UPDATE_MANIFEST_NAME,
+	UPDATE_MANIFEST_SIGNATURE_NAME,
+	validateUpdateManifest,
+} from "./updateManifest.js";
 
 const {
 	ActionRowBuilder,
@@ -1549,68 +1561,6 @@ function stopDownloadServer() {
 	}
 }
 
-const parseVersionTag = (tag = "") => {
-	const normalized = String(tag).trim().replace(/^v/i, "");
-	const match = normalized.match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?$/);
-	if (!match) return null;
-	const prerelease = match[4]
-		? match[4]
-				.split(".")
-				.filter(Boolean)
-				.map((identifier) =>
-					/^\d+$/.test(identifier) ? Number(identifier) : identifier,
-				)
-		: [];
-	return {
-		major: Number(match[1]),
-		minor: Number(match[2]),
-		patch: Number(match[3]),
-		prerelease,
-	};
-};
-
-const comparePrereleaseIdentifiers = (aIdentifiers = [], bIdentifiers = []) => {
-	const a = Array.isArray(aIdentifiers) ? aIdentifiers : [];
-	const b = Array.isArray(bIdentifiers) ? bIdentifiers : [];
-	const maxLen = Math.max(a.length, b.length);
-	for (let index = 0; index < maxLen; index += 1) {
-		const left = a[index];
-		const right = b[index];
-		if (typeof left === "undefined" && typeof right === "undefined") return 0;
-		if (typeof left === "undefined") return -1;
-		if (typeof right === "undefined") return 1;
-		if (left === right) continue;
-
-		const leftIsNumber = typeof left === "number";
-		const rightIsNumber = typeof right === "number";
-		if (leftIsNumber && rightIsNumber) {
-			return left > right ? 1 : -1;
-		}
-		if (leftIsNumber) return -1;
-		if (rightIsNumber) return 1;
-		const lexical = String(left).localeCompare(String(right));
-		if (lexical !== 0) return lexical > 0 ? 1 : -1;
-	}
-	return 0;
-};
-
-const compareVersionTags = (leftTag = "", rightTag = "") => {
-	const left = parseVersionTag(leftTag);
-	const right = parseVersionTag(rightTag);
-	if (!left || !right) return 0;
-
-	if (left.major !== right.major) return left.major > right.major ? 1 : -1;
-	if (left.minor !== right.minor) return left.minor > right.minor ? 1 : -1;
-	if (left.patch !== right.patch) return left.patch > right.patch ? 1 : -1;
-
-	const leftHasPrerelease = left.prerelease.length > 0;
-	const rightHasPrerelease = right.prerelease.length > 0;
-	if (!leftHasPrerelease && rightHasPrerelease) return 1;
-	if (leftHasPrerelease && !rightHasPrerelease) return -1;
-	if (!leftHasPrerelease && !rightHasPrerelease) return 0;
-	return comparePrereleaseIdentifiers(left.prerelease, right.prerelease);
-};
-
 const releaseSortTimestamp = (release = {}) => {
 	const published = Date.parse(release.published_at || "");
 	if (Number.isFinite(published)) return published;
@@ -1647,7 +1597,7 @@ const updater = {
 	currentExeName: process.argv0.split(/[/\\]/).pop(),
 
 	get supportsSignedSelfUpdate() {
-		return true;
+		return Boolean(getReleaseTarget(os.platform(), process.arch));
 	},
 
 	getCurrentExecutablePath() {
@@ -1847,42 +1797,48 @@ const updater = {
 	},
 
 	async fetchLatestVersion(channel = this.channel) {
-		const response = await requests.fetchJson(
-			"https://api.github.com/repos/arespawn/WhatsAppToDiscord/releases?per_page=20",
-		);
+		const endpoint =
+			channel === "unstable"
+				? "https://api.github.com/repos/arespawn/WhatsAppToDiscord/releases?per_page=100"
+				: "https://api.github.com/repos/arespawn/WhatsAppToDiscord/releases/latest";
+		const response = await requests.fetchJson(endpoint);
 		if ("error" in response) {
-			state.logger.error(response.error);
+			state.logger?.error(response.error);
 			return null;
 		}
 
-		const releases = Array.isArray(response.result)
-			? response.result.filter((release) => !release.draft)
-			: [];
+		const releases =
+			channel === "unstable"
+				? Array.isArray(response.result)
+					? response.result.filter((release) => !release.draft)
+					: []
+				: response.result &&
+						!response.result.draft &&
+						!response.result.prerelease
+					? [response.result]
+					: [];
 
 		if (!releases.length) {
-			state.logger.error("No releases found when checking for updates.");
+			state.logger?.error("No releases found when checking for updates.");
 			return null;
 		}
 
-		const sortedReleases = [...releases].sort((left, right) =>
-			compareReleases(right, left),
-		);
-		const sortedByTimestamp = [...releases].sort(
-			(left, right) => releaseSortTimestamp(right) - releaseSortTimestamp(left),
-		);
+		const release =
+			channel === "unstable"
+				? [...releases]
+						.filter(
+							(entry) =>
+								entry.prerelease &&
+								/^v\d+\.\d+\.\d+-beta\.\d+$/u.test(entry.tag_name || ""),
+						)
+						.sort((left, right) => compareReleases(right, left))[0] ||
+					[...releases]
+						.sort((left, right) => compareReleases(right, left))
+						.find((entry) => !entry.prerelease)
+				: releases[0];
 
-		let release;
-		if (channel === "unstable") {
-			release =
-				sortedByTimestamp.find((rel) => rel.prerelease) ||
-				sortedReleases.find((rel) => !rel.prerelease);
-		} else {
-			release =
-				sortedReleases.find((rel) => !rel.prerelease) || sortedReleases[0];
-		}
-
-		if (!release?.tag_name) {
-			state.logger.error("Tag name wasn't in result");
+		if (!release?.tag_name || !RELEASE_VERSION_PATTERN.test(release.tag_name)) {
+			state.logger?.error("Tag name wasn't in result");
 			return null;
 		}
 
@@ -1891,40 +1847,12 @@ const updater = {
 			changes: release.body || "No changelog provided.",
 			url: release.html_url,
 			prerelease: Boolean(release.prerelease),
-			channel,
+			channel: release.prerelease ? "unstable" : "stable",
 		};
 	},
 
 	get defaultExeName() {
-		let name = "WA2DC";
-		switch (os.platform()) {
-			case "linux":
-				name += "-Linux";
-				break;
-			case "darwin":
-				name += "-macOS";
-				break;
-			case "win32":
-				break;
-			default:
-				return "";
-		}
-
-		switch (process.arch) {
-			case "arm64":
-				name += "-arm64";
-				break;
-			case "x64":
-				break;
-			default:
-				return "";
-		}
-
-		if (os.platform() === "win32") {
-			name += ".exe";
-		}
-
-		return name;
+		return getReleaseTarget(os.platform(), process.arch)?.executableName || "";
 	},
 
 	buildDownloadUrl(versionTag, name) {
@@ -1934,16 +1862,31 @@ const updater = {
 		return `https://github.com/arespawn/WhatsAppToDiscord/releases/download/${versionTag}/${name}`;
 	},
 
-	async downloadLatestVersion(defaultExeName, targetPath, versionTag) {
+	getChannelForVersion(versionTag) {
+		return parseVersionTag(versionTag)?.prerelease.length
+			? "unstable"
+			: "stable";
+	},
+
+	async downloadReleaseAsset(name, targetPath, versionTag) {
 		return requests.downloadFile(
 			targetPath,
-			this.buildDownloadUrl(versionTag, defaultExeName),
+			this.buildDownloadUrl(versionTag, name),
 		);
 	},
 
+	async fetchReleaseAsset(name, versionTag) {
+		return requests.fetchBuffer(this.buildDownloadUrl(versionTag, name));
+	},
+
+	async downloadLatestVersion(defaultExeName, targetPath, versionTag) {
+		return this.downloadReleaseAsset(defaultExeName, targetPath, versionTag);
+	},
+
 	async downloadSignature(defaultExeName, versionTag) {
-		const signature = await requests.fetchBuffer(
-			this.buildDownloadUrl(versionTag, `${defaultExeName}.sig`),
+		const signature = await this.fetchReleaseAsset(
+			`${defaultExeName}.sig`,
+			versionTag,
 		);
 		if ("error" in signature) {
 			state.logger?.error("Couldn't fetch the signature of the update.");
@@ -1953,19 +1896,18 @@ const updater = {
 	},
 
 	async downloadRuntimeArchive(defaultExeName, targetPath, versionTag) {
-		return requests.downloadFile(
+		return this.downloadReleaseAsset(
+			this.getRuntimeArchiveName(defaultExeName),
 			targetPath,
-			this.buildDownloadUrl(
-				versionTag,
-				this.getRuntimeArchiveName(defaultExeName),
-			),
+			versionTag,
 		);
 	},
 
 	async downloadRuntimeArchiveSignature(defaultExeName, versionTag) {
 		const archiveName = this.getRuntimeArchiveName(defaultExeName);
-		const signature = await requests.fetchBuffer(
-			this.buildDownloadUrl(versionTag, `${archiveName}.sig`),
+		const signature = await this.fetchReleaseAsset(
+			`${archiveName}.sig`,
+			versionTag,
 		);
 		if ("error" in signature) {
 			state.logger?.error(
@@ -1974,6 +1916,149 @@ const updater = {
 			return false;
 		}
 		return signature;
+	},
+
+	validateBufferSignature(signature, payload) {
+		return crypto.verify("RSA-SHA256", payload, this.publicKey, signature);
+	},
+
+	async fetchVerifiedUpdateManifest(versionTag, channel) {
+		const manifestResponse = await this.fetchReleaseAsset(
+			UPDATE_MANIFEST_NAME,
+			versionTag,
+		);
+		if ("error" in manifestResponse) {
+			throw new Error("update_manifest_download_failed", {
+				cause: manifestResponse.error,
+			});
+		}
+		const signatureResponse = await this.fetchReleaseAsset(
+			UPDATE_MANIFEST_SIGNATURE_NAME,
+			versionTag,
+		);
+		if ("error" in signatureResponse) {
+			throw new Error("update_manifest_signature_missing", {
+				cause: signatureResponse.error,
+			});
+		}
+		if (
+			!this.validateBufferSignature(
+				signatureResponse.result,
+				manifestResponse.result,
+			)
+		) {
+			throw new Error("update_manifest_signature_invalid");
+		}
+
+		let manifest;
+		try {
+			manifest = JSON.parse(manifestResponse.result.toString("utf8"));
+		} catch (err) {
+			throw new Error("update_manifest_json_invalid", { cause: err });
+		}
+		const selected = validateUpdateManifest(manifest, {
+			version: versionTag,
+			channel,
+			platform: os.platform(),
+			arch: process.arch,
+		});
+		return { manifest, selected };
+	},
+
+	async resolveReleaseAssetPlan(versionTag, channel) {
+		const target = getReleaseTarget(os.platform(), process.arch);
+		if (!target) {
+			throw new Error(
+				`unsupported_update_platform:${getReleasePlatformKey(os.platform(), process.arch)}`,
+			);
+		}
+		if (requiresUpdateManifest(versionTag)) {
+			const { selected } = await this.fetchVerifiedUpdateManifest(
+				versionTag,
+				channel,
+			);
+			return selected;
+		}
+
+		const executableName = target.executableName;
+		const runtimeName = this.getRuntimeArchiveName(executableName);
+		return {
+			executable: {
+				name: executableName,
+				signature: `${executableName}.sig`,
+			},
+			runtime: {
+				name: runtimeName,
+				signature: `${runtimeName}.sig`,
+			},
+		};
+	},
+
+	async validateStagedAsset(filePath, descriptor, versionTag) {
+		const stats = await fs.promises.stat(filePath);
+		if (!stats.isFile() || stats.size <= 0) {
+			throw new Error(`release_asset_empty:${descriptor.name}`);
+		}
+		if (descriptor.size != null && stats.size !== descriptor.size) {
+			throw new Error(`release_asset_size_mismatch:${descriptor.name}`);
+		}
+		if (
+			descriptor.sha256 &&
+			(await sha256File(filePath)) !== descriptor.sha256
+		) {
+			throw new Error(`release_asset_hash_mismatch:${descriptor.name}`);
+		}
+		const signature = await this.fetchReleaseAsset(
+			descriptor.signature,
+			versionTag,
+		);
+		if ("error" in signature) {
+			throw new Error(`release_asset_signature_missing:${descriptor.name}`, {
+				cause: signature.error,
+			});
+		}
+		if (!this.validateSignature(signature.result, filePath)) {
+			throw new Error(`release_asset_signature_invalid:${descriptor.name}`);
+		}
+	},
+
+	async stageReleaseArtifacts(
+		versionTag,
+		{ channel = this.getChannelForVersion(versionTag), executable = true } = {},
+	) {
+		const plan = await this.resolveReleaseAssetPlan(versionTag, channel);
+		const directory = await fs.promises.mkdtemp(
+			path.join(os.tmpdir(), "wa2dc-update-stage-"),
+		);
+		await fs.promises.chmod(directory, 0o700);
+		const staged = {
+			directory,
+			executablePath: null,
+			runtimeArchivePath: null,
+		};
+		try {
+			const descriptors = executable
+				? [plan.executable, plan.runtime]
+				: [plan.runtime];
+			for (const descriptor of descriptors) {
+				const filePath = path.join(directory, descriptor.name);
+				const downloaded = await this.downloadReleaseAsset(
+					descriptor.name,
+					filePath,
+					versionTag,
+				);
+				if (!downloaded) {
+					throw new Error(`release_asset_download_failed:${descriptor.name}`);
+				}
+				await this.validateStagedAsset(filePath, descriptor, versionTag);
+				if (descriptor === plan.executable) staged.executablePath = filePath;
+				if (descriptor === plan.runtime) staged.runtimeArchivePath = filePath;
+			}
+			return staged;
+		} catch (err) {
+			await fs.promises.rm(directory, { recursive: true, force: true });
+			throw err;
+		}
 	},
 
 	async installRuntimeArchive(archivePath) {
@@ -2033,12 +2118,12 @@ const updater = {
 			typeof versionTag === "string" && versionTag.trim()
 				? versionTag.trim()
 				: null;
-		const defaultExeName = this.defaultExeName;
-		if (!normalizedVersion || !defaultExeName) {
+		if (!normalizedVersion || !this.supportsSignedSelfUpdate) {
 			state.logger?.warn?.(
 				{
 					versionTag: normalizedVersion,
-					defaultExeName,
+					platform: os.platform(),
+					arch: process.arch,
 				},
 				"Packaged runtime sidecar is unavailable and could not be bootstrapped automatically.",
 			);
@@ -2053,43 +2138,24 @@ const updater = {
 			"Packaged runtime sidecar missing or unusable; attempting signed bootstrap.",
 		);
 
-		let backedUp = false;
+		let staged;
 		try {
-			backedUp = await this.backupRuntimeSidecar();
+			staged = await this.stageReleaseArtifacts(normalizedVersion, {
+				channel: this.getChannelForVersion(normalizedVersion),
+				executable: false,
+			});
 		} catch (err) {
 			state.logger?.warn?.(
-				{ err },
-				"Failed to prepare packaged runtime sidecar backup before bootstrap.",
+				{ err, versionTag: normalizedVersion },
+				"Failed to download and verify the packaged runtime sidecar.",
 			);
 			return false;
 		}
 
-		const runtimeArchiveName = this.getRuntimeArchiveName(defaultExeName);
-		const runtimeArchivePath = path.join(os.tmpdir(), runtimeArchiveName);
+		let backedUp = false;
 		try {
-			await fs.promises.rm(runtimeArchivePath, { force: true });
-			const runtimeDownloadStatus = await this.downloadRuntimeArchive(
-				defaultExeName,
-				runtimeArchivePath,
-				normalizedVersion,
-			);
-			if (!runtimeDownloadStatus) {
-				throw new Error("runtime_archive_download_failed");
-			}
-			const runtimeSignature = await this.downloadRuntimeArchiveSignature(
-				defaultExeName,
-				normalizedVersion,
-			);
-			if (!runtimeSignature) {
-				throw new Error("runtime_archive_signature_missing");
-			}
-			if (
-				!this.validateSignature(runtimeSignature.result, runtimeArchivePath)
-			) {
-				throw new Error("runtime_archive_signature_invalid");
-			}
-
-			await this.installRuntimeArchive(runtimeArchivePath);
+			backedUp = await this.backupRuntimeSidecar();
+			await this.installRuntimeArchive(staged.runtimeArchivePath);
 			if (!this.isRuntimeSidecarUsable()) {
 				throw new Error("runtime_sidecar_unusable_after_install");
 			}
@@ -2134,7 +2200,9 @@ const updater = {
 			}
 			return false;
 		} finally {
-			await fs.promises.rm(runtimeArchivePath, { force: true }).catch(() => {});
+			await fs.promises
+				.rm(staged.directory, { recursive: true, force: true })
+				.catch(() => {});
 		}
 	},
 
@@ -2147,7 +2215,13 @@ const updater = {
 		);
 	},
 
-	async update(targetVersion = state.updateInfo?.version) {
+	async update(
+		targetVersion = state.updateInfo?.version,
+		{
+			channel = state.updateInfo?.channel ||
+				this.getChannelForVersion(targetVersion),
+		} = {},
+	) {
 		if (this.isNode) {
 			state.logger?.info(
 				"Self-update is only available for packaged binaries.",
@@ -2161,125 +2235,65 @@ const updater = {
 			return false;
 		}
 
-		const currExePath = this.getCurrentExecutablePath();
-		const defaultExeName = this.defaultExeName;
-		if (!defaultExeName) {
+		if (!RELEASE_VERSION_PATTERN.test(targetVersion || "")) {
+			state.logger?.error("The requested update version is invalid.");
+			return false;
+		}
+		if (channel !== this.getChannelForVersion(targetVersion)) {
+			state.logger?.error(
+				"The requested update channel does not match its version.",
+			);
+			return false;
+		}
+		if (
+			parseVersionTag(state.version) &&
+			compareVersionTags(targetVersion, state.version) <= 0
+		) {
 			state.logger?.info(
-				`Auto-update is not supported on this platform: ${os.platform()}`,
+				"The requested update is not newer than this installation.",
 			);
 			return false;
 		}
 
+		let staged;
 		try {
-			await this.renameOldVersion();
+			staged = await this.stageReleaseArtifacts(targetVersion, { channel });
+		} catch (err) {
+			state.logger?.error(
+				{ err },
+				"Failed to download and verify the requested update.",
+			);
+			return false;
+		}
+
+		const currExePath = this.getCurrentExecutablePath();
+		let executableBackedUp = false;
+		try {
+			executableBackedUp = await this.renameOldVersion();
+			if (!executableBackedUp) {
+				throw new Error("current_executable_missing");
+			}
 			await this.backupRuntimeSidecar();
-		} catch (err) {
-			state.logger?.error(
-				{ err },
-				"Failed to prepare current packaged install for update.",
-			);
-			await this.revertChanges();
-			return false;
-		}
-
-		let downloadStatus;
-		try {
-			downloadStatus = await this.downloadLatestVersion(
-				defaultExeName,
-				currExePath,
-				targetVersion,
-			);
-		} catch (err) {
-			state.logger?.error({ err }, "Download failed! Skipping update.");
-			await this.revertChanges();
-			return false;
-		}
-
-		if (!downloadStatus) {
-			state.logger?.error("Download failed! Skipping update.");
-			await this.revertChanges();
-			return false;
-		}
-		if (os.platform() !== "win32") {
-			try {
+			await movePathWithCrossDeviceFallback(staged.executablePath, currExePath);
+			if (os.platform() !== "win32") {
 				await fs.promises.chmod(currExePath, 0o755);
-			} catch (err) {
-				state.logger?.error(
-					{ err },
-					"Failed to mark the updated binary as executable.",
-				);
-				await this.revertChanges();
-				return false;
 			}
-		}
-
-		const signature = await this.downloadSignature(
-			defaultExeName,
-			targetVersion,
-		);
-		if (!signature) {
-			state.logger?.error(
-				"Missing signature for the requested update. Reverting back.",
-			);
-			await this.revertChanges();
-			return false;
-		}
-		if (!this.validateSignature(signature.result, currExePath)) {
-			state.logger?.error(
-				"Couldn't verify the signature of the updated binary, reverting back. Please update manually.",
-			);
-			await this.revertChanges();
-			return false;
-		}
-
-		const runtimeArchiveName = this.getRuntimeArchiveName(defaultExeName);
-		const runtimeArchivePath = path.join(os.tmpdir(), runtimeArchiveName);
-		try {
-			await fs.promises.rm(runtimeArchivePath, { force: true });
-			const runtimeDownloadStatus = await this.downloadRuntimeArchive(
-				defaultExeName,
-				runtimeArchivePath,
-				targetVersion,
-			);
-			if (!runtimeDownloadStatus) {
-				state.logger?.error(
-					"Download failed for the packaged runtime sidecar. Reverting back.",
-				);
-				await this.revertChanges();
-				return false;
-			}
-
-			const runtimeSignature = await this.downloadRuntimeArchiveSignature(
-				defaultExeName,
-				targetVersion,
-			);
-			if (!runtimeSignature) {
-				state.logger?.error(
-					"Missing signature for the packaged runtime sidecar update. Reverting back.",
-				);
-				await this.revertChanges();
-				return false;
-			}
-			if (
-				!this.validateSignature(runtimeSignature.result, runtimeArchivePath)
-			) {
-				state.logger?.error(
-					"Couldn't verify the signature of the packaged runtime sidecar update, reverting back. Please update manually.",
-				);
-				await this.revertChanges();
-				return false;
-			}
-
-			await this.installRuntimeArchive(runtimeArchivePath);
+			await this.installRuntimeArchive(staged.runtimeArchivePath);
 		} catch (err) {
 			state.logger?.error(
 				{ err },
-				"Failed to install the packaged runtime sidecar update. Reverting back.",
+				"Failed to install the verified update. Reverting back.",
 			);
-			await this.revertChanges();
+			if (executableBackedUp) {
+				await this.revertChanges().catch((revertErr) =>
+					state.logger?.error({ err: revertErr }, "Update rollback failed."),
+				);
+			}
 			return false;
 		} finally {
-			await fs.promises.rm(runtimeArchivePath, { force: true }).catch(() => {});
+			await fs.promises
+				.rm(staged.directory, { recursive: true, force: true })
+				.catch(() => {});
 		}
 		this.cleanOldVersion();
 		return true;
@@ -2338,7 +2352,7 @@ const updater = {
 			return;
 		}
 
-		if (newVer.version === currVer) {
+		if (compareVersionTags(newVer.version, currVer) <= 0) {
 			state.updateInfo = null;
 			return;
 		}
@@ -2380,7 +2394,7 @@ const updater = {
 		const urlLine = updateInfo.url ? `See ${updateInfo.url}` : null;
 		const footer = updateInfo.canSelfUpdate
 			? "Use /update or the buttons below to install, or /skipupdate to ignore."
-			: "This instance cannot self-update (Docker/source install). Pull the new image or binary for this release and restart. Use Skip Update to dismiss this reminder.";
+			: "This installation or platform cannot self-update. Pull the new image or install a supported release binary manually, then restart. Use Skip Update to dismiss this reminder.";
 
 		const rawChanges =
 			typeof updateInfo.changes === "string"
@@ -3665,19 +3679,22 @@ const discord = {
 			return;
 		}
 		const content = updater.formatUpdateMessage(updateInfo);
-		const components = [
-			new ActionRowBuilder().addComponents(
+		const buttons = [];
+		if (updateInfo.canSelfUpdate) {
+			buttons.push(
 				new ButtonBuilder()
 					.setCustomId(UPDATE_BUTTON_IDS.APPLY)
 					.setLabel("Update")
-					.setStyle(ButtonStyle.Primary)
-					.setDisabled(!updateInfo.canSelfUpdate),
-				new ButtonBuilder()
-					.setCustomId(UPDATE_BUTTON_IDS.SKIP)
-					.setLabel("Skip update")
-					.setStyle(ButtonStyle.Secondary),
-			),
-		];
+					.setStyle(ButtonStyle.Primary),
+			);
+		}
+		buttons.push(
+			new ButtonBuilder()
+				.setCustomId(UPDATE_BUTTON_IDS.SKIP)
+				.setLabel("Skip update")
+				.setStyle(ButtonStyle.Secondary),
+		);
+		const components = [new ActionRowBuilder().addComponents(...buttons)];
 
 		let message = await this._fetchUpdatePromptMessage();
 		if (message) {
@@ -5553,7 +5570,15 @@ const whatsapp = {
 const requests = {
 	async fetchJson(url, options) {
 		return fetch(url, options)
-			.then((resp) => resp.json())
+			.then((resp) => {
+				if (!resp.ok) {
+					throw Object.assign(
+						new Error(`Request failed with HTTP ${resp.status}: ${url}`),
+						{ status: resp.status },
+					);
+				}
+				return resp.json();
+			})
 			.then((result) => ({ result }))
 			.catch((error) => {
 				state.logger?.error(error);
@@ -5563,7 +5588,15 @@ const requests = {
 
 	async fetchText(url, options) {
 		return fetch(url, options)
-			.then((resp) => resp.text())
+			.then((resp) => {
+				if (!resp.ok) {
+					throw Object.assign(
+						new Error(`Request failed with HTTP ${resp.status}: ${url}`),
+						{ status: resp.status },
+					);
+				}
+				return resp.text();
+			})
 			.then((result) => ({ result }))
 			.catch((error) => {
 				state.logger?.error(error);
@@ -5573,7 +5606,15 @@ const requests = {
 
 	async fetchBuffer(url, options) {
 		return fetch(url, options)
-			.then((resp) => resp.arrayBuffer())
+			.then((resp) => {
+				if (!resp.ok) {
+					throw Object.assign(
+						new Error(`Request failed with HTTP ${resp.status}: ${url}`),
+						{ status: resp.status },
+					);
+				}
+				return resp.arrayBuffer();
+			})
 			.then((buffer) => Buffer.from(buffer))
 			.then((result) => ({ result }))
 			.catch((error) => {
@@ -5588,7 +5629,15 @@ const requests = {
 
 	async downloadFile(path, url, options) {
 		const readable = await fetch(url, options)
-			.then((resp) => resp.body)
+			.then((resp) => {
+				if (!resp.ok) {
+					throw Object.assign(
+						new Error(`Request failed with HTTP ${resp.status}: ${url}`),
+						{ status: resp.status },
+					);
+				}
+				return resp.body;
+			})
 			.catch((error) => {
 				state.logger?.error(error);
 				return null;

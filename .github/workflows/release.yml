@@ -1,0 +1,306 @@
+name: Release
+
+on:
+  push:
+    branches: [main, next]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag to resume
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release_please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Generate release-app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - name: Create or update release PR
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          target-branch: ${{ github.ref_name }}
+          manifest-file: .release-please-manifest.json
+          config-file: ${{ github.ref_name == 'next' && 'release-please-config.beta.json' || 'release-please-config.stable.json' }}
+
+  resolve:
+    needs: release_please
+    if: always() && (needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+      channel: ${{ steps.release.outputs.channel }}
+      branch: ${{ steps.release.outputs.branch }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.tag || needs.release_please.outputs.tag_name }}
+      - name: Validate draft release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.tag || needs.release_please.outputs.tag_name }}
+        shell: bash
+        run: |
+          tag="$REQUESTED_TAG"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "Invalid stable/beta tag: $tag" >&2
+            exit 1
+          fi
+          sha="$(git rev-list -n 1 "$tag")"
+          version="$(node -p "require('./package.json').version")"
+          if [[ "$tag" != "v$version" ]]; then
+            echo "Tag $tag does not match package.json version $version" >&2
+            exit 1
+          fi
+          if [[ "$tag" == *-beta.* ]]; then
+            channel="unstable"
+            branch="next"
+          else
+            channel="stable"
+            branch="main"
+          fi
+          git fetch origin "$branch" --no-tags
+          git merge-base --is-ancestor "$sha" "origin/$branch"
+          published_releases="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 --json tagName,isPrerelease)"
+          PUBLISHED_RELEASES="$published_releases" RELEASE_TAG="$tag" RELEASE_CHANNEL="$channel" node --input-type=module -e '
+            import { compareVersionTags } from "./src/updateManifest.js";
+            const releases = JSON.parse(process.env.PUBLISHED_RELEASES || "[]");
+            const betaTag = /^v\d+\.\d+\.\d+-beta\.\d+$/u;
+            const sameChannel = releases.filter((release) =>
+              process.env.RELEASE_CHANNEL === "unstable"
+                ? release.isPrerelease && betaTag.test(release.tagName)
+                : !release.isPrerelease && !release.tagName.includes("-"),
+            );
+            if (sameChannel.some((release) => compareVersionTags(release.tagName, process.env.RELEASE_TAG) > 0)) {
+              throw new Error(`A newer ${process.env.RELEASE_CHANNEL} release is already published; refusing recovery downgrade of ${process.env.RELEASE_TAG}.`);
+            }
+          '
+          release_json="$(gh release view "$tag" --json isDraft,isPrerelease,targetCommitish)"
+          jq -e '.isDraft == true' <<<"$release_json" >/dev/null
+          if [[ "$channel" == "unstable" ]]; then
+            jq -e '.isPrerelease == true' <<<"$release_json" >/dev/null
+          else
+            jq -e '.isPrerelease == false' <<<"$release_json" >/dev/null
+          fi
+          {
+            echo "tag=$tag"
+            echo "sha=$sha"
+            echo "channel=$channel"
+            echo "branch=$branch"
+          } >> "$GITHUB_OUTPUT"
+
+  verify:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run ci:check
+      - run: npm run docs:check
+      - run: npm test
+      - run: npm run bundle
+      - name: Run bundled watchdog smoke
+        shell: bash
+        run: |
+          smoke_dir="$(mktemp -d)"
+          cd "$smoke_dir"
+          WA2DC_SMOKE_TEST=1 node "$GITHUB_WORKSPACE/out.js"
+
+  build:
+    needs: [resolve, verify]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            binary: WA2DC-Linux
+          - runner: ubuntu-24.04-arm
+            binary: WA2DC-Linux-arm64
+          - runner: macos-15-intel
+            binary: WA2DC-macOS
+          - runner: windows-2025
+            binary: WA2DC.exe
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build:bin:smoke
+      - name: Archive the smoke-tested runtime
+        run: node scripts/buildRuntimeArchive.js --source build/runtime --output "build/${{ matrix.binary }}.runtime.tar.gz"
+      - name: Upload unsigned release pair
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-${{ matrix.binary }}
+          path: |
+            build/${{ matrix.binary }}
+            build/${{ matrix.binary }}.runtime.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    needs: [resolve, build]
+    runs-on: ubuntu-24.04
+    environment: release-signing
+    permissions:
+      contents: write
+      attestations: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Download all native builds
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release-*
+          path: build/release
+          merge-multiple: true
+      - name: Sign assets and create signed update manifest
+        env:
+          SIGN_KEY: ${{ secrets.SIGN_KEY }}
+        run: node scripts/prepareReleaseAssets.js --directory build/release --version "${{ needs.resolve.outputs.tag }}" --commit "${{ needs.resolve.outputs.sha }}" --channel "${{ needs.resolve.outputs.channel }}"
+      - name: Attest release assets
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-path: build/release/*
+      - name: Upload assets to draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        shell: bash
+        run: gh release upload "$RELEASE_TAG" build/release/* --clobber
+
+  docker:
+    needs: [resolve, sign]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+      - name: Resolve image tags
+        id: image
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_CHANNEL: ${{ needs.resolve.outputs.channel }}
+        shell: bash
+        run: |
+          repository="${GITHUB_REPOSITORY,,}"
+          {
+            echo "tags<<EOF"
+            echo "ghcr.io/$repository:$RELEASE_TAG"
+            echo "ghcr.io/$repository:$RELEASE_CHANNEL"
+            if [[ "$RELEASE_CHANNEL" == "stable" ]]; then
+              echo "ghcr.io/$repository:latest"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Build and publish container
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: mode=max
+          sbom: true
+
+  publish:
+    needs: [resolve, sign, docker]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Publish completed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_CHANNEL: ${{ needs.resolve.outputs.channel }}
+        shell: bash
+        run: |
+          if [[ "$RELEASE_CHANNEL" == "unstable" ]]; then
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=true --latest=false --verify-tag
+          else
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease=false --latest=true --verify-tag
+          fi
+
+  sync_next:
+    needs: [resolve, publish]
+    if: needs.resolve.outputs.channel == 'stable'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Generate release-app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - name: Open main-to-next synchronization PR
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+        shell: bash
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/branches/next" >/dev/null
+          existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base next --head main --state open --json number --jq '.[0].number // empty')"
+          if [[ -z "$existing" ]]; then
+            gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
+              --base next \
+              --head main \
+              --title "chore(release): sync $RELEASE_TAG back to next" \
+              --body "Synchronizes the published stable release back into the prerelease branch so the next beta cycle starts from $RELEASE_TAG."
+          fi

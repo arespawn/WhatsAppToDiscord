@@ -33,6 +33,7 @@ const main = async () => {
 	const targetOs = args.os || null;
 	const targetCpu = args.cpu || null;
 	const targetLibc = args.libc || null;
+	const sourceRuntimeDir = args.source ? path.resolve(args.source) : null;
 	const tempRoot = fs.mkdtempSync(
 		path.join(os.tmpdir(), "wa2dc-runtime-archive-"),
 	);
@@ -40,11 +41,25 @@ const main = async () => {
 	const packageSpecs = getRuntimeSidecarPackageSpecs();
 
 	try {
-		prepareRuntimeSidecar(runtimeDir, packageSpecs, {
-			targetOs,
-			targetCpu,
-			targetLibc,
-		});
+		if (sourceRuntimeDir) {
+			const sourceStats = fs.statSync(sourceRuntimeDir);
+			if (!sourceStats.isDirectory()) {
+				throw new Error(
+					`Runtime source is not a directory: ${sourceRuntimeDir}`,
+				);
+			}
+			fs.accessSync(
+				path.join(sourceRuntimeDir, "package.json"),
+				fs.constants.F_OK,
+			);
+			fs.cpSync(sourceRuntimeDir, runtimeDir, { recursive: true });
+		} else {
+			prepareRuntimeSidecar(runtimeDir, packageSpecs, {
+				targetOs,
+				targetCpu,
+				targetLibc,
+			});
+		}
 
 		fs.mkdirSync(path.dirname(outputPath), { recursive: true });
 		await tar.create(

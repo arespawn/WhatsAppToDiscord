@@ -15,7 +15,8 @@ updates:
     labels:
       - "dependencies"
     commit-message:
-      prefix: "deps"
+      prefix: "fix"
+      include: "scope"
     ignore:
       - dependency-name: "discord.js"
       - dependency-name: "undici"

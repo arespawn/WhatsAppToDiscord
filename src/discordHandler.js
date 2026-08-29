@@ -5653,19 +5653,22 @@ const commandHandlers = {
 					);
 				} else {
 					const message = utils.updater.formatUpdateMessage(state.updateInfo);
-					const components = [
-						new ActionRowBuilder().addComponents(
+					const buttons = [];
+					if (state.updateInfo.canSelfUpdate) {
+						buttons.push(
 							new ButtonBuilder()
 								.setCustomId(UPDATE_BUTTON_IDS.APPLY)
 								.setLabel("Update")
-								.setStyle(ButtonStyle.Primary)
-								.setDisabled(!state.updateInfo.canSelfUpdate),
-							new ButtonBuilder()
-								.setCustomId(UPDATE_BUTTON_IDS.SKIP)
-								.setLabel("Skip update")
-								.setStyle(ButtonStyle.Secondary),
-						),
-					];
+								.setStyle(ButtonStyle.Primary),
+						);
+					}
+					buttons.push(
+						new ButtonBuilder()
+							.setCustomId(UPDATE_BUTTON_IDS.SKIP)
+							.setLabel("Skip update")
+							.setStyle(ButtonStyle.Secondary),
+					);
+					const components = [new ActionRowBuilder().addComponents(...buttons)];
 					await ctx.reply({ content: message, components });
 				}
 			} else {

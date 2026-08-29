@@ -1,0 +1,29 @@
+{
+	"$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+	"bootstrap-sha": "00e2c9fe55067e2b8e1c842b1a1da972999a0b63",
+	"packages": {
+		".": {
+			"release-type": "node",
+			"versioning": "prerelease",
+			"prerelease": false,
+			"prerelease-type": "beta.1",
+			"include-component-in-tag": false,
+			"draft": true,
+			"force-tag-creation": true,
+			"include-commit-authors": true,
+			"changelog-sections": [
+				{ "type": "feat", "section": "Features", "hidden": false },
+				{ "type": "fix", "section": "Bug Fixes", "hidden": false },
+				{ "type": "perf", "section": "Performance", "hidden": false },
+				{ "type": "revert", "section": "Reverts", "hidden": false },
+				{ "type": "deps", "section": "Dependencies", "hidden": false },
+				{ "type": "docs", "section": "Documentation", "hidden": false },
+				{ "type": "refactor", "section": "Refactoring", "hidden": false },
+				{ "type": "test", "section": "Tests", "hidden": true },
+				{ "type": "build", "section": "Build System", "hidden": true },
+				{ "type": "ci", "section": "Continuous Integration", "hidden": true },
+				{ "type": "chore", "section": "Miscellaneous", "hidden": true }
+			]
+		}
+	}
+}

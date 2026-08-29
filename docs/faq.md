@@ -114,7 +114,15 @@ No. WhatsApp Web does not expose live call audio or video streams. WA2DC can onl
 
 ### How are packaged updates rolled back?
 
-`/update` keeps the previous executable and matching runtime sidecar when possible. `/rollback` restores them manually; the watchdog also rolls back automatically after an unhealthy updated startup. Docker users should pin or pull an older image tag, and source users should check out an older revision.
+`/update` first downloads the complete executable/runtime pair to a private staging directory. It verifies the signed release manifest, size, SHA-256 hash, and RSA signature of each asset before changing the installation. It then keeps the previous executable and matching runtime sidecar when possible. `/rollback` restores them manually; the watchdog also rolls back automatically after an unhealthy updated startup. Docker users should pin or pull an older image tag, and source users should check out an older revision.
+
+### Why can I see an update but no Update button?
+
+In-app self-update is supported for Linux x64, Linux ARM64, macOS Intel, and Windows x64 packaged binaries. Docker, source installs, macOS ARM, Windows ARM, and other targets still receive release notifications but must update through their installation method. Stable users never receive a beta through the stable channel, and WA2DC will not offer a downgrade.
+
+### What is the difference between stable and unstable updates?
+
+`stable` follows published `vX.Y.Z` releases through GitHub's latest stable-release endpoint. `unstable` follows `vX.Y.Z-beta.N` releases from the `next` branch. Beta is the only prerelease phase. Every published release completes native smoke tests, signing, checksums, update-manifest generation, and container publication before its draft is made visible.
 
 ### How do I build a binary?
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.1-beta.3](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.1-beta.2...v2.5.1-beta.3) (2026-08-29)
+
+
+### Bug Fixes
+
+* bound graceful shutdown and watchdog exit ([#291](https://github.com/arespawn/WhatsAppToDiscord/issues/291)) ([c3c1d92](https://github.com/arespawn/WhatsAppToDiscord/commit/c3c1d92898cdba1b45cf0e19e8de4d6c9b63f6c0))
+
 ## [2.5.1-beta.2](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.1-beta.1...v2.5.1-beta.2) (2026-08-29)
 
 

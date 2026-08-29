@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.0-beta.3](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.0-beta.2...v2.5.0-beta.3) (2026-08-29)
+
+
+### Documentation
+
+* clarify final beta synchronization order ([#283](https://github.com/arespawn/WhatsAppToDiscord/issues/283)) ([210f38e](https://github.com/arespawn/WhatsAppToDiscord/commit/210f38e828f4f95bdd6113be852184994898da59))
+
 ## [2.5.0-beta.2](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.0-beta.1...v2.5.0-beta.2) (2026-08-29)
 
 

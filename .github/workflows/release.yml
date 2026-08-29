@@ -302,9 +302,21 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_SHA: ${{ needs.resolve.outputs.sha }}
         shell: bash
         run: |
-          gh api "repos/$GITHUB_REPOSITORY/branches/next" >/dev/null
+          if ! next_sha="$(gh api "repos/$GITHUB_REPOSITORY/branches/next" --jq '.commit.sha' 2>/dev/null)"; then
+            gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+              -f ref="refs/heads/next" \
+              -f sha="$RELEASE_SHA"
+            exit 0
+          fi
+
+          ahead_by="$(gh api "repos/$GITHUB_REPOSITORY/compare/next...main" --jq '.ahead_by')"
+          if [[ "$ahead_by" == "0" ]]; then
+            exit 0
+          fi
+
           existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --base next --head main --state open --json number --jq '.[0].number // empty')"
           if [[ -z "$existing" ]]; then
             gh pr create \

@@ -5,7 +5,6 @@
 
 ### Bug Fixes
 
-* harden stable promotion automation ([bead7f8](https://github.com/arespawn/WhatsAppToDiscord/commit/bead7f8baf4197de482edd1e544f6332bd57983e))
 * harden stable promotion automation ([#286](https://github.com/arespawn/WhatsAppToDiscord/issues/286)) ([793db34](https://github.com/arespawn/WhatsAppToDiscord/commit/793db342f0782f184696fdc763d15da10db78818))
 
 ## [2.5.0-beta.3](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.0-beta.2...v2.5.0-beta.3) (2026-08-29)

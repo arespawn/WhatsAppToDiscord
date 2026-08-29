@@ -52,7 +52,7 @@ All third-party actions are pinned to full commit SHAs. Dependabot maintains the
 
 Before enabling the workflow in GitHub:
 
-1. Create a repository-scoped GitHub App with Contents, Pull requests, and Issues read/write access, install it only on this repository, set its ID as the `RELEASE_APP_ID` repository variable, and store its private key as the `RELEASE_APP_PRIVATE_KEY` repository secret.
+1. Create a repository-scoped GitHub App with Contents, Pull requests, and Issues read/write access, install it only on this repository, set its Client ID as the `RELEASE_APP_CLIENT_ID` repository variable, and store its private key as the `RELEASE_APP_PRIVATE_KEY` repository secret.
 2. Create the protected `release-signing` environment and store the existing RSA private key as its `SIGN_KEY` secret. Restrict environment deployment to `main` and `next`; require maintainer approval if the repository's threat model needs it.
 3. Merge the automation to `main`, create `next` from that exact commit, and protect both branches. Require `CI` checks, one or more reviews, resolved conversations, and block ordinary direct pushes. Allow the installed release App only where automation needs it.
 4. Enable squash merge for normal work into `next` and merge commits for the `next` to `main` promotion PR. Configure merge-commit titles from the pull-request title and merge-commit messages from the pull-request body so the validated stable `Release-As` footer reaches Release Please. Disable automatic head-branch deletion: `next` is the long-lived promotion head, and deleting it can retarget its open pull requests to `main` before the post-release job runs.

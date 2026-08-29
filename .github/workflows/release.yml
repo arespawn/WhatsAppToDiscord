@@ -116,6 +116,7 @@ jobs:
 
   verify:
     needs: resolve
+    if: always() && needs.resolve.result == 'success'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -139,6 +140,7 @@ jobs:
 
   build:
     needs: [resolve, verify]
+    if: always() && needs.resolve.result == 'success' && needs.verify.result == 'success'
     strategy:
       fail-fast: false
       matrix:
@@ -176,6 +178,7 @@ jobs:
 
   sign:
     needs: [resolve, build]
+    if: always() && needs.resolve.result == 'success' && needs.build.result == 'success'
     runs-on: ubuntu-24.04
     environment: release-signing
     permissions:
@@ -214,6 +217,7 @@ jobs:
 
   docker:
     needs: [resolve, sign]
+    if: always() && needs.resolve.result == 'success' && needs.sign.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -259,6 +263,7 @@ jobs:
 
   publish:
     needs: [resolve, sign, docker]
+    if: always() && needs.resolve.result == 'success' && needs.sign.result == 'success' && needs.docker.result == 'success'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -278,7 +283,7 @@ jobs:
 
   sync_next:
     needs: [resolve, publish]
-    if: needs.resolve.outputs.channel == 'stable'
+    if: always() && needs.resolve.result == 'success' && needs.publish.result == 'success' && needs.resolve.outputs.channel == 'stable'
     runs-on: ubuntu-24.04
     permissions:
       contents: read

@@ -188,6 +188,16 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 		release,
 		/resolve:\r?\n[\s\S]*?permissions:\r?\n\s+# Draft releases[^\r\n]*\r?\n\s+contents: write/u,
 	);
+	for (const condition of [
+		"if: always() && needs.resolve.result == 'success'",
+		"if: always() && needs.resolve.result == 'success' && needs.verify.result == 'success'",
+		"if: always() && needs.resolve.result == 'success' && needs.build.result == 'success'",
+		"if: always() && needs.resolve.result == 'success' && needs.sign.result == 'success'",
+		"if: always() && needs.resolve.result == 'success' && needs.sign.result == 'success' && needs.docker.result == 'success'",
+		"if: always() && needs.resolve.result == 'success' && needs.publish.result == 'success' && needs.resolve.outputs.channel == 'stable'",
+	]) {
+		assert.ok(release.includes(condition), condition);
+	}
 	assert.match(dependabot, /prefix: "fix\(deps\)"/u);
 	assert.match(dependabot, /prefix-development: "fix\(deps\)"/u);
 	assert.doesNotMatch(dependabot, /include: "scope"/u);

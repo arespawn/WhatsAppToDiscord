@@ -18,11 +18,11 @@ Dependabot pull requests remain human-reviewed. Their accepted npm updates use `
 1. Merge reviewed work into `next` with squash merge.
 2. Release Please maintains a beta release PR on `next`, including the version and `CHANGELOG.md`.
 3. Merging that PR starts the fail-closed native build, signing, container, and draft-release pipeline. A successful run publishes `vX.Y.Z-beta.N` and moves the `unstable` container tag.
-4. Test the published beta. When it is ready, open a `next` to `main` pull request and merge it with a merge commit. Promotion CI requires `next` HEAD to be the published beta tag and to contain the signed update-manifest assets, so additional unreleased changes cannot be promoted accidentally.
+4. Test the published beta. When it is ready, open a `next` to `main` pull request with a `chore: promote ...` title and an exact `Release-As: X.Y.Z` line in its body, then merge it with a merge commit. Promotion CI requires the footer, requires `next` HEAD to be the published beta tag, and waits for its signed update-manifest assets, so an unpublished beta or additional unreleased changes cannot be promoted accidentally.
 5. Release Please maintains the stable release PR on `main`. Merging it publishes `vX.Y.Z`, `stable`, and `latest` only after all release jobs succeed.
 6. The release GitHub App opens a `main` to `next` synchronization PR. Merge it before starting the next beta cycle.
 
-Do not squash the `next` to `main` promotion PR: its constituent commits are the stable changelog input. Beta is the only prerelease phase; do not create automated alpha or release-candidate tags.
+Configure GitHub's default merge-commit title and message as the pull-request title and body so Release Please receives the required `Release-As` footer. Do not squash the `next` to `main` promotion PR: its constituent commits are the stable changelog input. Beta is the only prerelease phase; do not create automated alpha or release-candidate tags.
 
 ## Local validation
 

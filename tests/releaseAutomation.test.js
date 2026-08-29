@@ -182,6 +182,10 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 	);
 	assert.match(ci, /branches: \[main, next\]/u);
 	assert.match(ci, /scripts\/validatePrTitle\.js/u);
+	assert.match(ci, /PR_BODY:.*pull_request\.body/u);
+	assert.match(ci, /Release-As: \$stable_version/u);
+	assert.match(ci, /for attempt in \{1\.\.60\}/u);
+	assert.match(ci, /sleep 10/u);
 	assert.match(release, /workflow_dispatch:/u);
 	assert.match(release, /ubuntu-24\.04-arm/u);
 	assert.match(

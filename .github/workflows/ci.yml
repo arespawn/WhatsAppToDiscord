@@ -87,11 +87,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_BODY: ${{ github.event.pull_request.body }}
         shell: bash
         run: |
           version="$(node -p "require('./package.json').version")"
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
             echo "next must be promoted from a beta release commit; found $version" >&2
+            exit 1
+          fi
+          stable_version="${version%%-beta.*}"
+          if ! grep -Fqx "Release-As: $stable_version" <<<"$PR_BODY"; then
+            echo "promotion PR body must contain an exact Release-As: $stable_version line" >&2
             exit 1
           fi
           tag="v$version"
@@ -100,6 +106,16 @@ jobs:
             echo "$tag does not point to next HEAD ($HEAD_SHA)" >&2
             exit 1
           fi
-          release_json="$(gh release view "$tag" --json isDraft,isPrerelease,assets)"
-          jq -e '.isDraft == false and .isPrerelease == true' <<<"$release_json" >/dev/null
+          release_json=""
+          for attempt in {1..60}; do
+            if release_json="$(gh release view "$tag" --json isDraft,isPrerelease,assets 2>/dev/null)" \
+              && jq -e '.isDraft == false and .isPrerelease == true' <<<"$release_json" >/dev/null; then
+              break
+            fi
+            if [[ "$attempt" -eq 60 ]]; then
+              echo "$tag was not published as a prerelease within 10 minutes" >&2
+              exit 1
+            fi
+            sleep 10
+          done
           jq -e '[.assets[].name] | index("update-manifest.json") and index("update-manifest.json.sig")' <<<"$release_json" >/dev/null

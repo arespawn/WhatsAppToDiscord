@@ -14,7 +14,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref }}
+  group: release-${{ github.event_name == 'workflow_dispatch' && (contains(inputs.tag, '-beta.') && 'next' || 'main') || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
 
   resolve:
     needs: release_please
-    if: always() && (needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch')
+    if: ${{ !cancelled() && (needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-24.04
     permissions:
       # Draft releases are only visible to tokens with push-level contents access.
@@ -84,6 +84,10 @@ jobs:
             channel="stable"
             branch="main"
           fi
+          if [[ "$GITHUB_REF_NAME" != "$branch" ]]; then
+            echo "Recovery for $tag must be dispatched from $branch, not $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
           git fetch origin "$branch" --no-tags
           git merge-base --is-ancestor "$sha" "origin/$branch"
           published_releases="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --limit 100 --json tagName,isPrerelease)"
@@ -116,7 +120,7 @@ jobs:
 
   verify:
     needs: resolve
-    if: always() && needs.resolve.result == 'success'
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -140,7 +144,7 @@ jobs:
 
   build:
     needs: [resolve, verify]
-    if: always() && needs.resolve.result == 'success' && needs.verify.result == 'success'
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.verify.result == 'success' }}
     strategy:
       fail-fast: false
       matrix:
@@ -178,7 +182,7 @@ jobs:
 
   sign:
     needs: [resolve, build]
-    if: always() && needs.resolve.result == 'success' && needs.build.result == 'success'
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success' }}
     runs-on: ubuntu-24.04
     environment: release-signing
     permissions:
@@ -217,7 +221,7 @@ jobs:
 
   docker:
     needs: [resolve, sign]
-    if: always() && needs.resolve.result == 'success' && needs.sign.result == 'success'
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.sign.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -263,7 +267,7 @@ jobs:
 
   publish:
     needs: [resolve, sign, docker]
-    if: always() && needs.resolve.result == 'success' && needs.sign.result == 'success' && needs.docker.result == 'success'
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.sign.result == 'success' && needs.docker.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -283,7 +287,7 @@ jobs:
 
   sync_next:
     needs: [resolve, publish]
-    if: always() && needs.resolve.result == 'success' && needs.publish.result == 'success' && needs.resolve.outputs.channel == 'stable'
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.publish.result == 'success' && needs.resolve.outputs.channel == 'stable' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read

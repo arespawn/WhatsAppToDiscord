@@ -188,15 +188,25 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 		release,
 		/resolve:\r?\n[\s\S]*?permissions:\r?\n\s+# Draft releases[^\r\n]*\r?\n\s+contents: write/u,
 	);
-	for (const condition of [
-		"if: always() && needs.resolve.result == 'success'",
-		"if: always() && needs.resolve.result == 'success' && needs.verify.result == 'success'",
-		"if: always() && needs.resolve.result == 'success' && needs.build.result == 'success'",
-		"if: always() && needs.resolve.result == 'success' && needs.sign.result == 'success'",
-		"if: always() && needs.resolve.result == 'success' && needs.sign.result == 'success' && needs.docker.result == 'success'",
-		"if: always() && needs.resolve.result == 'success' && needs.publish.result == 'success' && needs.resolve.outputs.channel == 'stable'",
+	const normalizedRelease = release
+		.replaceAll("\r\n", "\n")
+		.replaceAll(/\$\{\{/gu, "<EXPR>");
+	assert.ok(
+		normalizedRelease.includes(
+			"group: release-<EXPR> github.event_name == 'workflow_dispatch' && (contains(inputs.tag, '-beta.') && 'next' || 'main') || github.ref_name }}",
+		),
+	);
+	assert.match(normalizedRelease, /GITHUB_REF_NAME.*branch/u);
+	for (const snippet of [
+		"  resolve:\n    needs: release_please\n    if: <EXPR> !cancelled() && (needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}",
+		"  verify:\n    needs: resolve\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' }}",
+		"  build:\n    needs: [resolve, verify]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.verify.result == 'success' }}",
+		"  sign:\n    needs: [resolve, build]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success' }}",
+		"  docker:\n    needs: [resolve, sign]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.sign.result == 'success' }}",
+		"  publish:\n    needs: [resolve, sign, docker]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.sign.result == 'success' && needs.docker.result == 'success' }}",
+		"  sync_next:\n    needs: [resolve, publish]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.publish.result == 'success' && needs.resolve.outputs.channel == 'stable' }}",
 	]) {
-		assert.ok(release.includes(condition), condition);
+		assert.ok(normalizedRelease.includes(snippet), snippet);
 	}
 	assert.match(dependabot, /prefix: "fix\(deps\)"/u);
 	assert.match(dependabot, /prefix-development: "fix\(deps\)"/u);

@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.5.0-beta.2](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.0-beta.1...v2.5.0-beta.2) (2026-08-29)
+
+
+### Bug Fixes
+
+* allow validation of draft releases ([#276](https://github.com/arespawn/WhatsAppToDiscord/issues/276)) ([cde2b5e](https://github.com/arespawn/WhatsAppToDiscord/commit/cde2b5e76d493d752414a8d8dd9776b7dfbdd77a))
+* **deps:** target automated updates at next ([#280](https://github.com/arespawn/WhatsAppToDiscord/issues/280)) ([d2b2786](https://github.com/arespawn/WhatsAppToDiscord/commit/d2b27869471fb3aba459abeb35f579df889f167a))
+* run recovered release jobs ([#278](https://github.com/arespawn/WhatsAppToDiscord/issues/278)) ([9fbcabf](https://github.com/arespawn/WhatsAppToDiscord/commit/9fbcabf52f368b230a8bc83fff49609db94ca79e))
+
 ## [2.5.0-beta.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.4.0...v2.5.0-beta.1) (2026-08-29)
 
 

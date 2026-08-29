@@ -6377,6 +6377,7 @@ const discordHandler = {
 		await client.login(state.settings.Token);
 		return client;
 	},
+	getCachedControlChannel: () => controlChannel ?? null,
 	setControlChannel,
 };
 

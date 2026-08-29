@@ -20,6 +20,10 @@ import {
 	revertPackagedArtifactsToBackupSync,
 	UPDATE_VALIDATION_WINDOW_MS,
 } from "./runnerLogic.js";
+import {
+	createSupervisorShutdownController,
+	sendInternalShutdownRequest,
+} from "./shutdown.js";
 
 const RESTART_DELAY = resolveRestartDelayMs(process.env.WA2DC_RESTART_DELAY);
 const SAFE_RUNTIME_RESET_WINDOW =
@@ -188,12 +192,23 @@ async function runSupervisorWithSpawn() {
 	let restartAttempts = 0;
 	let workerStartTime = 0;
 	let currentWorker = null;
-	let shuttingDown = false;
+	const shutdownController = createSupervisorShutdownController({
+		getWorker: () => currentWorker,
+		requestWorkerShutdown: (worker, signal, onError) =>
+			sendInternalShutdownRequest(worker, signal, onError),
+		signalWorker:
+			process.platform === "win32"
+				? null
+				: (worker, signal) => worker.kill(signal),
+		forceKillWorker: (worker) => worker.kill("SIGKILL"),
+		clearValidation: updateValidation.clearValidationState,
+		onError(stage, err) {
+			logger.warn({ err, stage }, `Supervisor ${stage} failed`);
+		},
+	});
 
 	const handleExit = (code, signal) => {
-		if (shuttingDown) {
-			process.exit(code ?? 0);
-		}
+		if (shutdownController.onWorkerExit(code)) return;
 
 		const runtime = Date.now() - workerStartTime;
 		const restartRequest = consumeRestartFlagSync(RESTART_FLAG_PATH, {
@@ -257,12 +272,13 @@ async function runSupervisorWithSpawn() {
 	};
 
 	const start = () => {
+		if (shutdownController.isShuttingDown()) return;
 		workerStartTime = Date.now();
 		updateValidation.onWorkerStarted();
 		currentWorker = spawn(process.execPath, [], {
 			env: { ...process.env, [WORKER_ENV_FLAG]: "1" },
-			// biome-ignore format: keep single-quoted tuple for stdin regression guard
-			stdio: ['inherit', 'pipe', 'pipe'],
+			// biome-ignore format: keep single-quoted tuple for stdin/IPC regression guard
+			stdio: ['inherit', 'pipe', 'pipe', 'ipc'],
 		});
 
 		currentWorker.stdout?.pipe(process.stdout);
@@ -280,11 +296,7 @@ async function runSupervisorWithSpawn() {
 
 	["SIGINT", "SIGTERM"].forEach((sig) => {
 		process.on(sig, () => {
-			shuttingDown = true;
-			updateValidation.clearValidationState();
-			if (currentWorker && !currentWorker.killed) {
-				currentWorker.kill(sig);
-			}
+			shutdownController.onSignal(sig);
 		});
 	});
 
@@ -320,12 +332,23 @@ async function main() {
 	let restartAttempts = 0;
 	let workerStartTime = 0;
 	let currentWorker = null;
-	let shuttingDown = false;
+	const shutdownController = createSupervisorShutdownController({
+		getWorker: () => currentWorker,
+		requestWorkerShutdown: (worker, signal, onError) =>
+			sendInternalShutdownRequest(worker, signal, onError),
+		signalWorker:
+			process.platform === "win32"
+				? null
+				: (worker, signal) => worker.process.kill(signal),
+		forceKillWorker: (worker) => worker.process.kill("SIGKILL"),
+		clearValidation: updateValidation.clearValidationState,
+		onError(stage, err) {
+			logger.warn({ err, stage }, `Supervisor ${stage} failed`);
+		},
+	});
 
 	const handleExit = (code, signal) => {
-		if (shuttingDown) {
-			process.exit(code ?? 0);
-		}
+		if (shutdownController.onWorkerExit(code)) return;
 
 		const runtime = Date.now() - workerStartTime;
 		const restartRequest = consumeRestartFlagSync(RESTART_FLAG_PATH, {
@@ -389,6 +412,7 @@ async function main() {
 	};
 
 	const start = () => {
+		if (shutdownController.isShuttingDown()) return;
 		workerStartTime = Date.now();
 		updateValidation.onWorkerStarted();
 		currentWorker = cluster.fork();
@@ -427,11 +451,7 @@ async function main() {
 
 	["SIGINT", "SIGTERM"].forEach((sig) => {
 		process.on(sig, () => {
-			shuttingDown = true;
-			updateValidation.clearValidationState();
-			if (currentWorker?.process && !currentWorker.process.killed) {
-				currentWorker.process.kill(sig);
-			}
+			shutdownController.onSignal(sig);
 		});
 	});
 

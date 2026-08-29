@@ -47,7 +47,8 @@ jobs:
     if: always() && (needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     permissions:
-      contents: read
+      # Draft releases are only visible to tokens with push-level contents access.
+      contents: write
     outputs:
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}

@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.1-beta.2](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.1-beta.1...v2.5.1-beta.2) (2026-08-29)
+
+
+### Bug Fixes
+
+* **deps:** bump actions/download-artifact from 7.0.0 to 8.0.1 ([#275](https://github.com/arespawn/WhatsAppToDiscord/issues/275)) ([6380fbf](https://github.com/arespawn/WhatsAppToDiscord/commit/6380fbf18c5c47459bfb11f3889e1d9f4c4463f0))
+* **deps:** bump actions/upload-artifact from 6.0.0 to 7.0.1 ([#274](https://github.com/arespawn/WhatsAppToDiscord/issues/274)) ([d844144](https://github.com/arespawn/WhatsAppToDiscord/commit/d844144a452086385c66dd138b6964a89df9a476))
+
 ## [2.5.1-beta.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.0...v2.5.1-beta.1) (2026-08-29)
 
 

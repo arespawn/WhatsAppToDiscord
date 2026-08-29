@@ -51,7 +51,7 @@
 		"undici": "^7.29.0"
 	},
 	"devDependencies": {
-		"@biomejs/biome": "2.5.9",
+		"@biomejs/biome": "2.5.10",
 		"esbuild": "^0.28.1"
 	},
 	"pkg": {},
@@ -61,6 +61,7 @@
 		"protobufjs": "7.6.5",
 		"ws": "8.21.1",
 		"@whiskeysockets/baileys": {
+			"link-preview-js": "$link-preview-js",
 			"music-metadata": "11.12.3"
 		},
 		"music-metadata": {

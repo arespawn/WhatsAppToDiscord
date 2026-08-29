@@ -208,7 +208,14 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 	]) {
 		assert.ok(normalizedRelease.includes(snippet), snippet);
 	}
-	assert.match(dependabot, /prefix: "fix\(deps\)"/u);
+	assert.equal(
+		[...dependabot.matchAll(/^\s+target-branch: "next"$/gmu)].length,
+		2,
+	);
+	assert.equal(
+		[...dependabot.matchAll(/^\s+prefix: "fix\(deps\)"$/gmu)].length,
+		2,
+	);
 	assert.match(dependabot, /prefix-development: "fix\(deps\)"/u);
 	assert.doesNotMatch(dependabot, /include: "scope"/u);
 	for (const binary of [

@@ -20,9 +20,9 @@ Dependabot pull requests remain human-reviewed. Their accepted npm updates use `
 3. Merging that PR starts the fail-closed native build, signing, container, and draft-release pipeline. A successful run publishes `vX.Y.Z-beta.N` and moves the `unstable` container tag.
 4. Test the published beta. When it is ready, open a `next` to `main` pull request with a `chore: promote ...` title and an exact `Release-As: X.Y.Z` line in its body, then merge it with a merge commit. Promotion CI requires the footer, requires `next` HEAD to be the published beta tag, and waits for its signed update-manifest assets, so an unpublished beta or additional unreleased changes cannot be promoted accidentally.
 5. Release Please maintains the stable release PR on `main`. Merging it publishes `vX.Y.Z`, `stable`, and `latest` only after all release jobs succeed.
-6. The release GitHub App opens a `main` to `next` synchronization PR. Merge it before starting the next beta cycle.
+6. The release GitHub App opens a `main` to `next` synchronization PR. Merge it before starting the next beta cycle. If `next` is unexpectedly absent, the job recreates it at the exact stable release commit.
 
-Configure GitHub's default merge-commit title and message as the pull-request title and body so Release Please receives the required `Release-As` footer. Do not squash the `next` to `main` promotion PR: its constituent commits are the stable changelog input. Beta is the only prerelease phase; do not create automated alpha or release-candidate tags.
+Configure GitHub's default merge-commit title and message as the pull-request title and body so Release Please receives the required `Release-As` footer. Disable automatic deletion of merged head branches because `next` is the long-lived promotion head; deleting it also temporarily retargets its open pull requests to `main`. Do not squash the `next` to `main` promotion PR: its constituent commits are the stable changelog input. Beta is the only prerelease phase; do not create automated alpha or release-candidate tags.
 
 ## Local validation
 

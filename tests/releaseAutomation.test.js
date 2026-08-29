@@ -184,6 +184,30 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 	assert.match(ci, /scripts\/validatePrTitle\.js/u);
 	assert.match(release, /workflow_dispatch:/u);
 	assert.match(release, /ubuntu-24\.04-arm/u);
+	assert.match(
+		release,
+		/resolve:\r?\n[\s\S]*?permissions:\r?\n\s+# Draft releases[^\r\n]*\r?\n\s+contents: write/u,
+	);
+	const normalizedRelease = release
+		.replaceAll("\r\n", "\n")
+		.replaceAll(/\$\{\{/gu, "<EXPR>");
+	assert.ok(
+		normalizedRelease.includes(
+			"group: release-<EXPR> github.event_name == 'workflow_dispatch' && (contains(inputs.tag, '-beta.') && 'next' || 'main') || github.ref_name }}",
+		),
+	);
+	assert.match(normalizedRelease, /GITHUB_REF_NAME.*branch/u);
+	for (const snippet of [
+		"  resolve:\n    needs: release_please\n    if: <EXPR> !cancelled() && (needs.release_please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch') }}",
+		"  verify:\n    needs: resolve\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' }}",
+		"  build:\n    needs: [resolve, verify]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.verify.result == 'success' }}",
+		"  sign:\n    needs: [resolve, build]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success' }}",
+		"  docker:\n    needs: [resolve, sign]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.sign.result == 'success' }}",
+		"  publish:\n    needs: [resolve, sign, docker]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.sign.result == 'success' && needs.docker.result == 'success' }}",
+		"  sync_next:\n    needs: [resolve, publish]\n    if: <EXPR> !cancelled() && needs.resolve.result == 'success' && needs.publish.result == 'success' && needs.resolve.outputs.channel == 'stable' }}",
+	]) {
+		assert.ok(normalizedRelease.includes(snippet), snippet);
+	}
 	assert.equal(
 		[...dependabot.matchAll(/^\s+target-branch: "next"$/gmu)].length,
 		2,

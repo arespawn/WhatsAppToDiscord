@@ -48,6 +48,7 @@ Packaged-install artifacts beside the executable:
 - `runtime.oldVersion/`: matching sidecar backup retained for rollback
 
 Update archives and extraction directories are created under the operating-system temporary directory and cleaned on success/failure paths.
+WhatsApp attachments bound for Discord are also staged under the operating-system temporary directory before upload. Each upload batch gets a private directory; files remain only through Discord retries and are removed on success, fallback, failure, or graceful shutdown.
 Runtime sidecar archives contain only relative symbolic links that resolve inside `runtime/`; cross-filesystem installation preserves those links when moving the extracted sidecar beside the executable.
 
 Changing the location, lifecycle, format, or meaning of any artifact requires updates here and in public configuration/troubleshooting docs.
@@ -61,6 +62,8 @@ On non-Windows platforms, code explicitly enforces:
 - crash-report canonical, temporary, and pending spool files: `0600`
 - directories created for local downloads: `0700`
 - downloaded media files: `0600`
+- temporary WhatsApp-to-Discord upload directories: `0700`
+- temporary WhatsApp-to-Discord upload files: `0600`
 
 Do not generalize those guarantees to `.env`, SQLite WAL/SHM sidecars, logs, restart flags, packaged sidecars, or rollback files. Those artifacts follow their creation API and process umask unless separately protected. Treat them as sensitive and recommend restrictive host permissions without claiming WA2DC enforces them.
 

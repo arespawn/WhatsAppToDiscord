@@ -27,8 +27,16 @@ import {
 	getChatTargetChannelId,
 	isThreadChatLink,
 } from "./chatLinks.js";
+import {
+	createDiscordRestOptions,
+	createDiscordWebhookClient,
+} from "./clientFactories.js";
 import { getImageSharp } from "./imageLibs.js";
 import { createWhatsAppAudioToDiscordFileNormalizer } from "./internal/whatsappAudioToDiscordNormalization.js";
+import {
+	isLazyWhatsAppDiscordAttachment,
+	stageWhatsAppDiscordAttachments,
+} from "./internal/whatsappDiscordMediaStaging.js";
 import { createWhatsAppGifToDiscordFileNormalizer } from "./internal/whatsappGifToDiscordNormalization.js";
 import messageStore from "./messageStore.js";
 import state from "./state.js";
@@ -54,7 +62,6 @@ const {
 	ChannelType,
 	StickerFormatType,
 	ThreadAutoArchiveDuration,
-	WebhookClient,
 } = discordJs;
 
 const DOWNLOAD_TOKEN_VERSION = 1;
@@ -735,9 +742,6 @@ const isRetryableWebhookTransportError = (err) => {
 	);
 };
 
-const isWhatsAppStreamBackedDiscordFile = (file) =>
-	Boolean(file?.downloadCtx) && typeof file?.attachment?.pipe === "function";
-
 const resolveWhatsAppDiscordMediaBurstSize = (value) => {
 	const parsed = Number(value);
 	if (!Number.isFinite(parsed) || parsed < 1) {
@@ -751,7 +755,7 @@ const chunkDiscordWebhookFilesForSend = (files = []) => {
 	if (!normalizedFiles.length) {
 		return [];
 	}
-	const chunkSize = normalizedFiles.some(isWhatsAppStreamBackedDiscordFile)
+	const chunkSize = normalizedFiles.some(isLazyWhatsAppDiscordAttachment)
 		? resolveWhatsAppDiscordMediaBurstSize(
 				state.settings?.WhatsAppDiscordMediaBurstSize,
 			)
@@ -3098,10 +3102,13 @@ const discord = {
 				let webhook;
 				if (existingChat.id && existingChat.token) {
 					webhook = ensureWebhookReplySupport(
-						new WebhookClient({
-							id: existingChat.id,
-							token: existingChat.token,
-						}),
+						createDiscordWebhookClient(
+							{
+								id: existingChat.id,
+								token: existingChat.token,
+							},
+							{ rest: createDiscordRestOptions() },
+						),
 					);
 				} else if (existingChat.channelId) {
 					const channel = await this.getChannel(existingChat.channelId);
@@ -3157,7 +3164,7 @@ const discord = {
 			throw err;
 		}
 	},
-	async safeWebhookSend(webhook, args, jid) {
+	async safeWebhookSend(webhook, args, jid, internalOptions = {}) {
 		const normalizedJid = whatsapp.formatJid(jid) || jid;
 		const normalizeWebhookUsername = (value) => {
 			if (typeof value !== "string") return null;
@@ -3226,280 +3233,368 @@ const discord = {
 			}
 			return this.recreateManagedThreadLink(normalizedJid);
 		};
+		const incomingFiles = Array.isArray(args?.files)
+			? args.files.filter(Boolean)
+			: [];
+		const initialAttachmentCount = incomingFiles.length;
+		let stagedAttachmentCount = 0;
+		let declaredBytes = 0;
+		let stagedBytes = 0;
+		let cleanupStagedAttachments = async () => {};
+		try {
+			if (incomingFiles.some(isLazyWhatsAppDiscordAttachment)) {
+				const staged = await stageWhatsAppDiscordAttachments(incomingFiles, {
+					download:
+						internalOptions.downloadWhatsAppMedia ||
+						((file) =>
+							downloadMediaMessage(
+								file.downloadCtx,
+								"stream",
+								{},
+								{
+									logger: state.logger,
+									reuploadRequest: state.waClient?.updateMediaMessage,
+								},
+							)),
+					maxBytes: state.settings.DiscordFileSizeLimit,
+					timeoutMs: internalOptions.mediaDownloadTimeoutMs,
+					logger: state.logger,
+					temporaryDirectory: internalOptions.temporaryDirectory,
+				});
+				cleanupStagedAttachments = staged.cleanup;
+				stagedAttachmentCount = staged.attachmentCount - staged.failures.length;
+				declaredBytes = staged.declaredBytes;
+				stagedBytes = staged.stagedBytes;
+				args = { ...args, files: staged.files };
 
-		const extractFileNames = (files) => {
-			if (!Array.isArray(files)) return [];
-			return files
-				.map((file, index) => {
-					if (!file) return null;
-					if (typeof file === "string") return file;
-					if (Buffer.isBuffer(file)) return `Attachment ${index + 1}`;
-					return (
-						file.name ||
-						file.attachment?.name ||
-						file.attachment?.filename ||
-						(typeof file.attachment?.path === "string"
-							? path.basename(file.attachment.path)
-							: null) ||
-						`Attachment ${index + 1}`
-					);
-				})
-				.filter(Boolean);
-		};
-
-		const snapshotFileForRetry = (file) => {
-			if (file == null || typeof file === "number") {
-				return { type: "raw", data: file, retryable: true };
-			}
-			if (typeof file === "string" || Buffer.isBuffer(file)) {
-				return { type: "raw", data: file, retryable: true };
-			}
-
-			const { attachment, file: fileProp, ...rest } = file;
-			const snapshotBase = {
-				rest,
-				includeFileProperty: typeof fileProp !== "undefined",
-			};
-
-			if (attachment == null) {
-				return { ...snapshotBase, type: "object", retryable: true };
-			}
-			if (typeof attachment === "string" || Buffer.isBuffer(attachment)) {
-				return {
-					...snapshotBase,
-					type: "buffer",
-					data: attachment,
-					retryable: true,
-				};
-			}
-			if (attachment && typeof attachment.path === "string") {
-				return {
-					...snapshotBase,
-					type: "path",
-					path: attachment.path,
-					retryable: true,
-				};
-			}
-			if (rest.downloadCtx) {
-				return { ...snapshotBase, type: "wa", retryable: true };
-			}
-			if (typeof attachment.pipe === "function") {
-				return { ...snapshotBase, type: "stream", retryable: false };
-			}
-			return {
-				...snapshotBase,
-				type: "unknown",
-				data: attachment,
-				retryable: false,
-			};
-		};
-
-		const recreateFileFromSnapshot = async (snapshot) => {
-			switch (snapshot.type) {
-				case "raw":
-					return snapshot.data;
-				case "object": {
-					const base = { ...snapshot.rest };
-					if (snapshot.includeFileProperty) {
-						base.file = base.attachment;
-					}
-					return base;
-				}
-				case "buffer": {
-					const base = { ...snapshot.rest, attachment: snapshot.data };
-					if (snapshot.includeFileProperty) {
-						base.file = base.attachment;
-					}
-					return base;
-				}
-				case "path": {
-					try {
-						const attachment = fs.createReadStream(snapshot.path);
-						const base = { ...snapshot.rest, attachment };
-						if (snapshot.includeFileProperty) {
-							base.file = attachment;
-						}
-						return base;
-					} catch (error) {
-						const retryError = new Error(
-							`Failed to recreate attachment from path: ${snapshot.path}`,
-						);
-						retryError.cause = error;
-						retryError.wa2dcAttachmentRebuildFailed = true;
-						throw retryError;
-					}
-				}
-				case "wa": {
-					try {
-						const attachment = await downloadMediaMessage(
-							snapshot.rest.downloadCtx,
-							"stream",
-							{},
-							{
-								logger: state.logger,
-								reuploadRequest: state.waClient.updateMediaMessage,
-							},
-						);
-						const base = { ...snapshot.rest, attachment };
-						if (snapshot.includeFileProperty) {
-							base.file = attachment;
-						}
-						return base;
-					} catch (error) {
-						const retryError = new Error(
-							"Failed to re-download WhatsApp media for retry",
-						);
-						retryError.cause = error;
-						retryError.wa2dcAttachmentRebuildFailed = true;
-						throw retryError;
-					}
-				}
-				case "stream":
-				case "unknown": {
-					const retryError = new Error(
-						"Attachment cannot be retried because the original stream cannot be reconstructed",
-					);
-					retryError.wa2dcAttachmentRebuildFailed = true;
-					throw retryError;
-				}
-				default:
-					return snapshot.data ?? null;
-			}
-		};
-
-		const { files: originalFiles, ...restArgs } = args;
-		const baseArgsWithoutFiles = { ...restArgs };
-		const hasFilesArray = Array.isArray(originalFiles);
-		const fileSnapshots = hasFilesArray
-			? originalFiles.map(snapshotFileForRetry)
-			: null;
-		const attachmentsRetryable =
-			!fileSnapshots ||
-			fileSnapshots.every((snapshot) => snapshot.retryable !== false);
-
-		const buildArgsFromSnapshots = async () => {
-			const builtArgs = { ...baseArgsWithoutFiles };
-			if (hasFilesArray) {
-				const rebuiltFiles = await Promise.all(
-					fileSnapshots.map(recreateFileFromSnapshot),
-				);
-				if (rebuiltFiles.some((file) => file == null)) {
-					const retryError = new Error(
-						"Failed to rebuild one or more attachments for retry",
-					);
-					retryError.wa2dcAttachmentRebuildFailed = true;
-					throw retryError;
-				}
-				builtArgs.files = rebuiltFiles;
-			}
-			return builtArgs;
-		};
-
-		let attempt = 0;
-		let attemptsMade = 0;
-		let useOriginalFiles = true;
-		let lastAbortError = null;
-
-		while (attempt < maxAbortRetries) {
-			let sendArgs;
-			try {
-				sendArgs = useOriginalFiles ? args : await buildArgsFromSnapshots();
-			} catch (prepErr) {
-				attemptsMade = attempt + 1;
-				if (prepErr.wa2dcAttachmentRebuildFailed) {
-					lastAbortError = prepErr;
-					break;
-				}
-				throw prepErr;
-			}
-			useOriginalFiles = false;
-
-			try {
-				return await webhook.send(sendArgs);
-			} catch (err) {
-				attemptsMade = attempt + 1;
-				if (isUnknownWebhookError(err)) {
-					webhook = await refreshWebhookForChat();
-					if (!webhook) {
-						throw err;
-					}
-					attempt += 1;
-					continue;
-				}
-				if (isUnknownChannelError(err)) {
-					webhook = await recreateMissingThread();
-					if (!webhook) {
-						throw err;
-					}
-					attempt += 1;
-					continue;
-				}
-				if (err.code === 40005 || err.httpStatus === 413) {
-					const content = `WA2DC Attention: Received a file, but it's over Discord's upload limit. Check WhatsApp on your phone${state.settings.LocalDownloads ? "" : " or enable local downloads."}`;
-					const fallbackArgs = {
-						...withThreadIdForChat(baseArgsWithoutFiles, normalizedJid),
-						content,
+				if (staged.failures.length) {
+					const failedCount = staged.failures.length;
+					const remainingCount = staged.files.length;
+					const notice = remainingCount
+						? `WA2DC Attention: ${failedCount} of ${initialAttachmentCount} WhatsApp attachment${initialAttachmentCount === 1 ? "" : "s"} could not be downloaded for Discord. The remaining attachment${remainingCount === 1 ? " is" : "s are"} included; please check WhatsApp for the missing media.`
+						: "WA2DC Attention: Discord could not download the attached WhatsApp media. Please check WhatsApp for the original message.";
+					const originalContent =
+						typeof args.content === "string" ? args.content.trim() : "";
+					args = {
+						...args,
+						content: [originalContent, notice].filter(Boolean).join("\n\n"),
 					};
-					if (hasFilesArray) {
-						fallbackArgs.files = [];
-					}
-					return await webhook.send(fallbackArgs);
 				}
-				if (err.wa2dcAttachmentRebuildFailed) {
-					lastAbortError = err;
-					break;
-				}
-				if (isAbortError(err)) {
-					lastAbortError = err;
-					state.logger?.warn(
-						{ err, attempt: attempt + 1 },
-						"Discord webhook request failed with a retryable transport error.",
-					);
-					if (!attachmentsRetryable) {
-						state.logger?.warn(
-							"Attachments cannot be retried because their sources are not reproducible. Sending fallback message.",
-						);
-						break;
-					}
-					attempt += 1;
-					if (attempt >= maxAbortRetries) {
-						break;
-					}
-					continue;
-				}
-				throw err;
 			}
-		}
 
-		const attemptsForMessage =
-			Math.max(attemptsMade, lastAbortError ? 1 : 0) || 1;
-		const fileNames = extractFileNames(originalFiles);
-		const attemptText = ` after ${attemptsForMessage} attempt${attemptsForMessage === 1 ? "" : "s"}`;
-		const attachmentNotice = fileNames.length
-			? ` Discord failed to upload${attemptText} for: ${fileNames.join(", ")}.`
-			: ` Discord failed to upload${attemptText}.`;
-		const originalContent =
-			typeof args.content === "string" ? args.content.trim() : "";
-		const fallbackParts = [];
-		if (originalContent) {
-			fallbackParts.push(originalContent);
+			const extractFileNames = (files) => {
+				if (!Array.isArray(files)) return [];
+				return files
+					.map((file, index) => {
+						if (!file) return null;
+						if (typeof file === "string") return file;
+						if (Buffer.isBuffer(file)) return `Attachment ${index + 1}`;
+						return (
+							file.name ||
+							file.attachment?.name ||
+							file.attachment?.filename ||
+							(typeof file.attachment?.path === "string"
+								? path.basename(file.attachment.path)
+								: null) ||
+							`Attachment ${index + 1}`
+						);
+					})
+					.filter(Boolean);
+			};
+
+			const snapshotFileForRetry = (file) => {
+				if (file == null || typeof file === "number") {
+					return { type: "raw", data: file, retryable: true };
+				}
+				if (typeof file === "string" || Buffer.isBuffer(file)) {
+					return { type: "raw", data: file, retryable: true };
+				}
+
+				const { attachment, file: fileProp, ...rest } = file;
+				const snapshotBase = {
+					rest,
+					includeFileProperty: typeof fileProp !== "undefined",
+				};
+
+				if (attachment == null) {
+					return { ...snapshotBase, type: "object", retryable: true };
+				}
+				if (typeof attachment === "string" || Buffer.isBuffer(attachment)) {
+					return {
+						...snapshotBase,
+						type: "buffer",
+						data: attachment,
+						retryable: true,
+					};
+				}
+				if (attachment && typeof attachment.path === "string") {
+					return {
+						...snapshotBase,
+						type: "path",
+						path: attachment.path,
+						retryable: true,
+					};
+				}
+				if (typeof attachment.pipe === "function") {
+					return { ...snapshotBase, type: "stream", retryable: false };
+				}
+				return {
+					...snapshotBase,
+					type: "unknown",
+					data: attachment,
+					retryable: false,
+				};
+			};
+
+			const recreateFileFromSnapshot = async (snapshot) => {
+				switch (snapshot.type) {
+					case "raw":
+						return snapshot.data;
+					case "object": {
+						const base = { ...snapshot.rest };
+						if (snapshot.includeFileProperty) {
+							base.file = base.attachment;
+						}
+						return base;
+					}
+					case "buffer": {
+						const base = { ...snapshot.rest, attachment: snapshot.data };
+						if (snapshot.includeFileProperty) {
+							base.file = base.attachment;
+						}
+						return base;
+					}
+					case "path": {
+						try {
+							const attachment = fs.createReadStream(snapshot.path);
+							const base = { ...snapshot.rest, attachment };
+							if (snapshot.includeFileProperty) {
+								base.file = attachment;
+							}
+							return base;
+						} catch (error) {
+							const retryError = new Error(
+								`Failed to recreate attachment from path: ${snapshot.path}`,
+							);
+							retryError.cause = error;
+							retryError.wa2dcAttachmentRebuildFailed = true;
+							throw retryError;
+						}
+					}
+					case "stream":
+					case "unknown": {
+						const retryError = new Error(
+							"Attachment cannot be retried because the original stream cannot be reconstructed",
+						);
+						retryError.wa2dcAttachmentRebuildFailed = true;
+						throw retryError;
+					}
+					default:
+						return snapshot.data ?? null;
+				}
+			};
+
+			const { files: originalFiles, ...restArgs } = args;
+			const baseArgsWithoutFiles = { ...restArgs };
+			const hasFilesArray = Array.isArray(originalFiles);
+			const fileSnapshots = hasFilesArray
+				? originalFiles.map(snapshotFileForRetry)
+				: null;
+			const attachmentsRetryable =
+				!fileSnapshots ||
+				fileSnapshots.every((snapshot) => snapshot.retryable !== false);
+
+			const buildArgsFromSnapshots = async () => {
+				const builtArgs = { ...baseArgsWithoutFiles };
+				if (hasFilesArray) {
+					const rebuiltFiles = await Promise.all(
+						fileSnapshots.map(recreateFileFromSnapshot),
+					);
+					if (rebuiltFiles.some((file) => file == null)) {
+						const retryError = new Error(
+							"Failed to rebuild one or more attachments for retry",
+						);
+						retryError.wa2dcAttachmentRebuildFailed = true;
+						throw retryError;
+					}
+					builtArgs.files = rebuiltFiles;
+				}
+				return builtArgs;
+			};
+
+			let attempt = 0;
+			let attemptsMade = 0;
+			let useOriginalFiles = true;
+			let lastAbortError = null;
+			const logUploadOutcome = (
+				level,
+				{ attemptNumber, durationMs, outcome, error },
+			) => {
+				if (!initialAttachmentCount) return;
+				const rawErrorCode = String(error?.code || error?.name || "");
+				const errorCode = rawErrorCode
+					.replace(/[^a-zA-Z0-9_-]/gu, "")
+					.slice(0, 64);
+				state.logger?.[level]?.(
+					{
+						attachmentCount: initialAttachmentCount,
+						stagedAttachmentCount,
+						declaredBytes,
+						stagedBytes,
+						durationMs,
+						attempt: attemptNumber,
+						outcome,
+						...(errorCode ? { errorCode } : {}),
+					},
+					"Discord webhook attachment upload attempt completed.",
+				);
+			};
+
+			while (attempt < maxAbortRetries) {
+				let sendArgs;
+				try {
+					sendArgs = useOriginalFiles ? args : await buildArgsFromSnapshots();
+				} catch (prepErr) {
+					attemptsMade = attempt + 1;
+					if (prepErr.wa2dcAttachmentRebuildFailed) {
+						lastAbortError = prepErr;
+						break;
+					}
+					throw prepErr;
+				}
+				useOriginalFiles = false;
+				const attemptNumber = attempt + 1;
+				const uploadStartedAt = Date.now();
+
+				try {
+					const sentMessage = await webhook.send(sendArgs);
+					logUploadOutcome("info", {
+						attemptNumber,
+						durationMs: Math.max(0, Date.now() - uploadStartedAt),
+						outcome: "success",
+					});
+					return sentMessage;
+				} catch (err) {
+					attemptsMade = attempt + 1;
+					if (isUnknownWebhookError(err)) {
+						logUploadOutcome("warn", {
+							attemptNumber,
+							durationMs: Math.max(0, Date.now() - uploadStartedAt),
+							outcome: "refresh-webhook",
+							error: err,
+						});
+						webhook = await refreshWebhookForChat();
+						if (!webhook) {
+							throw err;
+						}
+						attempt += 1;
+						continue;
+					}
+					if (isUnknownChannelError(err)) {
+						logUploadOutcome("warn", {
+							attemptNumber,
+							durationMs: Math.max(0, Date.now() - uploadStartedAt),
+							outcome: "recreate-channel",
+							error: err,
+						});
+						webhook = await recreateMissingThread();
+						if (!webhook) {
+							throw err;
+						}
+						attempt += 1;
+						continue;
+					}
+					if (err.code === 40005 || err.httpStatus === 413) {
+						logUploadOutcome("warn", {
+							attemptNumber,
+							durationMs: Math.max(0, Date.now() - uploadStartedAt),
+							outcome: "discord-size-rejected",
+							error: err,
+						});
+						const content = `WA2DC Attention: Received a file, but it's over Discord's upload limit. Check WhatsApp on your phone${state.settings.LocalDownloads ? "" : " or enable local downloads."}`;
+						const fallbackArgs = {
+							...withThreadIdForChat(baseArgsWithoutFiles, normalizedJid),
+							content,
+						};
+						if (hasFilesArray) {
+							fallbackArgs.files = [];
+						}
+						return await webhook.send(fallbackArgs);
+					}
+					if (err.wa2dcAttachmentRebuildFailed) {
+						logUploadOutcome("warn", {
+							attemptNumber,
+							durationMs: Math.max(0, Date.now() - uploadStartedAt),
+							outcome: "retry-preparation-failed",
+							error: err,
+						});
+						lastAbortError = err;
+						break;
+					}
+					if (isAbortError(err)) {
+						lastAbortError = err;
+						logUploadOutcome("warn", {
+							attemptNumber,
+							durationMs: Math.max(0, Date.now() - uploadStartedAt),
+							outcome: "retryable-failure",
+							error: err,
+						});
+						if (!attachmentsRetryable) {
+							state.logger?.warn(
+								"Attachments cannot be retried because their sources are not reproducible. Sending fallback message.",
+							);
+							break;
+						}
+						attempt += 1;
+						if (attempt >= maxAbortRetries) {
+							break;
+						}
+						continue;
+					}
+					logUploadOutcome("error", {
+						attemptNumber,
+						durationMs: Math.max(0, Date.now() - uploadStartedAt),
+						outcome: "failed",
+						error: err,
+					});
+					throw err;
+				}
+			}
+
+			const attemptsForMessage =
+				Math.max(attemptsMade, lastAbortError ? 1 : 0) || 1;
+			const fileNames = extractFileNames(originalFiles);
+			const attemptText = ` after ${attemptsForMessage} attempt${attemptsForMessage === 1 ? "" : "s"}`;
+			const attachmentNotice = fileNames.length
+				? ` Discord failed to upload${attemptText} for: ${fileNames.join(", ")}.`
+				: ` Discord failed to upload${attemptText}.`;
+			const originalContent =
+				typeof args.content === "string" ? args.content.trim() : "";
+			const fallbackParts = [];
+			if (originalContent) {
+				fallbackParts.push(originalContent);
+			}
+			fallbackParts.push(
+				`WA2DC Attention:${attachmentNotice} Please check WhatsApp for the original message.`,
+			);
+			const fallbackContent = fallbackParts.join("\n\n");
+			const fallbackArgs = {
+				...withThreadIdForChat(baseArgsWithoutFiles, normalizedJid),
+				content: fallbackContent,
+			};
+			if (hasFilesArray) {
+				fallbackArgs.files = [];
+			}
+			logUploadOutcome("error", {
+				attemptNumber: attemptsForMessage,
+				durationMs: 0,
+				outcome: "fallback",
+				error: lastAbortError,
+			});
+			return await webhook.send(fallbackArgs);
+		} finally {
+			await cleanupStagedAttachments();
 		}
-		fallbackParts.push(
-			`WA2DC Attention:${attachmentNotice} Please check WhatsApp for the original message.`,
-		);
-		const fallbackContent = fallbackParts.join("\n\n");
-		const fallbackArgs = {
-			...withThreadIdForChat(baseArgsWithoutFiles, normalizedJid),
-			content: fallbackContent,
-		};
-		if (hasFilesArray) {
-			fallbackArgs.files = [];
-		}
-		state.logger?.error(
-			{ err: lastAbortError, attempts: attemptsForMessage },
-			"Discord webhook request failed repeatedly with a retryable transport error; sending fallback message.",
-		);
-		return await webhook.send(fallbackArgs);
 	},
 	async safeWebhookEdit(webhook, messageId, args, jid) {
 		const normalizedJid = whatsapp.formatJid(jid);
@@ -4878,6 +4973,7 @@ const whatsapp = {
 				return {
 					name: fileName,
 					downloadCtx: rawMsg,
+					declaredSize: fileLength,
 					msgType: nMsgType,
 					largeFile: true,
 					spoiler: viewOnce,
@@ -4952,20 +5048,12 @@ const whatsapp = {
 			}
 			return {
 				name: fileName,
-
-				attachment: await downloadMediaMessage(
-					rawMsg,
-					"stream",
-					{},
-					{
-						logger: state.logger,
-						reuploadRequest: state.waClient.updateMediaMessage,
-					},
-				),
 				largeFile,
 				downloadCtx: rawMsg,
+				declaredSize: fileLength,
 				msgType: nMsgType,
 				spoiler: viewOnce,
+				wa2dcLazyWhatsAppMedia: true,
 			};
 		} catch (err) {
 			if (

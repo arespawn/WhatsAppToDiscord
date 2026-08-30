@@ -25,6 +25,7 @@ test("runtime quiesce starts every ingress primitive when one fails or hangs", a
 			calls.push("download-server");
 			throw new Error("close failed");
 		},
+		cleanupDiscordUploadStaging: () => calls.push("discord-upload-staging"),
 		endWhatsApp() {
 			calls.push("whatsapp-end");
 			return whatsappEnd;
@@ -36,6 +37,7 @@ test("runtime quiesce starts every ingress primitive when one fails or hangs", a
 	assert.deepEqual(calls, [
 		"download-server",
 		"download-server-error",
+		"discord-upload-staging",
 		"whatsapp-end",
 		"whatsapp-socket",
 	]);

@@ -48,7 +48,7 @@ const incomingMessage = ({ id, file = null, content = "" }) => ({
 	isEdit: false,
 });
 
-test("text, a ten-image WhatsApp album, and following text all receive Discord mappings", async () => {
+test("a ten-image album and surrounding text map without waiting for announcement crossposts", async () => {
 	const temporaryParent = await fs.promises.mkdtemp(
 		path.join(os.tmpdir(), "wa2dc-album-bridge-test-"),
 	);
@@ -63,18 +63,21 @@ test("text, a ten-image WhatsApp album, and following text all receive Discord m
 		GuildID: state.settings.GuildID,
 		oneWay: state.settings.oneWay,
 		DiscordFileSizeLimit: state.settings.DiscordFileSizeLimit,
+		Publish: state.settings.Publish,
 		WhatsAppDiscordMediaBurstSize: state.settings.WhatsAppDiscordMediaBurstSize,
 	};
 	const originalLastMessages = state.lastMessages;
 	const originalDcClient = state.dcClient;
 	const sent = [];
 	let downloadCalls = 0;
+	const pendingCrossposts = [];
 
 	try {
 		state.settings.Token = "TEST_TOKEN";
 		state.settings.GuildID = "guild";
 		state.settings.oneWay = "bidirectional";
 		state.settings.DiscordFileSizeLimit = 8 * 1024 * 1024;
+		state.settings.Publish = true;
 		state.settings.WhatsAppDiscordMediaBurstSize = 10;
 		state.lastMessages = {};
 
@@ -89,7 +92,10 @@ test("text, a ten-image WhatsApp album, and following text all receive Discord m
 				}
 				const message = {
 					id: `dc-${sent.length + 1}`,
-					channel: { type: discordJs.ChannelType.GuildText },
+					channel: { type: discordJs.ChannelType.GuildAnnouncement },
+					crosspost() {
+						return new Promise((resolve) => pendingCrossposts.push(resolve));
+					},
 				};
 				sent.push({
 					content: args.content,
@@ -178,7 +184,11 @@ test("text, a ten-image WhatsApp album, and following text all receive Discord m
 		}
 		assert.equal(state.lastMessages["wa-after"], "dc-3");
 		assert.equal(state.lastMessages["dc-2"], "wa-image-1");
+		assert.equal(pendingCrossposts.length, 3);
 	} finally {
+		pendingCrossposts.splice(0).forEach((resolve) => {
+			resolve();
+		});
 		utils.discord.getGuild = originalDiscordUtils.getGuild;
 		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
 		utils.discord.getOrCreateChannel = originalDiscordUtils.getOrCreateChannel;
@@ -188,6 +198,7 @@ test("text, a ten-image WhatsApp album, and following text all receive Discord m
 		state.settings.GuildID = originalSettings.GuildID;
 		state.settings.oneWay = originalSettings.oneWay;
 		state.settings.DiscordFileSizeLimit = originalSettings.DiscordFileSizeLimit;
+		state.settings.Publish = originalSettings.Publish;
 		state.settings.WhatsAppDiscordMediaBurstSize =
 			originalSettings.WhatsAppDiscordMediaBurstSize;
 		state.lastMessages = originalLastMessages;

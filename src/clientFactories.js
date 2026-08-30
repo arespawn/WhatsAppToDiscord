@@ -3,19 +3,28 @@ import makeWASocket, {
 	fetchLatestWaWebVersion,
 } from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
+import { Agent as DiscordRestAgent } from "undici6";
 import { DISCORD_REST_REQUEST_TIMEOUT_MS } from "./contracts.js";
 
 const overrides = {};
+let discordRestAgent = null;
 
-export const makeDiscordRestRequest = (url, options) =>
-	globalThis.fetch(url, options);
+export const getDiscordRestAgent = () => {
+	discordRestAgent ??= new DiscordRestAgent();
+	return discordRestAgent;
+};
+
+export const closeDiscordRestAgent = async () => {
+	const activeAgent = discordRestAgent;
+	discordRestAgent = null;
+	await activeAgent?.close();
+};
 
 export const createDiscordRestOptions = () => ({
+	agent: getDiscordRestAgent(),
 	timeout: DISCORD_REST_REQUEST_TIMEOUT_MS,
-	// Keep FormData and the request implementation in the same Node/Undici realm.
-	// @discordjs/rest's bundled Undici request can otherwise stall multipart bodies
-	// after link-preview-js loads a newer Undici major in the same process.
-	makeRequest: makeDiscordRestRequest,
+	// Keep @discordjs/rest on its native request/response strategy while preventing
+	// a newer Undici major from replacing the shared global dispatcher underneath it.
 });
 
 export const setClientFactoryOverrides = (next = {}) => {

@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.5.4](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.3...v2.5.4) (2026-08-30)
+
+### Bug Fixes
+
+* use compatible Discord multipart transport ([#310](https://github.com/arespawn/WhatsAppToDiscord/issues/310)) ([a582058](https://github.com/arespawn/WhatsAppToDiscord/commit/a58205873ac31c06b9779e7ac0952797e38be840))
+
 ## [2.5.3](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.2...v2.5.3) (2026-08-30)
 
 ### Bug Fixes

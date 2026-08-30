@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.3](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.2...v2.5.3) (2026-08-30)
+
+
+### Bug Fixes
+
+* stage WhatsApp media before Discord uploads ([#307](https://github.com/arespawn/WhatsAppToDiscord/issues/307)) ([47c0e9e](https://github.com/arespawn/WhatsAppToDiscord/commit/47c0e9e95cdb1544734e65464259af2797d49722))
+
 ## [2.5.2](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.1...v2.5.2) (2026-08-30)
 
 ### Bug Fixes

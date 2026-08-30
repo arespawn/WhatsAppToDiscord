@@ -94,11 +94,26 @@ const updateStableCompareLink = (heading, version, previousStableTag) => {
 	if (!previousStableTag) {
 		return heading;
 	}
-	const versionPattern = version.replaceAll(".", "\\.");
-	return heading.replace(
-		new RegExp(`(\\/compare\\/)[^)]+\\.\\.\\.v${versionPattern}\\)`),
-		`$1${previousStableTag}...v${version})`,
-	);
+
+	const compareMarker = "/compare/";
+	const compareStart = heading.indexOf(compareMarker);
+	if (compareStart === -1) {
+		return heading;
+	}
+
+	const compareValueStart = compareStart + compareMarker.length;
+	const compareValueEnd = heading.indexOf(")", compareValueStart);
+	if (compareValueEnd === -1) {
+		return heading;
+	}
+
+	const compareValue = heading.slice(compareValueStart, compareValueEnd);
+	const separator = compareValue.lastIndexOf("...");
+	if (separator === -1 || compareValue.slice(separator + 3) !== `v${version}`) {
+		return heading;
+	}
+
+	return `${heading.slice(0, compareValueStart)}${previousStableTag}...v${version}${heading.slice(compareValueEnd)}`;
 };
 
 const getStableSection = (markdown, version) => {
@@ -118,9 +133,9 @@ export const updateStableReleasePullRequestBody = (
 	version,
 ) => {
 	const stableSection = getStableSection(stableChangelog, version);
-	const versionPattern = version.replaceAll(".", "\\.");
-	const heading = new RegExp(`^## \\[${versionPattern}\\]\\(`, "mu");
-	const match = body.match(heading);
+	const match = Array.from(body.matchAll(/^## \[(\d+\.\d+\.\d+)\]\(/gmu)).find(
+		(entry) => entry[1] === version,
+	);
 	if (!match || match.index === undefined) {
 		throw new Error(`Stable release PR notes not found for ${version}.`);
 	}

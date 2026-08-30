@@ -11,7 +11,7 @@ Mirrored events must not bounce indefinitely between transports. Preserve and ex
 - `state.sentMessages`
 - `state.sentReactions`
 - `state.sentPins`
-- bidirectional recent-message mappings in `state.lastMessages`
+- bounded bidirectional recent-message mappings in `state.lastMessages`; repeated writes refresh existing keys without consuming additional capacity, and album mappings may retain several WhatsApp IDs pointing to one Discord message
 - TTL message payloads in `src/messageStore.js`
 
 Newsletter pending-send/server-ID correlation has separate bounded state in `src/newsletterBridge.js`; do not substitute ordinary Baileys outbound IDs where WhatsApp requires a newsletter `server_id`.

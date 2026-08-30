@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.2-beta.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.1...v2.5.2-beta.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* publish portable runtime archives and stable notes ([#300](https://github.com/arespawn/WhatsAppToDiscord/issues/300)) ([42b820c](https://github.com/arespawn/WhatsAppToDiscord/commit/42b820ccaf33e9cbc4b8675d3ffb9339da4a33ef))
+
 ## [2.5.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.0...v2.5.1) (2026-08-29)
 
 ### Bug Fixes

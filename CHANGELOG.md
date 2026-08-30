@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.5.5](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.4...v2.5.5) (2026-08-30)
+
+
+### Bug Fixes
+
+* prevent Discord REST stalls from blocking mappings ([#312](https://github.com/arespawn/WhatsAppToDiscord/issues/312)) ([502ccd6](https://github.com/arespawn/WhatsAppToDiscord/commit/502ccd66a0f87d4d43d6aa3d130a9b1f8122a4bd))
+
 ## [2.5.4](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.3...v2.5.4) (2026-08-30)
 
 ### Bug Fixes

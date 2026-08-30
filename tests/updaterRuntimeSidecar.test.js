@@ -282,6 +282,7 @@ test("runtime archive install falls back to copy when rename crosses filesystems
 	const originalCp = fs.promises.cp;
 	let renameFailed = false;
 	let copyCalled = false;
+	let copyOptions = null;
 
 	try {
 		await fsPromises.writeFile(currentExePath, "binary");
@@ -303,6 +304,30 @@ test("runtime archive install falls back to copy when rename crosses filesystems
 			),
 			'{"name":"sharp","version":"0.34.5"}\n',
 		);
+		if (process.platform !== "win32") {
+			const binDirectory = path.join(
+				stagedRuntimeRoot,
+				"runtime",
+				"node_modules",
+				".bin",
+			);
+			const packageBinDirectory = path.join(
+				stagedRuntimeRoot,
+				"runtime",
+				"node_modules",
+				"prebuild-install",
+			);
+			await fsPromises.mkdir(binDirectory, { recursive: true });
+			await fsPromises.mkdir(packageBinDirectory, { recursive: true });
+			await fsPromises.writeFile(
+				path.join(packageBinDirectory, "bin.js"),
+				"bin\n",
+			);
+			await fsPromises.symlink(
+				"../prebuild-install/bin.js",
+				path.join(binDirectory, "prebuild-install"),
+			);
+		}
 		await tar.create(
 			{
 				cwd: stagedRuntimeRoot,
@@ -328,16 +353,26 @@ test("runtime archive install falls back to copy when rename crosses filesystems
 		};
 		fs.promises.cp = async (...args) => {
 			copyCalled = true;
+			copyOptions = args[2];
 			return originalCp.call(fs.promises, ...args);
 		};
 
 		await utils.updater.installRuntimeArchive(archivePath);
 		assert.equal(renameFailed, true);
 		assert.equal(copyCalled, true);
+		assert.equal(copyOptions?.verbatimSymlinks, true);
 		assert.match(
 			await fsPromises.readFile(path.join(runtimePath, "package.json"), "utf8"),
 			/exdev runtime/u,
 		);
+		if (process.platform !== "win32") {
+			assert.equal(
+				await fsPromises.readlink(
+					path.join(runtimePath, "node_modules", ".bin", "prebuild-install"),
+				),
+				"../prebuild-install/bin.js",
+			);
+		}
 	} finally {
 		utils.updater.getCurrentExecutablePath = originalGetCurrentExecutablePath;
 		fs.promises.rename = originalRename;

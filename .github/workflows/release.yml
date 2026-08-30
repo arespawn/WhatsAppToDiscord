@@ -33,6 +33,10 @@ jobs:
         with:
           client-id: ${{ vars.RELEASE_APP_CLIENT_ID }}
           private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
       - name: Create or update release PR
         id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
@@ -41,6 +45,38 @@ jobs:
           target-branch: ${{ github.ref_name }}
           manifest-file: .release-please-manifest.json
           config-file: ${{ github.ref_name == 'next' && 'release-please-config.beta.json' || 'release-please-config.stable.json' }}
+      - name: Normalize stable release notes
+        if: github.ref_name == 'main' && steps.release.outputs.prs_created == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RELEASE_PRS: ${{ steps.release.outputs.prs }}
+        shell: bash
+        run: |
+          release_pr="$(jq -c --arg base "$GITHUB_REF_NAME" '[.[] | select(.baseBranchName == $base)][0] // {}' <<<"${RELEASE_PRS:-[]}")"
+          head_branch="$(jq -r '.headBranchName // empty' <<<"$release_pr")"
+          pr_number="$(jq -r '.number // empty' <<<"$release_pr")"
+          if [[ -z "$head_branch" || -z "$pr_number" ]]; then
+            echo "No stable release PR was returned; leaving changelog unchanged."
+            exit 0
+          fi
+          git fetch origin "$head_branch"
+          git switch --detach FETCH_HEAD
+          version="$(node -p "require('./package.json').version")"
+          if [[ "$version" == *-beta.* ]]; then
+            echo "Stable release PR has prerelease version $version; leaving changelog unchanged."
+            exit 0
+          fi
+          body_file="$RUNNER_TEMP/stable-release-pr-body.md"
+          gh pr view "$pr_number" --json body --jq '.body' > "$body_file"
+          node scripts/normalizeStableChangelog.js --version "$version" --pull-request-body "$body_file"
+          if ! git diff --quiet -- CHANGELOG.md; then
+            git config user.name "wa2dc-release-automation[bot]"
+            git config user.email "322409227+wa2dc-release-automation[bot]@users.noreply.github.com"
+            git add CHANGELOG.md
+            git commit -m "chore: normalize stable changelog notes"
+            git push origin "HEAD:$head_branch"
+          fi
+          gh pr edit "$pr_number" --body-file "$body_file"
 
   resolve:
     needs: release_please

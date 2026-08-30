@@ -100,6 +100,10 @@ WA2DC mirrors supported WhatsApp view-once media to Discord as spoiler attachmen
 
 ## Operations and releases
 
+### `/update` fails with `TAR_ENTRY_INFO` while installing v2.5.0 or v2.5.1
+
+The Linux and macOS runtime sidecar archives published with v2.5.0 and v2.5.1 contain absolute build-host symbolic links. The packaged updater intentionally rejects those links and restores the previous executable and runtime together. Do not bypass verification or keep retrying the affected release. Keep the working installation and upgrade directly to the first stable release newer than v2.5.1 when it is published.
+
 ### Why is the binary flagged as unknown or suspicious?
 
 WA2DC releases may not carry platform publisher notarization, so reputation-based tools can warn about them. Download only from the official [release page](https://github.com/arespawn/WhatsAppToDiscord/releases), verify the published SHA-256 checksum, and run from source if you require independent inspection. Never bypass a warning for a file obtained elsewhere.

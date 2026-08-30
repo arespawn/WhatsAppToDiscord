@@ -6,10 +6,12 @@ import {
 	getChatTargetChannelId,
 	isThreadChatLink,
 } from "./chatLinks.js";
-import { createDiscordClient } from "./clientFactories.js";
+import {
+	createDiscordClient,
+	createDiscordRestOptions,
+} from "./clientFactories.js";
 import {
 	DISCORD_BOT_PERMISSIONS,
-	DISCORD_REST_REQUEST_TIMEOUT_MS,
 	NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS,
 	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
@@ -80,7 +82,7 @@ const ThreadBridgeChannelTypes = [
 ];
 const ForumChannelTypes = [ChannelType.GuildForum];
 const client = createDiscordClient({
-	rest: { timeout: DISCORD_REST_REQUEST_TIMEOUT_MS },
+	rest: createDiscordRestOptions(),
 	intents: [
 		GatewayIntentBits.Guilds,
 		GatewayIntentBits.GuildMessages,

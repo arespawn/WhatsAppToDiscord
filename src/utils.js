@@ -27,8 +27,10 @@ import {
 	getChatTargetChannelId,
 	isThreadChatLink,
 } from "./chatLinks.js";
-import { createDiscordWebhookClient } from "./clientFactories.js";
-import { DISCORD_REST_REQUEST_TIMEOUT_MS } from "./contracts.js";
+import {
+	createDiscordRestOptions,
+	createDiscordWebhookClient,
+} from "./clientFactories.js";
 import { getImageSharp } from "./imageLibs.js";
 import { createWhatsAppAudioToDiscordFileNormalizer } from "./internal/whatsappAudioToDiscordNormalization.js";
 import {
@@ -3105,7 +3107,7 @@ const discord = {
 								id: existingChat.id,
 								token: existingChat.token,
 							},
-							{ rest: { timeout: DISCORD_REST_REQUEST_TIMEOUT_MS } },
+							{ rest: createDiscordRestOptions() },
 						),
 					);
 				} else if (existingChat.channelId) {

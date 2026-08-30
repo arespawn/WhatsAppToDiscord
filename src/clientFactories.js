@@ -3,8 +3,20 @@ import makeWASocket, {
 	fetchLatestWaWebVersion,
 } from "@whiskeysockets/baileys";
 import discordJs from "discord.js";
+import { DISCORD_REST_REQUEST_TIMEOUT_MS } from "./contracts.js";
 
 const overrides = {};
+
+export const makeDiscordRestRequest = (url, options) =>
+	globalThis.fetch(url, options);
+
+export const createDiscordRestOptions = () => ({
+	timeout: DISCORD_REST_REQUEST_TIMEOUT_MS,
+	// Keep FormData and the request implementation in the same Node/Undici realm.
+	// @discordjs/rest's bundled Undici request can otherwise stall multipart bodies
+	// after link-preview-js loads a newer Undici major in the same process.
+	makeRequest: makeDiscordRestRequest,
+});
 
 export const setClientFactoryOverrides = (next = {}) => {
 	Object.assign(overrides, next);

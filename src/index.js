@@ -5,6 +5,7 @@ import fs from "node:fs/promises";
 import pino from "pino";
 import pretty from "pino-pretty";
 import packageInfo from "../package.json" with { type: "json" };
+import { closeDiscordRestAgent } from "./clientFactories.js";
 import {
 	readTextFileTail,
 	replayQueuedCrashReport,
@@ -169,7 +170,10 @@ suppressSecretBearingDependencyConsoleLogs();
 		quiesce: quiesceRuntime,
 		save: () => persistenceShutdown.save(),
 		report: reportProcessExit,
-		destroyDiscord: () => state.dcClient?.destroy?.(),
+		destroyDiscord: async () => {
+			state.dcClient?.destroy?.();
+			await closeDiscordRestAgent();
+		},
 		finalSave: () => persistenceShutdown.save(),
 		closePersistence: () => persistenceShutdown.close(),
 		onStageError(stage, error) {

@@ -1196,14 +1196,6 @@ const sendWhatsappMessage = async (
 				continue;
 			}
 
-			if (
-				i === 0 &&
-				AnnouncementChannelTypes.includes(lastDcMessage?.channel?.type) &&
-				state.settings.Publish
-			) {
-				await lastDcMessage.crosspost();
-			}
-
 			const isLastFileChunk = i === fileChunks.length - 1;
 			const nextMessageIdOffset = isLastFileChunk
 				? normalizedMessageIds.length
@@ -1232,6 +1224,45 @@ const sendWhatsappMessage = async (
 				if (primaryWaId) {
 					state.lastMessages[lastDiscordMessageId] = primaryWaId;
 				}
+			}
+
+			if (fileChunks[i].length) {
+				const mappedMessageCount = waIdsForChunk.filter(
+					(waId) => state.lastMessages[waId] === lastDiscordMessageId,
+				).length;
+				state.logger?.info?.(
+					{
+						attachmentCount: fileChunks[i].length,
+						sourceMessageCount: waIdsForChunk.length,
+						mappedMessageCount,
+						outcome:
+							mappedMessageCount === waIdsForChunk.length
+								? "success"
+								: "incomplete",
+					},
+					"Recorded WhatsApp message mappings after Discord attachment upload.",
+				);
+			}
+
+			if (
+				i === 0 &&
+				AnnouncementChannelTypes.includes(lastDcMessage?.channel?.type) &&
+				state.settings.Publish
+			) {
+				void (async () => {
+					const crosspostStartedAt = Date.now();
+					try {
+						await lastDcMessage.crosspost();
+					} catch (err) {
+						state.logger?.warn?.(
+							{
+								err,
+								durationMs: Math.max(0, Date.now() - crosspostStartedAt),
+							},
+							"Discord announcement crosspost failed after message mapping.",
+						);
+					}
+				})();
 			}
 		}
 

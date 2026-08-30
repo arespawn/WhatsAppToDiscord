@@ -4,9 +4,10 @@ import http from "node:http";
 import test from "node:test";
 
 import {
+	closeDiscordRestAgent,
 	createDiscordRestOptions,
 	createDiscordWebhookClient,
-	makeDiscordRestRequest,
+	getDiscordRestAgent,
 	resetClientFactoryOverrides,
 	setClientFactoryOverrides,
 } from "../src/clientFactories.js";
@@ -39,7 +40,8 @@ test("the main Discord client receives the 60-second REST timeout", async () => 
 			capturedOptions?.rest?.timeout,
 			DISCORD_REST_REQUEST_TIMEOUT_MS,
 		);
-		assert.equal(capturedOptions?.rest?.makeRequest, makeDiscordRestRequest);
+		assert.equal(capturedOptions?.rest?.agent, getDiscordRestAgent());
+		assert.equal(capturedOptions?.rest?.makeRequest, undefined);
 		assert.equal(DISCORD_REST_REQUEST_TIMEOUT_MS, 60_000);
 	} finally {
 		resetClientFactoryOverrides();
@@ -86,7 +88,8 @@ test("stored standalone webhook clients receive the 60-second REST timeout", asy
 			capturedOptions?.rest?.timeout,
 			DISCORD_REST_REQUEST_TIMEOUT_MS,
 		);
-		assert.equal(capturedOptions?.rest?.makeRequest, makeDiscordRestRequest);
+		assert.equal(capturedOptions?.rest?.agent, getDiscordRestAgent());
+		assert.equal(capturedOptions?.rest?.makeRequest, undefined);
 	} finally {
 		restoreObject(state.chats, originalChats);
 		restoreObject(state.goccRuns, originalRuns);
@@ -94,22 +97,15 @@ test("stored standalone webhook clients receive the 60-second REST timeout", asy
 	}
 });
 
-test("a stored webhook sends a ten-file multipart body after newer Undici loads", async (t) => {
-	let resolveObserved;
-	let rejectObserved;
-	const observed = new Promise((resolve, reject) => {
-		resolveObserved = resolve;
-		rejectObserved = reject;
-	});
+test("the compatible agent sends multipart and JSON requests after newer Undici loads", async (t) => {
+	const observations = [];
 	const server = http.createServer((request, response) => {
 		const chunks = [];
 		request.on("data", (chunk) => chunks.push(chunk));
-		request.on("aborted", () =>
-			rejectObserved(new Error("multipart request was aborted")),
-		);
-		request.on("error", rejectObserved);
+		request.on("aborted", () => {});
+		request.on("error", () => {});
 		request.on("end", () => {
-			resolveObserved({
+			observations.push({
 				body: Buffer.concat(chunks),
 				contentType: request.headers["content-type"],
 				url: request.url,
@@ -123,13 +119,13 @@ test("a stored webhook sends a ten-file multipart body after newer Undici loads"
 		server.once("error", reject);
 		server.listen(0, "127.0.0.1", resolve);
 	});
-	t.after(
-		() =>
-			new Promise((resolve) => {
-				server.closeAllConnections();
-				server.close(resolve);
-			}),
-	);
+	t.after(async () => {
+		await closeDiscordRestAgent();
+		await new Promise((resolve) => {
+			server.closeAllConnections();
+			server.close(resolve);
+		});
+	});
 
 	const address = server.address();
 	assert.equal(typeof address, "object");
@@ -152,8 +148,13 @@ test("a stored webhook sends a ten-file multipart body after newer Undici loads"
 			name: "imageMessage.jpeg",
 		})),
 	});
+	await webhook.client.rest.post(
+		"/channels/123456789012345678/messages/234567890123456789/crosspost",
+		{ auth: false, body: { probe: true } },
+	);
 
-	const result = await observed;
+	assert.equal(observations.length, 2);
+	const [result, jsonResult] = observations;
 	assert.match(result.contentType, /^multipart\/form-data; boundary=/u);
 	assert.match(result.url, /^\/v10\/webhooks\//u);
 	assert.equal(result.body.length > 1_300_000, true);
@@ -162,4 +163,7 @@ test("a stored webhook sends a ten-file multipart body after newer Undici loads"
 			.length,
 		10,
 	);
+	assert.equal(jsonResult.contentType, "application/json");
+	assert.match(jsonResult.url, /\/crosspost$/u);
+	assert.equal(jsonResult.body.toString("utf8"), '{"probe":true}');
 });

@@ -34,7 +34,7 @@ An encrypted database exits at startup if its passphrase is missing or wrong. Ba
 - An empty whitelist permits every linked chat. Adding entries restricts bridging to those chats.
 - Discord attachments upload to WhatsApp by default; Discord embeds do not.
 - WhatsApp audio stays in its original format unless `/waaudiomp3 enabled:true` is selected.
-- WhatsApp media uploads to Discord use batches of 10 attachments.
+- WhatsApp media uploads to Discord use batches of 10 attachments. WA2DC stages them sequentially in a private operating-system temporary directory so retries can replay the same files, then removes the batch after delivery or fallback.
 - Mirrored deletions and public read-receipt notifications are enabled.
 - Local downloads, the local download server, HTTPS, and download pruning are disabled.
 - The local download server defaults to `127.0.0.1:8080` and generates `localhost` URLs.

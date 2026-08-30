@@ -9,6 +9,7 @@ import {
 import { createDiscordClient } from "./clientFactories.js";
 import {
 	DISCORD_BOT_PERMISSIONS,
+	DISCORD_REST_REQUEST_TIMEOUT_MS,
 	NEWSLETTER_ACK_WAIT_WITH_SERVER_ID_MS,
 	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
@@ -79,6 +80,7 @@ const ThreadBridgeChannelTypes = [
 ];
 const ForumChannelTypes = [ChannelType.GuildForum];
 const client = createDiscordClient({
+	rest: { timeout: DISCORD_REST_REQUEST_TIMEOUT_MS },
 	intents: [
 		GatewayIntentBits.Guilds,
 		GatewayIntentBits.GuildMessages,
@@ -1156,14 +1158,6 @@ const sendWhatsappMessage = async (
 			);
 		}
 
-		const chunkArray = (arr, size) => {
-			const chunks = [];
-			for (let i = 0; i < arr.length; i += size) {
-				chunks.push(arr.slice(i, i + size));
-			}
-			return chunks;
-		};
-
 		const fileChunks = utils.discord.chunkWebhookFilesForSend(files);
 		const normalizedMessageIds = [
 			...new Set(
@@ -1172,11 +1166,10 @@ const sendWhatsappMessage = async (
 					.filter(Boolean),
 			),
 		];
-		const idChunks = chunkArray(normalizedMessageIds, 10);
-
 		if (!fileChunks.length) fileChunks.push([]);
 
 		let lastDcMessage;
+		let messageIdOffset = 0;
 		for (let i = 0; i < fileChunks.length; i += 1) {
 			const sendArgs = {
 				content: i === 0 ? msgContent.shift() || null : null,
@@ -1209,7 +1202,18 @@ const sendWhatsappMessage = async (
 				await lastDcMessage.crosspost();
 			}
 
-			const waIdsForChunk = idChunks[i] || [];
+			const isLastFileChunk = i === fileChunks.length - 1;
+			const nextMessageIdOffset = isLastFileChunk
+				? normalizedMessageIds.length
+				: Math.min(
+						normalizedMessageIds.length,
+						messageIdOffset + fileChunks[i].length,
+					);
+			const waIdsForChunk = normalizedMessageIds.slice(
+				messageIdOffset,
+				nextMessageIdOffset,
+			);
+			messageIdOffset = nextMessageIdOffset;
 			for (const waId of waIdsForChunk) {
 				state.lastMessages[waId] = lastDiscordMessageId;
 				cacheQuotedWhatsAppMessageLocation({

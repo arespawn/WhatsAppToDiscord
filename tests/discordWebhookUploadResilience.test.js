@@ -1,9 +1,39 @@
 import assert from "node:assert/strict";
-import { Readable } from "node:stream";
 import test from "node:test";
 
 import state from "../src/state.js";
 import utils from "../src/utils.js";
+
+test("ordinary WhatsApp media is represented by a lazy Discord attachment descriptor", async () => {
+	const originalLocalDownloads = state.settings.LocalDownloads;
+	const originalLimit = state.settings.DiscordFileSizeLimit;
+	try {
+		state.settings.LocalDownloads = false;
+		state.settings.DiscordFileSizeLimit = 8 * 1024 * 1024;
+		const rawMessage = {
+			key: {
+				id: "wa-lazy-media",
+				remoteJid: "123@s.whatsapp.net",
+			},
+			message: {
+				imageMessage: {
+					mimetype: "image/jpeg",
+					fileLength: 2048,
+				},
+			},
+		};
+
+		const file = await utils.whatsapp.getFile(rawMessage, "imageMessage");
+
+		assert.equal(file?.attachment, undefined);
+		assert.equal(file?.downloadCtx, rawMessage);
+		assert.equal(file?.declaredSize, 2048);
+		assert.equal(file?.wa2dcLazyWhatsAppMedia, true);
+	} finally {
+		state.settings.LocalDownloads = originalLocalDownloads;
+		state.settings.DiscordFileSizeLimit = originalLimit;
+	}
+});
 
 test("Discord webhook transport classifier treats fetch timeout failures as retryable", () => {
 	const timeoutError = new AggregateError([], "connect timed out");
@@ -32,8 +62,9 @@ test("WhatsApp-backed Discord uploads honor the configured burst size", () => {
 		state.settings.WhatsAppDiscordMediaBurstSize = 3;
 		const files = Array.from({ length: 7 }, (_, idx) => ({
 			name: `image-${idx + 1}.jpg`,
-			attachment: Readable.from([Buffer.from("image")]),
 			downloadCtx: { id: `wa-${idx + 1}` },
+			declaredSize: 5,
+			wa2dcLazyWhatsAppMedia: true,
 		}));
 
 		const chunks = utils.discord.chunkWebhookFilesForSend(files);
@@ -53,8 +84,9 @@ test("WhatsApp-backed Discord uploads default to Discord's full attachment batch
 		state.settings.WhatsAppDiscordMediaBurstSize = 10;
 		const files = Array.from({ length: 11 }, (_, idx) => ({
 			name: `image-${idx + 1}.jpg`,
-			attachment: Readable.from([Buffer.from("image")]),
 			downloadCtx: { id: `wa-${idx + 1}` },
+			declaredSize: 5,
+			wa2dcLazyWhatsAppMedia: true,
 		}));
 
 		const chunks = utils.discord.chunkWebhookFilesForSend(files);

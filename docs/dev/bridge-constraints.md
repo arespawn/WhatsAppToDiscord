@@ -1,7 +1,7 @@
 # Bridge Constraints
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-07-17
+> Last reviewed: 2026-08-30
 > Scope: Routing, identity, anti-loop, thread/newsletter, and transport constraints that prevent regressions.
 
 ## Echo-loop and message tracking
@@ -49,7 +49,9 @@ Managed forum hosts are selected by configured name and a bot-owner marker in th
 ## Media delivery
 
 - Bound WhatsApp-to-Discord attachment batches with `WhatsAppDiscordMediaBurstSize`; never exceed Discord's 10-file upload limit.
-- Retry transient Discord upload failures from Undici and Node HTTP/2 streams, then emit a fallback notice instead of silently dropping media.
+- Keep ordinary WhatsApp media lazy until Discord send time. Stage attachments sequentially into private temporary files, enforce `DiscordFileSizeLimit` against actual bytes, and retry from those replayable files instead of reopening WhatsApp streams.
+- Apply a 60-second timeout to each WhatsApp media download and to Discord REST requests. A failed attachment must not discard successful siblings: upload the remainder with a notice, or preserve the message text and emit the check-WhatsApp fallback when none can be staged.
+- Retry transient Discord upload failures from Undici and Node HTTP/2 streams, then emit a fallback notice instead of silently dropping media. Upload diagnostics may include counts, byte totals, durations, attempts, and outcomes, but never message content, sender IDs, or webhook tokens.
 - Normalize unsupported static Discord images when possible, fall back to WhatsApp document delivery on failure, and precompute outbound JPEG thumbnails when tooling is available.
 - Send album-eligible image/video sets to ordinary WhatsApp chats as media albums; keep mixed or unsupported sets on the sequential fallback path.
 - Mirror WhatsApp view-once media as Discord spoiler attachments.

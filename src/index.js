@@ -11,6 +11,7 @@ import {
 	writePendingCrashReportAtomic,
 } from "./crashReportQueue.js";
 import discordHandler from "./discordHandler.js";
+import { cleanupActiveWhatsAppDiscordMediaStaging } from "./internal/whatsappDiscordMediaStaging.js";
 import { resolveLogLevel } from "./logLevel.js";
 import { shouldIgnoreProcessError } from "./processErrors.js";
 import {
@@ -152,6 +153,8 @@ suppressSecretBearingDependencyConsoleLogs();
 	const quiesceRuntime = () =>
 		quiesceRuntimeIngress({
 			stopDownloadServer: () => utils.stopDownloadServer(),
+			cleanupDiscordUploadStaging: () =>
+				cleanupActiveWhatsAppDiscordMediaStaging({ logger: state.logger }),
 			endWhatsApp: () =>
 				state.waClient?.end?.(new Error("Process shutting down")),
 			closeWhatsAppSocket: () => state.waClient?.ws?.close?.(),

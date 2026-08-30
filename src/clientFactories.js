@@ -30,6 +30,14 @@ export const createDiscordClient = (options = {}) => {
 	return new Client(options);
 };
 
+export const createDiscordWebhookClient = (data, options = {}) => {
+	if (typeof overrides.createDiscordWebhookClient === "function") {
+		return overrides.createDiscordWebhookClient(data, options);
+	}
+	const { WebhookClient } = discordJs;
+	return new WebhookClient(data, options);
+};
+
 export const createWhatsAppClient = (config) => {
 	if (typeof overrides.createWhatsAppClient === "function") {
 		return overrides.createWhatsAppClient(config);

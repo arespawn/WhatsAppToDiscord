@@ -61,6 +61,7 @@ export function createPersistenceShutdownGate({ save, close }) {
 
 export async function quiesceRuntimeIngress({
 	stopDownloadServer = () => {},
+	cleanupDiscordUploadStaging = () => {},
 	endWhatsApp = () => {},
 	closeWhatsAppSocket = () => {},
 	onError = () => {},
@@ -77,6 +78,7 @@ export async function quiesceRuntimeIngress({
 	};
 
 	start("download-server", stopDownloadServer);
+	start("discord-upload-staging", cleanupDiscordUploadStaging);
 	start("whatsapp-end", endWhatsApp);
 	start("whatsapp-socket", closeWhatsAppSocket);
 	await Promise.allSettled(pending);

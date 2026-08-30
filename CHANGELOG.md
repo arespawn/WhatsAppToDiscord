@@ -1,5 +1,11 @@
 # Changelog
 
+## [2.5.6](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.5...v2.5.6) (2026-08-30)
+
+### Bug Fixes
+
+* prevent recent message mapping loss ([#315](https://github.com/arespawn/WhatsAppToDiscord/issues/315)) ([f91cc33](https://github.com/arespawn/WhatsAppToDiscord/commit/f91cc337e937886aaaa08ccc2edd478500571589))
+
 ## [2.5.5](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.4...v2.5.5) (2026-08-30)
 
 ### Bug Fixes

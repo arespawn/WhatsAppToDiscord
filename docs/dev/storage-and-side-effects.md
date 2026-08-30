@@ -18,6 +18,8 @@ Table responsibilities:
 
 `src/contracts.js` owns settings defaults and normalization. `src/chatLinks.js` accepts object records with webhook `channelId` and optional `threadId`; unsupported legacy channel-string records are ignored. `src/messageStore.js` bounds cached entries and prunes expired/old records.
 
+Recent WhatsApp↔Discord message mappings remain JSON-compatible but are managed by a unique-key bounded map. Refreshing an existing pair must not consume additional capacity or evict unrelated mappings. Saves are serialized, include privacy-safe cardinality diagnostics, and recover from the previous in-memory snapshot instead of persisting an unexplained drop of more than half of a non-trivial mapping set.
+
 SQLite may create `wa2dc.sqlite-wal` and `wa2dc.sqlite-shm` while running. Stop WA2DC before filesystem-level backup so the copied database is consistent; copy the complete `storage/` directory rather than selecting individual files.
 
 On `SIGINT` or `SIGTERM`, WA2DC blocks reconnect work, independently quiesces download and WhatsApp ingress, and saves current app state before attempting its bounded Discord shutdown report. It then destroys Discord, saves once more, and closes SQLite last. Every stage has a deadline, so a stuck transport cannot prevent the final save/close attempt; operators should continue to stop WA2DC normally before copying storage.

@@ -230,3 +230,102 @@ test("storage.save never persists lastMessages as null", async () => {
 	restoreObject(state.settings, settingsSnapshot);
 	state.lastMessages = originalLastMessages;
 });
+
+test("storage.save recovers an unexplained catastrophic mapping drop", async () => {
+	const settingsSnapshot = snapshotObject(state.settings);
+	const originalLastMessages = state.lastMessages;
+	const originalLogger = state.logger;
+	const errors = [];
+
+	try {
+		await withTempStorage(async () => {
+			state.settings.lastMessageStorage = 500;
+			state.logger = {
+				debug() {},
+				error(fields, message) {
+					errors.push({ fields, message });
+				},
+				info() {},
+				warn() {},
+			};
+			const seed = {};
+			for (let index = 0; index < 100; index += 1) {
+				seed[`wa-${index}`] = `dc-${index}`;
+				seed[`dc-${index}`] = `wa-${index}`;
+			}
+			await storage.upsert("lastMessages", JSON.stringify(seed));
+			state.lastMessages = await storage.parseLastMessages();
+
+			state.lastMessages = {};
+			await storage.save();
+
+			const persisted = JSON.parse(
+				(await storage.get("lastMessages")).toString("utf8"),
+			);
+			assert.equal(Object.keys(persisted).length, 200);
+			assert.equal(state.lastMessages["wa-99"], "dc-99");
+			assert.equal(errors.length, 1);
+			assert.deepEqual(errors[0], {
+				fields: {
+					observedEntryCount: 0,
+					previousEntryCount: 200,
+					recoveredEntryCount: 200,
+				},
+				message:
+					"Recovered recent-message mappings after an unexpected cardinality drop.",
+			});
+		});
+	} finally {
+		restoreObject(state.settings, settingsSnapshot);
+		state.lastMessages = originalLastMessages;
+		state.logger = originalLogger;
+	}
+});
+
+test("production-sized mappings survive repeated refreshes and a ten-image canary", async () => {
+	const settingsSnapshot = snapshotObject(state.settings);
+	const originalLastMessages = state.lastMessages;
+
+	try {
+		await withTempStorage(async () => {
+			state.settings.lastMessageStorage = 50_000;
+			const seed = {};
+			for (let index = 0; index < 48_343; index += 1) {
+				seed[`wa-seed-${index}`] = `dc-seed-${index}`;
+				seed[`dc-seed-${index}`] = `wa-seed-${index}`;
+			}
+			seed["orphan-reaction"] = true;
+			assert.equal(Object.keys(seed).length, 96_687);
+
+			await storage.upsert("lastMessages", JSON.stringify(seed));
+			state.lastMessages = await storage.parseLastMessages();
+			for (let index = 0; index < 2000; index += 1) {
+				state.lastMessages["wa-hot"] = "dc-hot";
+				state.lastMessages["dc-hot"] = "wa-hot";
+			}
+
+			state.lastMessages["wa-before"] = "dc-before";
+			for (let index = 1; index <= 10; index += 1) {
+				state.lastMessages[`wa-image-${index}`] = "dc-album";
+			}
+			state.lastMessages["dc-album"] = "wa-image-1";
+			state.lastMessages["wa-after"] = "dc-after";
+			await storage.save();
+
+			const persisted = JSON.parse(
+				(await storage.get("lastMessages")).toString("utf8"),
+			);
+			assert.ok(Object.keys(persisted).length >= 96_702);
+			assert.equal(persisted["wa-seed-0"], "dc-seed-0");
+			assert.equal(persisted["wa-before"], "dc-before");
+			assert.equal(persisted["wa-after"], "dc-after");
+			assert.equal(persisted["dc-album"], "wa-image-1");
+			for (let index = 1; index <= 10; index += 1) {
+				assert.equal(persisted[`wa-image-${index}`], "dc-album");
+			}
+		});
+	} finally {
+		restoreObject(state.settings, settingsSnapshot);
+		state.lastMessages = originalLastMessages;
+	}
+});

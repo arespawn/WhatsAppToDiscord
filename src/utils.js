@@ -1587,7 +1587,10 @@ const movePathWithCrossDeviceFallback = async (from, to) => {
 		}
 	}
 
-	await fs.promises.cp(from, to, { recursive: true });
+	await fs.promises.cp(from, to, {
+		recursive: true,
+		verbatimSymlinks: true,
+	});
 	await fs.promises.rm(from, { recursive: true, force: true });
 };
 

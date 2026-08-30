@@ -1,7 +1,7 @@
 # Testing and Release
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-08-29
+> Last reviewed: 2026-08-30
 > Scope: Validation commands, documentation checks, CI, bundling, and packaged release constraints.
 
 ## Validation matrix
@@ -25,7 +25,7 @@ The `CI` workflow runs for pull requests and pushes to `main` and `next`. It val
 - `main` is the stable branch. Promote a tested `next` beta through a `next` to `main` pull request using a merge commit.
 - Release Please uses `.release-please-manifest.json`, initialized at `2.4.0`, with the repository bootstrap commit `00e2c9fe55067e2b8e1c842b1a1da972999a0b63`.
 - `next` seeds prerelease numbering at `beta.1` and produces only `vX.Y.Z-beta.N` prereleases. `main` uses the same prerelease-aware versioning strategy with prerelease output disabled, which removes the tested beta suffix instead of applying a second feature/breaking bump; it produces `vX.Y.Z` stable releases.
-- Release Please PRs own `package.json`, `package-lock.json`, `CHANGELOG.md`, and the release manifest version. Do not hand-edit versions during an ordinary release.
+- Release Please PRs own `package.json`, `package-lock.json`, `CHANGELOG.md`, and the release manifest version. Stable release PRs also run `scripts/normalizeStableChangelog.js`, which folds user-facing entries from every matching beta section into both the stable changelog section and the release PR body while excluding `Miscellaneous` release/checkpoint entries. Release Please then uses that normalized PR body for the GitHub Release page. Do not hand-edit versions during an ordinary release.
 - `feat` is minor; `fix`, `fix(deps)`, `perf`, and `revert` are patch; `!` or `BREAKING CHANGE` is major. Maintenance-only `docs`, `test`, `ci`, `build`, and `chore` commits do not independently release.
 
 Promotion CI requires the published beta tag to resolve to `next` HEAD and requires its signed update-manifest assets. The gate waits up to 10 minutes for the fail-closed release pipeline to publish the beta, avoiding a race between the release and promotion workflows. The promotion pull-request body must contain an exact `Release-As: X.Y.Z` line matching the beta version without its suffix; GitHub must use the pull-request title and body as the merge-commit title and message so Release Please prepares that stable version. Together these checks prove there are no commits after the tested beta and make the stable transition deterministic. If `main` changed independently, synchronize it into `next` before publishing the final beta; a reconciliation after beta publication requires a new beta, forced with a `Release-As: X.Y.Z-beta.N` commit footer when it has no independently releasable changes. After stable publication, the GitHub App opens a `main` to `next` synchronization PR. If `next` is unexpectedly missing, the job recreates it at the exact stable release commit and exits successfully because no synchronization diff remains.
@@ -77,9 +77,11 @@ Keep these checks dependency-free and network-free. External links are verified 
 - `@yao-pkg/pkg` is pinned by the build scripts/workflow and packages `out.cjs` with `--no-bytecode`.
 - Builds stage `build/runtime/` for `sharp`, `canvas`, `jsdom`, and `lottie-web`.
 - Release automation publishes a signed `${binary}.runtime.tar.gz` for every packaged binary.
+- Runtime archives preserve only relative symbolic links that resolve inside `runtime/`; archive creation fails on absolute, escaping, or dangling links.
 - Releases from `v2.5.0-beta.1` onward publish a signed schema-1 update manifest containing the release tag, commit, channel, exact sizes, SHA-256 hashes, and per-asset signature names for all four targets.
 - Packaged startup may download and verify the matching sidecar when `runtime/` is missing or unusable.
 - `/update` downloads the complete executable/runtime pair to a private staging directory and verifies the signed manifest, sizes, hashes, and per-asset RSA signatures before modifying the installation. Rollback treats both artifacts as one versioned unit.
+- Cross-filesystem sidecar installation preserves relative symbolic-link targets instead of binding them to the temporary extraction directory.
 - `process.pkg` is the supported packaged/source runtime distinction.
 
 ## Baileys compatibility

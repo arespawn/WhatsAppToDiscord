@@ -1,7 +1,7 @@
 # Storage and Side Effects
 
 > Owner: WA2DC maintainers
-> Last reviewed: 2026-08-29
+> Last reviewed: 2026-08-30
 > Scope: SQLite contracts, runtime artifacts, lifetimes, and explicit filesystem-permission enforcement.
 
 ## SQLite persistence contract
@@ -48,6 +48,7 @@ Packaged-install artifacts beside the executable:
 - `runtime.oldVersion/`: matching sidecar backup retained for rollback
 
 Update archives and extraction directories are created under the operating-system temporary directory and cleaned on success/failure paths.
+Runtime sidecar archives contain only relative symbolic links that resolve inside `runtime/`; cross-filesystem installation preserves those links when moving the extracted sidecar beside the executable.
 
 Changing the location, lifecycle, format, or meaning of any artifact requires updates here and in public configuration/troubleshooting docs.
 

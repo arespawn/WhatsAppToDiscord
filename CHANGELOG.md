@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.5.7-beta.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.6...v2.5.7-beta.1) (2026-09-01)
+
+
+### Bug Fixes
+
+* **deps:** bump @biomejs/biome from 2.5.10 to 2.5.11 in the npm-minor-patch group ([#318](https://github.com/arespawn/WhatsAppToDiscord/issues/318)) ([a018775](https://github.com/arespawn/WhatsAppToDiscord/commit/a018775681741c8fb010621d760d6c86989e58d6))
+* **deps:** bump @biomejs/biome in the npm-minor-patch group ([553d205](https://github.com/arespawn/WhatsAppToDiscord/commit/553d2054044d6c2e82af4b81459f5afdb7fc7376))
+
 ## [2.5.6](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.5...v2.5.6) (2026-08-30)
 
 ### Bug Fixes

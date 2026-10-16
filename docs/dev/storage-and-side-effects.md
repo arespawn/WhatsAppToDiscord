@@ -28,7 +28,7 @@ On `SIGINT` or `SIGTERM`, WA2DC blocks reconnect work, independently quiesces do
 
 `WA2DC_DB_PASSPHRASE` enables encryption of stored payload values when present at first database creation. The metadata needed to identify/derive the encrypted format remains readable. Setting a passphrase for an existing unencrypted database is ignored rather than silently converting it.
 
-An encrypted database fails startup when the passphrase is missing or wrong. There is no recovery path without the original passphrase and a valid database backup.
+An encrypted database fails startup when the passphrase is missing or wrong. The store closes its handle on that failure, so a later `init()` in the same process fails the same way instead of reusing the open database with encryption disabled. There is no recovery path without the original passphrase and a valid database backup.
 
 ## Runtime artifacts
 

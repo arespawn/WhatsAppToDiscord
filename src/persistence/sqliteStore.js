@@ -214,7 +214,10 @@ const sqliteStore = {
 			await fs.chmod(dbPath, STORAGE_FILE_MODE).catch(() => {});
 		}
 
-		this._db.exec(`
+		// If setup or the passphrase check fails, close the handle so a later
+		// init() cannot treat the DB as ready with encryption disabled.
+		try {
+			this._db.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA synchronous = NORMAL;
       PRAGMA busy_timeout = 5000;
@@ -247,7 +250,11 @@ const sqliteStore = {
       CREATE INDEX IF NOT EXISTS idx_message_store_updated_at ON message_store(updated_at);
     `);
 
-		this._configureEncryption(process.env.WA2DC_DB_PASSPHRASE || "");
+			this._configureEncryption(process.env.WA2DC_DB_PASSPHRASE || "");
+		} catch (err) {
+			this.close();
+			throw err;
+		}
 	},
 
 	close() {

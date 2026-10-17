@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import state from "../src/state.js";
@@ -90,4 +91,57 @@ test("SQLite storage round-trips app state via save/parse APIs", async () => {
 	restoreObject(state.contacts, contactsSnapshot);
 	state.startTime = originalStartTime;
 	state.lastMessages = originalLastMessages;
+});
+
+test("SQLite storage stays closed after a missing passphrase and never writes plaintext", async () => {
+	const originalPassphrase = process.env.WA2DC_DB_PASSPHRASE;
+
+	try {
+		await withTempStorage(async ({ sandboxDir }) => {
+			process.env.WA2DC_DB_PASSPHRASE = "test-passphrase";
+			await storage.upsert("probe", "secret-value");
+			await storage.close();
+
+			delete process.env.WA2DC_DB_PASSPHRASE;
+			for (let attempt = 0; attempt < 2; attempt += 1) {
+				await assert.rejects(
+					storage.ensureInitialized(),
+					/WA2DC_DB_PASSPHRASE is not set/,
+				);
+			}
+			await assert.rejects(
+				storage.upsert("probe-after-failure", "plaintext"),
+				/WA2DC_DB_PASSPHRASE is not set/,
+			);
+			await storage.close();
+
+			const db = new DatabaseSync(path.join(sandboxDir, "wa2dc.sqlite"), {
+				readOnly: true,
+			});
+			try {
+				const rows = db.prepare("SELECT key, value FROM app_state").all();
+				assert.deepEqual(
+					rows.map((row) => row.key),
+					["probe"],
+				);
+				for (const row of rows) {
+					assert.equal(JSON.parse(row.value).alg, "aes-256-gcm");
+				}
+			} finally {
+				db.close();
+			}
+
+			process.env.WA2DC_DB_PASSPHRASE = "test-passphrase";
+			assert.equal(
+				(await storage.get("probe"))?.toString("utf8"),
+				"secret-value",
+			);
+		});
+	} finally {
+		if (originalPassphrase == null) {
+			delete process.env.WA2DC_DB_PASSPHRASE;
+		} else {
+			process.env.WA2DC_DB_PASSPHRASE = originalPassphrase;
+		}
+	}
 });

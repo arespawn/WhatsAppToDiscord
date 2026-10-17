@@ -46,6 +46,18 @@ const oneWayAllowsWhatsAppToDiscord = (mode) =>
 const oneWayAllowsDiscordToWhatsApp = (mode) =>
 	normalizeOneWayMode(mode) !== ONE_WAY_MODES.TO_DISCORD_ONLY;
 
+const normalizeContactAvatarUrl = (value) => {
+	if (typeof value !== "string" || value.length > 2048) return null;
+	try {
+		const url = new URL(value.trim());
+		return url.protocol === "https:" && !url.username && !url.password
+			? url.href
+			: null;
+	} catch {
+		return null;
+	}
+};
+
 const createDefaultSettings = () => ({
 	Whitelist: [],
 	DiscordPrefixText: null,
@@ -101,6 +113,7 @@ const createDefaultSettings = () => ({
 	ThreadNotificationRoles: [],
 	ThreadNotificationUsers: [],
 	WhatsAppDiscordMentionLinks: {},
+	CustomContactAvatars: {},
 	HidePhoneNumbers: false,
 	PrivacySalt: "",
 });
@@ -148,6 +161,16 @@ const normalizeSettings = (raw = {}, { logger = null } = {}) => {
 		: defaults.ReadReceiptMode;
 	settings.UpdateChannel =
 		settings.UpdateChannel === "unstable" ? "unstable" : "stable";
+	const avatars = settings.CustomContactAvatars;
+	settings.CustomContactAvatars = Object.fromEntries(
+		Object.entries(
+			avatars && typeof avatars === "object" && !Array.isArray(avatars)
+				? avatars
+				: {},
+		)
+			.map(([jid, url]) => [jid, normalizeContactAvatarUrl(url)])
+			.filter(([jid, url]) => /^\d+@(s\.whatsapp\.net|lid)$/.test(jid) && url),
+	);
 
 	return settings;
 };
@@ -177,6 +200,7 @@ export {
 	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
 	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
+	normalizeContactAvatarUrl,
 	normalizeSettings,
 	ONE_WAY_MODES,
 	oneWayAllowsDiscordToWhatsApp,

@@ -4289,6 +4289,7 @@ const whatsapp = {
 		migrateKey(state.contacts);
 		migrateKey(state.goccRuns);
 		migrateKey(state.settings?.WhatsAppDiscordMentionLinks);
+		migrateKey(state.settings?.CustomContactAvatars);
 		const whitelist = state.settings?.Whitelist;
 		if (Array.isArray(whitelist) && whitelist.length) {
 			const normalized = whitelist.map((jid) => {
@@ -5120,6 +5121,8 @@ const whatsapp = {
 	_profilePicsCache: {},
 	async getProfilePic(rawMsg) {
 		const jid = await this.getSenderJid(rawMsg, rawMsg?.key?.fromMe);
+		const customAvatar = state.settings.CustomContactAvatars?.[jid];
+		if (customAvatar) return customAvatar;
 		if (this._profilePicsCache[jid] === undefined) {
 			this._profilePicsCache[jid] = await state.waClient
 				.profilePictureUrl(jid, "preview")

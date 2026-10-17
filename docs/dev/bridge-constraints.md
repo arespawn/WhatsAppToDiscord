@@ -46,6 +46,8 @@ Managed forum hosts are selected by configured name and a bot-owner marker in th
 - Translate individual mentions only from real platform mention metadata; do not interpret arbitrary typed `@name` text.
 - Respect `DiscordFileSizeLimit` and local-download fallback behavior.
 
+Custom Discord avatars resolve from the sender JID, including group participants, before the WhatsApp profile-picture cache. Keep overrides separate from that cache so removing an override restores normal WhatsApp lookup. PN/LID migrations must carry avatar settings with the other contact state.
+
 ## Media delivery
 
 - When a WhatsApp media message has a `directPath`, the pinned-Baileys patch replaces obsolete `a.whatsapp.net` / `web.whatsapp.net` URL hosts with Baileys' default media host. Preserve explicit host overrides, other URL hosts, and URL-only downloads. See [upstream PR #2778](https://github.com/WhiskeySockets/Baileys/pull/2778).

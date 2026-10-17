@@ -16,6 +16,7 @@ import {
 	NEWSLETTER_ACK_WAIT_WITHOUT_SERVER_ID_MS,
 	NEWSLETTER_SERVER_ID_WAIT_POLL_MS,
 	NEWSLETTER_SERVER_ID_WAIT_TIMEOUT_MS,
+	normalizeContactAvatarUrl,
 	ONE_WAY_MODES,
 	oneWayAllowsDiscordToWhatsApp,
 	oneWayAllowsWhatsAppToDiscord,
@@ -2341,7 +2342,78 @@ const waitForWhatsAppPairingReady = async (client) => {
 	});
 };
 
+const updateContactAvatar = async (ctx, reset = false) => {
+	const jid = await resolveUserJidOption(ctx, {
+		optionName: "contact",
+		description: "a contact",
+	});
+	if (!jid) return;
+	if (!/^\d+@(s\.whatsapp\.net|lid)$/.test(jid)) {
+		await ctx.reply("Please choose an individual WhatsApp contact.");
+		return;
+	}
+	const url = reset
+		? null
+		: normalizeContactAvatarUrl(ctx.getStringOption("url"));
+	if (!reset && !url) {
+		await ctx.reply(
+			"Please provide an HTTPS image URL without a username or password.",
+		);
+		return;
+	}
+	const [primary] = await utils.whatsapp.hydrateJidPair(jid);
+	const contactJid = primary || jid;
+	const previous = state.settings.CustomContactAvatars;
+	const avatars = { ...previous };
+	if (reset) delete avatars[contactJid];
+	else avatars[contactJid] = url;
+	state.settings.CustomContactAvatars = avatars;
+	try {
+		await storage.saveSettings();
+	} catch (err) {
+		state.settings.CustomContactAvatars = previous;
+		state.logger?.error?.({ err }, "Failed to save custom contact avatar");
+		await ctx.reply("Could not save the avatar. Please try again.");
+		return;
+	}
+	await ctx.reply(
+		reset
+			? "Custom avatar removed. Future messages will use the WhatsApp picture."
+			: "Custom avatar saved for this contact's future Discord messages.",
+	);
+};
+
 const commandHandlers = {
+	setavatar: {
+		description: "Set a WhatsApp contact's avatar in Discord.",
+		options: [
+			{
+				name: "contact",
+				description: "Contact name, number with country code, or JID.",
+				type: ApplicationCommandOptionType.String,
+				required: true,
+			},
+			{
+				name: "url",
+				description: "Stable HTTPS URL of the image to use.",
+				type: ApplicationCommandOptionType.String,
+				required: true,
+			},
+		],
+		execute: (ctx) => updateContactAvatar(ctx),
+	},
+	resetavatar: {
+		description: "Restore a WhatsApp contact's avatar in Discord.",
+		options: [
+			{
+				name: "contact",
+				description: "Contact name, number with country code, or JID.",
+				type: ApplicationCommandOptionType.String,
+				required: true,
+			},
+		],
+		execute: (ctx) => updateContactAvatar(ctx, true),
+	},
 	ping: {
 		description: "Check the bot latency.",
 		async execute(ctx) {

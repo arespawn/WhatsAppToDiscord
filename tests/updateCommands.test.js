@@ -1703,3 +1703,78 @@ test("/waaudiomp3 toggles WhatsApp audio MP3 conversion", async () => {
 		resetClientFactoryOverrides();
 	}
 });
+
+test("avatar commands persist changes, reject invalid input, and restore state on save failure", async (t) => {
+	const settings = { ...state.settings };
+	const originalClient = state.dcClient;
+	const originalWaClient = state.waClient;
+	const originalContacts = state.contacts;
+	t.after(() => {
+		Object.assign(state.settings, settings);
+		state.dcClient = originalClient;
+		state.waClient = originalWaClient;
+		state.contacts = originalContacts;
+		resetClientFactoryOverrides();
+	});
+	state.settings.Token = "SYNTHETIC";
+	state.settings.GuildID = "guild";
+	state.settings.ControlChannelID = "control";
+	state.settings.CustomContactAvatars = {};
+	const pn = "15550001111@s.whatsapp.net";
+	const lid = "123456789@lid";
+	const avatar = "https://images.example/avatar.png";
+	state.contacts = { [pn]: "AvatarAlice" };
+	state.waClient = {
+		user: { id: "0@s.whatsapp.net" },
+		signalRepository: { lidMapping: { getPNForLID: async () => pn } },
+	};
+	t.mock.method(utils.discord, "getGuild", async () => ({
+		commands: { set: async () => {} },
+	}));
+	t.mock.method(utils.discord, "getControlChannel", async () => ({
+		send: async () => {},
+	}));
+	const fakeClient = new FakeDiscordClient();
+	setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+	const handler = await importDiscordHandler("contact-avatar-commands");
+	state.dcClient = await handler.start();
+	await delay(0);
+	const command = async (commandName, contact, url) => {
+		const interaction = createInteraction({
+			channelId: "control",
+			commandName,
+			stringOptions: { contact, url },
+		});
+		fakeClient.emit("interactionCreate", interaction);
+		assert.equal(
+			await waitFor(() => interaction.records.editReply.length > 0),
+			true,
+		);
+		return interaction.records.editReply[0].content;
+	};
+	assert.match(await command("setavatar", "AvatarAlice", avatar), /saved/u);
+	assert.deepEqual((await storage.parseSettings()).CustomContactAvatars, {
+		[pn]: avatar,
+	});
+	assert.match(
+		await command("setavatar", pn, "http://example.com/avatar"),
+		/HTTPS/u,
+	);
+	assert.match(await command("setavatar", "123@g.us", avatar), /individual/u);
+	assert.match(
+		await command("setavatar", "unknown-contact", avatar),
+		/individual/u,
+	);
+	assert.deepEqual(state.settings.CustomContactAvatars, { [pn]: avatar });
+	const failingSave = t.mock.method(storage, "saveSettings", async () => {
+		throw new Error("synthetic disk failure");
+	});
+	assert.match(
+		await command("setavatar", pn, "https://images.example/changed.png"),
+		/Could not save/u,
+	);
+	assert.deepEqual(state.settings.CustomContactAvatars, { [pn]: avatar });
+	failingSave.mock.restore();
+	assert.match(await command("resetavatar", lid), /removed/u);
+	assert.deepEqual((await storage.parseSettings()).CustomContactAvatars, {});
+});

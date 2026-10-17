@@ -252,6 +252,20 @@ Hide WhatsApp phone numbers on Discord, using stable pseudonyms when a real cont
 
 Usage: `/hidephonenumbers enabled:<true|false>`
 
+### `/setavatar`
+
+Use a custom image for a WhatsApp contact's future Discord messages, including in groups and forum threads. Accepts a contact name, number with country code, or PN/LID JID. The override survives restarts and does not change the contact's WhatsApp picture or previously sent messages.
+
+Provide a direct HTTPS image URL that stays accessible. Temporary Discord attachment links can expire; WA2DC stores the URL and does not host or copy the image.
+
+Usage: `/setavatar contact:<name, number, or JID> url:<HTTPS image URL>`
+
+### `/resetavatar`
+
+Remove a contact's custom Discord avatar and use their WhatsApp profile picture again for future messages, or the default avatar when no picture is available.
+
+Usage: `/resetavatar contact:<name, number, or JID>`
+
 ### `/linkmention`
 
 Link a WhatsApp contact to a Discord user so real WhatsApp mentions can ping that user. WA2DC also translates real Discord mentions back to WhatsApp when possible. PN and LID identifiers are both supported.

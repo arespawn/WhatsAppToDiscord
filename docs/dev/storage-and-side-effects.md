@@ -16,6 +16,8 @@ Table responsibilities:
 - `auth_keys`: serialized Baileys Signal/auth namespaces keyed by logical filename
 - `message_store`: TTL-cached message payloads used by edits, polls, pins, newsletter flows, and related lookups
 
+`CustomContactAvatars` is a settings map from normalized individual-contact PN/LID JIDs to HTTPS image URLs. It is saved immediately by `/setavatar` and `/resetavatar`, follows identity migrations, and is included in SQLite backups/encryption. Images are not downloaded or persisted locally.
+
 `src/contracts.js` owns settings defaults and normalization. `src/chatLinks.js` accepts object records with webhook `channelId` and optional `threadId`; unsupported legacy channel-string records are ignored. `src/messageStore.js` bounds cached entries and prunes expired/old records.
 
 Recent WhatsApp↔Discord message mappings remain JSON-compatible but are managed by a unique-key bounded map. Refreshing an existing pair must not consume additional capacity or evict unrelated mappings. Saves are serialized, include privacy-safe cardinality diagnostics, and recover from the previous in-memory snapshot instead of persisting an unexplained drop of more than half of a non-trivial mapping set.

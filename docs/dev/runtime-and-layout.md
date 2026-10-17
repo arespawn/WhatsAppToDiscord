@@ -31,7 +31,7 @@ The official Docker entrypoint starts `src/index.js` directly and relies on the 
 - Preserve memory probes around socket creation, connection, genuine initial-buffer flushes, and LID migration. They diagnose packaged startup rollback/OOM failures.
 - Fresh sessions default to the Android browser profile for view-once behavior. Pairing-code flows may temporarily select a Chrome profile; changing the profile of a registered session can require clearing WhatsApp auth and pairing again.
 - Prefer `fetchLatestWaWebVersion()` for fresh pairing, falling back to `fetchLatestBaileysVersion()` only when the live lookup fails.
-- Keep the pinned-Baileys postinstall patch synchronized with its tests. It covers obsolete Web/Desktop media-host fallback, the Android profile, disabled-history buffering, delivered receipts while unavailable, pre-auth/incomplete pairing notifications, companion registration QR refresh, LID migration probes, and bounded tctoken pruning.
+- Keep the pinned-Baileys postinstall patch synchronized with its tests. It covers newsletter image/video upload metadata, obsolete Web/Desktop media-host fallback, the Android profile, disabled-history buffering, delivered receipts while unavailable, pre-auth/incomplete pairing notifications, companion registration QR refresh, LID migration probes, and bounded tctoken pruning.
 
 ## Module ownership
 

@@ -2754,59 +2754,6 @@ const patchSendMessageForLinkPreviews = (client) => {
 	) {
 		return;
 	}
-	const rewriteNewsletterDirectPath = (value = "") => {
-		if (typeof value !== "string") return value;
-		if (!value.startsWith("/o1/")) return value;
-		return value.replace(/^\/o1\//, "/m1/");
-	};
-	const rewriteNewsletterMediaUrl = (value = "") => {
-		if (typeof value !== "string" || !value) return value;
-		try {
-			const parsed = new URL(value);
-			if (!parsed.pathname.startsWith("/o1/")) {
-				return value;
-			}
-			parsed.pathname = parsed.pathname.replace(/^\/o1\//, "/m1/");
-			return parsed.toString();
-		} catch {
-			return value;
-		}
-	};
-	const rewriteNewsletterImageUploadResult = (
-		result = {},
-		uploadOptions = {},
-	) => {
-		if (!result || typeof result !== "object") {
-			return result;
-		}
-		const mediaType =
-			typeof uploadOptions?.mediaType === "string"
-				? uploadOptions.mediaType.trim().toLowerCase()
-				: "";
-		if (mediaType !== "image") {
-			return result;
-		}
-		const directPath = rewriteNewsletterDirectPath(result.directPath);
-		const mediaUrl = rewriteNewsletterMediaUrl(result.mediaUrl);
-		if (directPath === result.directPath && mediaUrl === result.mediaUrl) {
-			return result;
-		}
-		state.logger?.debug?.(
-			{
-				mediaType,
-				originalDirectPath: truncateForDebug(result.directPath, 140),
-				rewrittenDirectPath: truncateForDebug(directPath, 140),
-				originalMediaUrl: truncateForDebug(result.mediaUrl, 160),
-				rewrittenMediaUrl: truncateForDebug(mediaUrl, 160),
-			},
-			"Rewrote newsletter media upload result path",
-		);
-		return {
-			...result,
-			directPath,
-			mediaUrl,
-		};
-	};
 	const defaultGetUrlInfo = (text) =>
 		utils.whatsapp.generateLinkPreview(text, {
 			uploadImage:
@@ -2838,18 +2785,6 @@ const patchSendMessageForLinkPreviews = (client) => {
 		const newsletterChat = isNewsletterJid(sendJid);
 		if (newsletterChat) {
 			normalizedOptions.getUrlInfo = undefined;
-			const baseUpload =
-				typeof normalizedOptions.upload === "function"
-					? normalizedOptions.upload
-					: typeof client.waUploadToServer === "function"
-						? client.waUploadToServer
-						: null;
-			if (typeof baseUpload === "function") {
-				normalizedOptions.upload = async (filePath, uploadOptions = {}) => {
-					const result = await baseUpload(filePath, uploadOptions);
-					return rewriteNewsletterImageUploadResult(result, uploadOptions);
-				};
-			}
 		}
 		const needsGeneratedPreview = !newsletterChat && !content?.linkPreview;
 		if (needsGeneratedPreview && !normalizedOptions.getUrlInfo) {
@@ -4290,31 +4225,22 @@ const connectToWhatsApp = async (retry = 1) => {
 					)
 					.catch(() => {});
 			}
-			if (newsletterMediaAttachments.length) {
-				if (newsletterMediaUrlFallbackEnabled) {
-					await message.channel
-						?.send(
-							"Newsletter media URL fallback is enabled as a temporary workaround until upstream Baileys newsletter media posting is fixed. " +
-								"Image/video attachments will be sent as plain URL links (no thumbnail or attachment payload).",
-						)
-						.catch(() => {});
-					attachmentLinksForFallback = newsletterMediaAttachments
-						.map((file) => file.url)
-						.filter(Boolean);
-				} else {
-					await message.channel
-						?.send(
-							"Newsletter media URL fallback is disabled. " +
-								"Until upstream Baileys newsletter media posting is fixed, image/video attachments won't be sent as WhatsApp media. " +
-								"Use `/newsletterurlfallback enabled:true` to send them as plain links for now.",
-						)
-						.catch(() => {});
-					attachmentLinksForFallback = [];
-				}
-			} else {
-				attachmentLinksForFallback = [];
+			attachmentsToSend = newsletterMediaUrlFallbackEnabled
+				? []
+				: newsletterMediaAttachments;
+			attachmentLinksForFallback = newsletterMediaAttachments
+				.map((file) => file.url)
+				.filter(Boolean);
+			if (
+				newsletterMediaUrlFallbackEnabled &&
+				newsletterMediaAttachments.length
+			) {
+				await message.channel
+					?.send(
+						"Newsletter media URL fallback is enabled. Image/video attachments will be sent as plain links.",
+					)
+					.catch(() => {});
 			}
-			attachmentsToSend = [];
 		}
 
 		if (shouldSendAttachments && consumedUrls.length && text) {

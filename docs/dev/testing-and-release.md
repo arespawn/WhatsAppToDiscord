@@ -90,6 +90,7 @@ The repository currently pins Baileys `7.0.0-rc14` and patches it during `postin
 
 The current patch set covers:
 
+- newsletter image/video upload endpoints, thumbnail metadata, media attributes, and bounded retry-safe upload handles (upstream PRs [#2434](https://github.com/WhiskeySockets/Baileys/pull/2434) and [#2836](https://github.com/WhiskeySockets/Baileys/pull/2836))
 - obsolete WhatsApp Web/Desktop media-host fallback for direct-path downloads
 - Android browser-profile support
 - disabled-history startup buffering and receipt behavior while unavailable

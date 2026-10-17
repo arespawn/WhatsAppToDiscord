@@ -192,7 +192,7 @@ Usage: `/newsletterdelete confirm:<true> jid:[...@newsletter]`
 
 ### `/newsletterurlfallback`
 
-Toggle the temporary plain-URL fallback for newsletter image/video attachments. It is disabled by default. When disabled, unsupported media is skipped with an explanation; other attachment types are not sent to newsletters.
+Send newsletter image/video attachments as plain links instead of uploading them. Disabled by default, so images and videos upload as media. Other attachment types are skipped with an explanation.
 
 Usage: `/newsletterurlfallback enabled:<true|false>`
 

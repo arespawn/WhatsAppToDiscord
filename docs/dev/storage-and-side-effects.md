@@ -51,6 +51,7 @@ Packaged-install artifacts beside the executable:
 
 Update archives and extraction directories are created under the operating-system temporary directory and cleaned on success/failure paths.
 WhatsApp attachments bound for Discord are also staged under the operating-system temporary directory before upload. Each upload batch gets a private directory; files remain only through Discord retries and are removed on success, fallback, failure, or graceful shutdown.
+Outbound newsletter media uses temporary raw upload files, removed after upload success or failure. Upload handles stay in memory for at most ten minutes of reuse, capped at 256 entries; they are never persisted.
 Runtime sidecar archives contain only relative symbolic links that resolve inside `runtime/`; cross-filesystem installation preserves those links when moving the extracted sidecar beside the executable.
 
 Changing the location, lifecycle, format, or meaning of any artifact requires updates here and in public configuration/troubleshooting docs.

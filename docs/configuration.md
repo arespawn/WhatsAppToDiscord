@@ -32,7 +32,7 @@ An encrypted database exits at startup if its passphrase is missing or wrong. Ba
 - New WhatsApp chats create regular Discord channels. `/defaultchat` can switch to managed forum threads.
 - Bridging is bidirectional. `/oneway` can restrict it to WhatsApp → Discord or Discord → WhatsApp.
 - An empty whitelist permits every linked chat. Adding entries restricts bridging to those chats.
-- Discord attachments upload to WhatsApp by default; Discord embeds do not.
+- Discord attachments upload to WhatsApp by default; Discord embeds do not. Newsletter image/video attachments also upload as media; `/newsletterurlfallback enabled:true` switches them to plain links.
 - WhatsApp audio stays in its original format unless `/waaudiomp3 enabled:true` is selected.
 - WhatsApp media uploads to Discord use batches of 10 attachments. WA2DC stages them sequentially in a private operating-system temporary directory so retries can replay the same files, then removes the batch after delivery or fallback.
 - Mirrored deletions and public read-receipt notifications are enabled.

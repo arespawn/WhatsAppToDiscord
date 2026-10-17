@@ -2968,9 +2968,13 @@ test("Newsletter replies without quote mapping send without fallback reply-conte
 	}
 });
 
-test("Newsletter image attachments with fallback disabled are not sent to WhatsApp media", async () => {
+test("Newsletter image attachments upload as media by default", async () => {
 	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
+		utils.whatsapp.createDocumentContent = (file) =>
+			file.contentType.startsWith("image/")
+				? { image: { url: file.url }, mimetype: file.contentType }
+				: { video: { url: file.url }, mimetype: file.contentType };
 		const pngBase64 =
 			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==";
 		const attachmentUrl = `data:image/png;base64,${pngBase64}`;
@@ -3008,11 +3012,14 @@ test("Newsletter image attachments with fallback disabled are not sent to WhatsA
 			},
 		});
 
-		await delay(200);
+		assert.equal(
+			await waitFor(() => harness.fakeClient.sendCalls.length === 1),
+			true,
+		);
 
-		assert.equal(harness.fakeClient.sendCalls.length, 0);
-		assert.equal(notices.length, 1);
-		assert.ok(String(notices[0]).includes("fallback is disabled"));
+		assert.equal(harness.fakeClient.sendCalls.length, 1);
+		assert.ok(harness.fakeClient.sendCalls[0].content.image);
+		assert.equal(notices.length, 0);
 	} finally {
 		harness.cleanup();
 	}
@@ -3142,9 +3149,18 @@ test("Newsletter URL fallback enabled sends image attachments as plain links", a
 	}
 });
 
-test("Newsletter URL fallback disabled drops image attachments and posts a notice", async () => {
+test("Newsletter failed media uploads fall back to attachment links", async () => {
 	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
+		utils.whatsapp.createDocumentContent = (file) =>
+			file.contentType.startsWith("image/")
+				? { image: { url: file.url }, mimetype: file.contentType }
+				: { video: { url: file.url }, mimetype: file.contentType };
+		const sendMessage = harness.fakeClient.sendMessage.bind(harness.fakeClient);
+		harness.fakeClient.sendMessage = async (jid, content, options) => {
+			if (content.image) throw new Error("synthetic upload failure");
+			return sendMessage(jid, content, options);
+		};
 		const pngBase64 =
 			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==";
 		const attachmentUrl = `data:image/png;base64,${pngBase64}`;
@@ -3182,11 +3198,14 @@ test("Newsletter URL fallback disabled drops image attachments and posts a notic
 			},
 		});
 
-		await delay(200);
+		assert.equal(
+			await waitFor(() => harness.fakeClient.sendCalls.length === 1),
+			true,
+		);
 
-		assert.equal(harness.fakeClient.sendCalls.length, 0);
-		assert.equal(notices.length, 1);
-		assert.ok(String(notices[0]).includes("fallback is disabled"));
+		assert.equal(harness.fakeClient.sendCalls.length, 1);
+		assert.equal(harness.fakeClient.sendCalls[0].content.text, attachmentUrl);
+		assert.equal(notices.length, 0);
 	} finally {
 		harness.cleanup();
 	}
@@ -3341,9 +3360,13 @@ test("Newsletter URL fallback enabled keeps only image/video links and notifies 
 	}
 });
 
-test("Newsletter URL fallback disabled keeps text and drops attachment links", async () => {
+test("Newsletter videos keep message text as their caption", async () => {
 	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
 	try {
+		utils.whatsapp.createDocumentContent = (file) =>
+			file.contentType.startsWith("image/")
+				? { image: { url: file.url }, mimetype: file.contentType }
+				: { video: { url: file.url }, mimetype: file.contentType };
 		const notices = [];
 
 		harness.fakeClient.ev.emit("discordMessage", {
@@ -3366,9 +3389,9 @@ test("Newsletter URL fallback disabled keeps text and drops attachment links", a
 						"attachment-1",
 						{
 							id: "attachment-1",
-							url: "https://example.com/newsletter-photo.png",
-							name: "newsletter-photo.png",
-							contentType: "image/png",
+							url: "https://example.com/newsletter-video.mp4",
+							name: "newsletter-video.mp4",
+							contentType: "video/mp4",
 						},
 					],
 				]),
@@ -3379,47 +3402,36 @@ test("Newsletter URL fallback disabled keeps text and drops attachment links", a
 		});
 
 		const settled = await waitFor(
-			() => harness.fakeClient.sendCalls.length === 1 && notices.length === 1,
+			() => harness.fakeClient.sendCalls.length === 1,
 			{ timeoutMs: 1500 },
 		);
 
 		assert.equal(settled, true);
 		assert.equal(harness.fakeClient.sendCalls.length, 1);
 		assert.equal(
-			harness.fakeClient.sendCalls[0]?.content?.text,
+			harness.fakeClient.sendCalls[0]?.content?.caption,
 			"message body",
 		);
-		assert.equal(notices.length, 1);
-		assert.ok(String(notices[0]).includes("fallback is disabled"));
+		assert.equal(notices.length, 0);
+		assert.ok(harness.fakeClient.sendCalls[0].content.video);
 	} finally {
 		harness.cleanup();
 	}
 });
 
-test("Newsletter send wrapper rewrites image upload paths from /o1/ to /m1/", async () => {
+test("Newsletter send wrapper preserves custom upload results", async () => {
 	const harness = await setupWhatsAppHarness();
 	try {
-		harness.fakeClient.waUploadToServer = async () => ({
-			mediaUrl: "https://mmg.whatsapp.net/o1/v/t24/f2/m123/example",
-			directPath: "/o1/v/t24/f2/m123/example",
-		});
-
-		await harness.fakeClient.sendMessage("120363123456789@newsletter", {
-			text: "hello",
-		});
-
-		const lastSend =
-			harness.fakeClient.sendCalls[harness.fakeClient.sendCalls.length - 1];
-		assert.equal(typeof lastSend?.options?.upload, "function");
-
-		const rewritten = await lastSend.options.upload("/tmp/mock-file", {
-			mediaType: "image",
-		});
-		assert.equal(rewritten?.directPath, "/m1/v/t24/f2/m123/example");
-		assert.equal(
-			rewritten?.mediaUrl,
-			"https://mmg.whatsapp.net/m1/v/t24/f2/m123/example",
+		const uploaded = { directPath: "/m1/server-path", handle: "synthetic" };
+		const upload = async () => uploaded;
+		await harness.fakeClient.sendMessage(
+			"123@newsletter",
+			{ text: "hello" },
+			{ upload },
 		);
+		const options = harness.fakeClient.sendCalls[0].options;
+		assert.equal(options.upload, upload);
+		assert.equal(await options.upload(), uploaded);
 	} finally {
 		harness.cleanup();
 	}

@@ -67,7 +67,7 @@ Managed forum hosts are selected by configured name and a bot-owner marker in th
 
 Treat newsletters as standard `sendMessage(...)` destinations where supported, with these exceptions:
 
-- Image/video attachments follow `NewsletterMediaUrlFallback`: send plain URLs when enabled; otherwise skip and explain the limitation.
+- Image/video attachments follow `NewsletterMediaUrlFallback`: send plain URLs when enabled; otherwise upload media through newsletter-specific endpoints, with server thumbnails and the upload handle as the message stanza `media_id`. Keep handle tracking bounded and retry-safe, and keep newsletter media out of ordinary encrypted-media caches. Failed uploads retain the text/link fallback.
 - Other attachment types are skipped with a user-facing notice and the [WhatsApp newsletter-media guidance link](https://faq.whatsapp.com/549900560675125/).
 - Discord-originated newsletter edit/delete is not dispatched; remind the user to perform it in the phone app.
 - Pending outbound IDs are correlated with raw `live_updates` `server_id` values as early as possible.

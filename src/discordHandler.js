@@ -4966,12 +4966,11 @@ const commandHandlers = {
 	},
 	newsletterurlfallback: {
 		description:
-			"Toggle temporary URL fallback for newsletter image/video attachments.",
+			"Send newsletter image/video attachments as links instead of uploading them.",
 		options: [
 			{
 				name: "enabled",
-				description:
-					"Temporary Baileys workaround: send newsletter image/video attachments as plain links.",
+				description: "Send newsletter image/video attachments as plain links.",
 				type: ApplicationCommandOptionType.Boolean,
 				required: true,
 			},
@@ -4981,8 +4980,8 @@ const commandHandlers = {
 			state.settings.NewsletterMediaUrlFallback = enabled;
 			await ctx.reply(
 				enabled
-					? "Newsletter media URL fallback is enabled. This is a temporary workaround until upstream Baileys newsletter media posting is fixed. Image/video attachments will be sent as plain links."
-					: "Newsletter media URL fallback is disabled. Until upstream Baileys newsletter media posting is fixed, image/video attachments will not be sent to newsletters.",
+					? "Newsletter media URL fallback is enabled. Image/video attachments will be sent as plain links."
+					: "Newsletter media URL fallback is disabled. Image/video attachments will be uploaded to newsletters.",
 			);
 		},
 	},

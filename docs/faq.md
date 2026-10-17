@@ -12,6 +12,8 @@ WhatsApp can require a socket restart immediately after successful pairing. WA2D
 
 Scan the next fresh QR code or rerun `/pairwithcode` only after WA2DC posts a new pairing prompt. WA2DC prefers WhatsApp's current Web revision and falls back to Baileys' published revision when the live lookup is unavailable. This works around the upstream [Baileys pairing-version issue](https://github.com/WhiskeySockets/Baileys/issues/2679).
 
+When WhatsApp refreshes a pending registration, WA2DC posts a replacement QR with a fresh registration secret. Scan the newest QR in the control channel. Existing linked sessions are unaffected.
+
 ### `/pairwithcode` causes a restart
 
 Fresh sessions use the Android browser profile for view-once support. Pairing codes can be more reliable under a Chrome profile, so WA2DC may store a temporary pairing profile, clear only the unregistered auth stub, and restart. Run `/pairwithcode` again after the new prompt.

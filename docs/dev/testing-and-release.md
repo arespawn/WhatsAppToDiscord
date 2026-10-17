@@ -93,9 +93,11 @@ The current patch set covers:
 - obsolete WhatsApp Web/Desktop media-host fallback for direct-path downloads
 - Android browser-profile support
 - disabled-history startup buffering and receipt behavior while unavailable
-- pre-auth notification acknowledgements and incomplete link-code pairing notices
+- pre-auth notification acknowledgements, incomplete link-code pairing notices, and companion registration QR refresh
 - LID migration probes
 - bounded tctoken indexing/pruning
+
+QR registration refresh follows [upstream PR #2765](https://github.com/WhiskeySockets/Baileys/pull/2765): rotate the advertisement secret only for an unpaired QR session, persist it through `creds.update`, and re-render the current reference without advancing refs or resetting the timer. Never log pairing secrets or raw notification nodes.
 
 Fresh pairing prefers `fetchLatestWaWebVersion()` and falls back to `fetchLatestBaileysVersion()`. Keep the associated pairing regression tests and upstream issue references current when the pinned Baileys version changes.
 

@@ -314,6 +314,39 @@ const skipIncompleteLinkCodePairingAfter = `            case 'link_code_companio
                 const primaryEphemeralPublicKeyWrapped = toRequiredBuffer(requiredPairingBuffers.link_code_pairing_wrapped_primary_ephemeral_pub);`;
 
 const replacements = [
+	// Backport the QR refresh flow from Baileys PR #2765 without spending another ref.
+	{
+		file: "lib/Socket/socket.js",
+		before: `    // QR gen
+    ws.on('CB:iq,type:set,pair-device', async (stanza) => {`,
+		after: `    let refreshPairingQR;
+    ws.on('CB:notification,type:companion_reg_refresh', (node) => {
+        if (creds.me || !ws.isOpen || !refreshPairingQR) return;
+        if (!getBinaryNodeChild(node, 'companion_reg_refresh') && !getBinaryNodeChild(node, 'pair-device-rotate-qr')) return;
+        creds.advSecretKey = randomBytes(32).toString('base64');
+        ev.emit('creds.update', { advSecretKey: creds.advSecretKey });
+        refreshPairingQR();
+    });
+    // QR gen
+    ws.on('CB:iq,type:set,pair-device', async (stanza) => {`,
+	},
+	{
+		file: "lib/Socket/socket.js",
+		before: `        const advB64 = creds.advSecretKey;`,
+		after: `        let currentPairingRef;
+        refreshPairingQR = () => {
+            const qr = buildPairingQRData(currentPairingRef, noiseKeyB64, identityKeyB64, creds.advSecretKey, browser);
+            ev.emit('connection.update', { qr });
+        };`,
+	},
+	{
+		file: "lib/Socket/socket.js",
+		before: `            const ref = refNode.content.toString('utf-8');
+            const qr = buildPairingQRData(ref, noiseKeyB64, identityKeyB64, advB64, browser);
+            ev.emit('connection.update', { qr });`,
+		after: `            currentPairingRef = refNode.content.toString('utf-8');
+            refreshPairingQR();`,
+	},
 	{
 		file: "lib/Utils/messages-media.js",
 		before: `    // Fallback host: explicit opt > host parsed from \`url\` > DEF_MEDIA_HOST.

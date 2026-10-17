@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { createCipheriv } from "node:crypto";
+import { createCipheriv, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import test from "node:test";
+import vm from "node:vm";
 
 import {
 	Browsers,
@@ -10,6 +11,91 @@ import {
 	proto,
 } from "@whiskeysockets/baileys";
 import { generateLoginNode } from "@whiskeysockets/baileys/lib/Utils/validate-connection.js";
+
+test("QR registration refresh rotates the secret without consuming refs or changing timers", async () => {
+	const source = fs.readFileSync(
+		"node_modules/@whiskeysockets/baileys/lib/Socket/socket.js",
+		"utf8",
+	);
+	const handlers = new Map();
+	const timers = [];
+	const events = [];
+	const creds = {
+		advSecretKey: randomBytes(32).toString("base64"),
+		noiseKey: { public: Buffer.alloc(32) },
+		signedIdentityKey: { public: Buffer.alloc(32) },
+	};
+	const ws = {
+		isOpen: true,
+		on: (name, handler) => handlers.set(name, handler),
+	};
+	const context = {
+		ws,
+		creds,
+		Buffer,
+		randomBytes,
+		browser: ["13", "Android", ""],
+		qrTimeout: undefined,
+		S_WHATSAPP_NET: "s.whatsapp.net",
+		ev: { emit: (name, payload) => events.push({ name, payload }) },
+		getBinaryNodeChild: (node, tag) => node.content?.find((n) => n.tag === tag),
+		getBinaryNodeChildren: (node, tag) =>
+			node.content.filter((n) => n.tag === tag),
+		buildPairingQRData: (...fields) => fields.slice(0, 4).join(","),
+		sendNode: async () => {},
+		setTimeout: (callback, ms) => timers.push({ callback, ms }),
+		Boom: Error,
+		DisconnectReason: { timedOut: 408 },
+		end: () => assert.fail("refresh exhausted QR refs"),
+	};
+	vm.runInNewContext(
+		`let qrTimer;\n${source.slice(source.indexOf("    let refreshPairingQR;"), source.indexOf("    // device paired for the first time"))}`,
+		context,
+	);
+	const refresh = handlers.get("CB:notification,type:companion_reg_refresh");
+	const notification = (tag) => ({ content: [{ tag }] });
+	const originalSecret = creds.advSecretKey;
+	refresh(notification("companion_reg_refresh"));
+	assert.equal(creds.advSecretKey, originalSecret);
+	await handlers.get("CB:iq,type:set,pair-device")({
+		attrs: { id: "synthetic" },
+		content: [
+			{
+				tag: "pair-device",
+				content: ["first", "second"].map((ref) => ({
+					tag: "ref",
+					content: Buffer.from(ref),
+				})),
+			},
+		],
+	});
+	refresh(notification("unexpected"));
+	assert.equal(creds.advSecretKey, originalSecret);
+	for (let i = 0; i < 50; i++) {
+		const previous = creds.advSecretKey;
+		refresh(
+			notification(i % 2 ? "pair-device-rotate-qr" : "companion_reg_refresh"),
+		);
+		assert.notEqual(creds.advSecretKey, previous);
+		assert.equal(Buffer.from(creds.advSecretKey, "base64").length, 32);
+		assert.equal(events.at(-1).payload.qr.split(",")[0], "first");
+		assert.equal(events.at(-1).payload.qr.split(",")[3], creds.advSecretKey);
+		assert.equal(events.at(-2).payload.advSecretKey, creds.advSecretKey);
+	}
+	assert.equal(timers.length, 1);
+	assert.equal(timers[0].ms, 60000);
+	timers[0].callback();
+	assert.equal(events.at(-1).payload.qr.split(",")[0], "second");
+	assert.equal(timers[1].ms, 20000);
+	const lastSecret = creds.advSecretKey;
+	creds.me = { id: "synthetic" };
+	refresh(notification("companion_reg_refresh"));
+	assert.equal(creds.advSecretKey, lastSecret);
+	delete creds.me;
+	ws.isOpen = false;
+	refresh(notification("companion_reg_refresh"));
+	assert.equal(creds.advSecretKey, lastSecret);
+});
 
 test("Baileys sticker downloads avoid obsolete hosts and preserve other URLs", async (t) => {
 	const mediaKey = Buffer.alloc(32, 7);

@@ -257,6 +257,7 @@ export const stageWhatsAppDiscordAttachments = async (
 					durationMs: Math.max(0, now() - attachmentStartedAt),
 					outcome: "failed",
 					errorCode: code,
+					causeErrorCode: asSafeErrorCode(error?.cause),
 				},
 				"Failed to stage a WhatsApp attachment for Discord upload.",
 			);

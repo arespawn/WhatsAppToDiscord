@@ -1,9 +1,59 @@
 import assert from "node:assert/strict";
+import { createCipheriv } from "node:crypto";
 import fs from "node:fs";
 import test from "node:test";
 
-import { Browsers, proto } from "@whiskeysockets/baileys";
+import {
+	Browsers,
+	downloadMediaMessage,
+	getMediaKeys,
+	proto,
+} from "@whiskeysockets/baileys";
 import { generateLoginNode } from "@whiskeysockets/baileys/lib/Utils/validate-connection.js";
+
+test("Baileys sticker downloads avoid obsolete hosts and preserve other URLs", async (t) => {
+	const mediaKey = Buffer.alloc(32, 7);
+	const plaintext = Buffer.from("synthetic sticker bytes");
+	const { cipherKey, iv } = await getMediaKeys(mediaKey, "sticker");
+	const cipher = createCipheriv("aes-256-cbc", cipherKey, iv);
+	const encrypted = Buffer.concat([
+		cipher.update(plaintext),
+		cipher.final(),
+		Buffer.alloc(10),
+	]);
+	const directPath = "/synthetic-sticker.enc";
+	const cases = [
+		["https://a.whatsapp.net/old", directPath, {}, "mmg.whatsapp.net"],
+		["https://web.whatsapp.net", directPath, {}, "mmg.whatsapp.net"],
+		["https://mmg.whatsapp.net/old", directPath, {}, "mmg.whatsapp.net"],
+		["https://custom.example/old", directPath, {}, "custom.example"],
+		[
+			"https://a.whatsapp.net/old",
+			directPath,
+			{ host: "override.example" },
+			"override.example",
+		],
+		["https://a.whatsapp.net/url-only", undefined, {}, "a.whatsapp.net"],
+	];
+	let requestedUrl;
+	t.mock.method(globalThis, "fetch", async (url) => {
+		requestedUrl = url;
+		return new Response(encrypted);
+	});
+	for (const [url, mediaPath, options, expectedHost] of cases) {
+		const message = {
+			message: {
+				stickerMessage: { url, directPath: mediaPath, mediaKey },
+			},
+		};
+		const downloaded = await downloadMediaMessage(message, "buffer", options);
+		assert.equal(
+			requestedUrl,
+			mediaPath ? `https://${expectedHost}${mediaPath}` : url,
+		);
+		assert.deepEqual(downloaded, plaintext);
+	}
+});
 
 test("Baileys rc14 carries WA2DC Android browser patch", () => {
 	assert.equal(typeof Browsers.android, "function");

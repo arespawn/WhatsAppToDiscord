@@ -264,9 +264,12 @@ test("partial staging failure uploads remaining files with an explicit notice", 
 test("total staging failure preserves text and sends the check-WhatsApp fallback", async () => {
 	const temporaryParent = await createTemporaryParent();
 	const originalLimit = state.settings.DiscordFileSizeLimit;
+	const originalLogger = state.logger;
+	const { logger, entries } = captureLogger();
 	let sentArgs;
 
 	try {
+		state.logger = logger;
 		state.settings.DiscordFileSizeLimit = 1024;
 		await utils.discord.safeWebhookSend(
 			{
@@ -283,18 +286,30 @@ test("total staging failure preserves text and sends the check-WhatsApp fallback
 			{
 				temporaryDirectory: temporaryParent,
 				downloadWhatsAppMedia() {
-					throw new Error("synthetic download failure");
+					throw new TypeError("fetch failed: private media URL", {
+						cause: Object.assign(new Error("private DNS hostname"), {
+							code: "ENOTFOUND",
+						}),
+					});
 				},
 			},
 		);
 
 		assert.deepEqual(sentArgs.files, []);
+		const failures = entries.filter((entry) => entry.level === "warn");
+		assert.equal(failures.length, 2);
+		for (const { metadata } of failures) {
+			assert.equal(metadata.errorCode, "TypeError");
+			assert.equal(metadata.causeErrorCode, "ENOTFOUND");
+		}
+		assert.doesNotMatch(JSON.stringify(entries), /private|hostname|URL/u);
 		assert.match(sentArgs.content, /caption must survive/u);
 		assert.match(
 			sentArgs.content,
 			/Please check WhatsApp for the original message/u,
 		);
 	} finally {
+		state.logger = originalLogger;
 		state.settings.DiscordFileSizeLimit = originalLimit;
 		await cleanupActiveWhatsAppDiscordMediaStaging();
 		await removeTemporaryParent(temporaryParent);

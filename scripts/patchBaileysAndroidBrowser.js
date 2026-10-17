@@ -315,6 +315,18 @@ const skipIncompleteLinkCodePairingAfter = `            case 'link_code_companio
 
 const replacements = [
 	{
+		file: "lib/Utils/messages-media.js",
+		before: `    // Fallback host: explicit opt > host parsed from \`url\` > DEF_MEDIA_HOST.
+    // Lets us honor a non-default host carried by the proto without forcing callers to thread it through.
+    const fallbackHost = opts.host ?? extractHost(url);`,
+		after: `    // Web/Desktop stickers may carry obsolete URL hosts alongside a valid directPath.
+    // Preserve explicit overrides and other media hosts.
+    const urlHost = extractHost(url);
+    const fallbackHost = opts.host ?? (
+        urlHost === 'a.whatsapp.net' || urlHost === 'web.whatsapp.net' ? DEF_MEDIA_HOST : urlHost
+    );`,
+	},
+	{
 		file: "lib/Utils/browser-utils.js",
 		before:
 			"    windows: browser => ['Windows', browser, '10.0.22631'],\n" +

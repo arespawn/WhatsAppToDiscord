@@ -94,6 +94,10 @@ WA2DC uses `sharp` to normalize unsupported static images. If the runtime sideca
 
 Static and animated conversion depends on packaged runtime modules such as `sharp`, `canvas`, `jsdom`, and `lottie-web`. Keep the packaged `runtime/` sidecar beside the executable or allow signed bootstrap to restore it.
 
+### Some WhatsApp stickers fail to download for Discord
+
+Older releases can fail on stickers sent from WhatsApp Web/Desktop because their download metadata uses an obsolete WhatsApp host. Upgrade to a release containing the [sticker download fix](https://github.com/arespawn/WhatsAppToDiscord/issues/321). If downloads still fail, check the staging warning in `logs.txt`; `causeErrorCode` can identify a network failure without exposing the media URL. An attachment that uploads but displays “Image failed to load” may have a separate format problem.
+
 ### View-once media behavior
 
 WA2DC mirrors supported WhatsApp view-once media to Discord as spoiler attachments. Availability depends on the active WhatsApp browser profile and upstream protocol behavior.

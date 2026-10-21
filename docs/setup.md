@@ -67,6 +67,18 @@ npm start
 
 `npm start` uses the watchdog runner. Running `node src/index.js` directly skips watchdog restarts and packaged rollback handling. The [installer scripts](install-scripts.md) can automate the source installation on supported platforms.
 
+Keep Node.js on a current security release. A packaged executable contains its own Node.js runtime, so updating the host's `node` does not update an existing executable. Docker installations likewise need an updated image.
+
+To move an existing packaged installation to source while preserving its session:
+
+1. Prepare the same stable release tag in a separate source directory and run `npm ci` with the patched Node.js runtime. Keep the release's lockfile.
+2. From an empty temporary working directory, run `WA2DC_SMOKE_TEST=1 /path/to/node /path/to/source/src/runner.js`. Smoke mode skips both external transports; never start a second normal process against the live session.
+3. Stop the existing service normally and back up the complete original `storage/` directory. Preserve its configuration and any database passphrase securely.
+4. Keep the service's original working directory, runtime account, environment, and restrictive permissions. Change its startup command to `/path/to/node /path/to/source/src/runner.js`, using absolute paths. Source mode reads `.env` and persistent state from the working directory.
+5. Start the service and check that both transports reconnect without fresh pairing, that stored mappings remain present, and that the process stays healthy. Keep the previous executable and matching `runtime/` together for recovery.
+
+Source installations use source updates; packaged `/update` and `/rollback` are no longer available. Return to packaged deployment only with an executable containing a patched embedded runtime. See the [runtime security notes](dev/security-and-privacy.md#runtime-and-certificate-security).
+
 ## 3. Start WA2DC and invite the bot
 
 1. Provide the Discord token through `WA2DC_TOKEN` in `.env`, or paste it into the first-run terminal prompt.

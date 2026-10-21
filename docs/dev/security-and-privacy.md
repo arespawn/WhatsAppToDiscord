@@ -30,6 +30,16 @@ WA2DC processes Discord tokens, WhatsApp authentication material, contact identi
 - The local download server defaults to loopback. Binding publicly requires explicit operator configuration; path-safe signed URLs do not replace authentication, firewalling, TLS, expiry, or reverse-proxy controls.
 - Do not introduce new outbound services, analytics, or telemetry without explicit documentation and operator control.
 
+## Runtime and certificate security
+
+Treat the Node.js runtime and its certificate trust store as part of the deployed application. Host package updates do not replace the Node.js embedded in an existing pkg executable or container image. Check the actual runtime used by the watchdog and worker, rather than only `node --version` in an administrator's shell.
+
+During the October 2026 eMudhra incident, the published v2.5.6 Linux executable embedded Node.js 24.14.1. Host `NODE_OPTIONS=--use-openssl-ca` did not change that executable's effective certificate trust. A deployment can keep the exact v2.5.6 source and lockfile while switching to the independently verified Node.js 24.22.1 security release; this avoids combining runtime remediation with a beta application upgrade. Follow the [source conversion procedure](../setup.md#nodejs-source), preserve the existing working directory, and take a stopped-service backup of the entire storage directory.
+
+Validate trust with anonymous HTTPS requests to the incident's diagnostic hosts and a normal HTTPS positive control. Require certificate verification to fail for the affected chains; never disable TLS verification or attach credentials to a diagnostic request. A successful smoke boot alone does not prove certificate rejection or live transport reconnection. Keep real logs, backups, and deployment evidence private.
+
+References: [incident advisory](https://emudhra.we-have-a-problem.com/) and [Node.js 24.22.1 release](https://github.com/nodejs/node/releases/tag/v24.22.1).
+
 ## Authorization
 
 WA2DC intentionally uses Discord's guild, channel, role, and application-command permissions. Keep the control channel private and do not imply per-user authorization exists in WA2DC.

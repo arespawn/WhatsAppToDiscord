@@ -84,6 +84,8 @@ Keep these checks dependency-free and network-free. External links are verified 
 - Cross-filesystem sidecar installation preserves relative symbolic-link targets instead of binding them to the temporary extraction directory.
 - `process.pkg` is the supported packaged/source runtime distinction.
 
+The build host's Node.js version and pkg's embedded Node.js version are independent. Before publishing a runtime security fix, check the generated executable's actual runtime and certificate behavior; a successful build or `--smoke` run does not establish that pkg fetched a patched runtime. Do not claim that updating `actions/setup-node` alone updates the embedded executable. If the packaging runtime is not yet fixed, operators can use the documented [source installation conversion](../setup.md#nodejs-source) with a verified patched Node.js release and the same stable application tag.
+
 ## Baileys compatibility
 
 The repository currently pins Baileys `7.0.0-rc14` and patches it during `postinstall`. Release builds must run after the patch succeeds. Tests must cover each source replacement marker so an upstream package change fails installation visibly rather than producing a partially patched runtime.

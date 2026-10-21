@@ -10,6 +10,9 @@ import {
 } from "../src/clientFactories.js";
 import state from "../src/state.js";
 import utils from "../src/utils.js";
+import initIsolatedStorage from "./helpers/initIsolatedStorage.js";
+
+await initIsolatedStorage(import.meta.url);
 
 const snapshotObject = (value) => ({ ...value });
 const restoreObject = (target, snapshot) => {

@@ -316,29 +316,48 @@ test("total staging failure preserves text and sends the check-WhatsApp fallback
 	}
 });
 
-test("staging rejects actual-size overflow and enforces a per-attachment timeout", async () => {
+test("staging rejects actual-size overflow", async () => {
 	const temporaryParent = await createTemporaryParent();
 	try {
 		assert.equal(WHATSAPP_DISCORD_MEDIA_DOWNLOAD_TIMEOUT_MS, 60_000);
 		const staged = await stageWhatsAppDiscordAttachments(
-			[lazyAttachment(1, 5), lazyAttachment(2, 5)],
+			[lazyAttachment(1, 5)],
 			{
 				maxBytes: 10,
-				timeoutMs: 25,
 				temporaryDirectory: temporaryParent,
-				download(file) {
-					if (file.downloadCtx.index === 1) {
-						return Readable.from([Buffer.alloc(11)]);
-					}
-					return new Readable({ read() {} });
-				},
+				download: () => Readable.from([Buffer.alloc(11)]),
 			},
 		);
 
 		assert.deepEqual(staged.files, []);
 		assert.deepEqual(
 			staged.failures.map((failure) => failure.code),
-			["WA2DC_MEDIA_ACTUAL_SIZE_OVERFLOW", "WA2DC_MEDIA_DOWNLOAD_TIMEOUT"],
+			["WA2DC_MEDIA_ACTUAL_SIZE_OVERFLOW"],
+		);
+		assert.equal(staged.stagedBytes, 0);
+		await staged.cleanup();
+	} finally {
+		await cleanupActiveWhatsAppDiscordMediaStaging();
+		await removeTemporaryParent(temporaryParent);
+	}
+});
+
+test("staging enforces a per-attachment timeout", async () => {
+	const temporaryParent = await createTemporaryParent();
+	try {
+		const staged = await stageWhatsAppDiscordAttachments(
+			[lazyAttachment(1, 5)],
+			{
+				maxBytes: 10,
+				timeoutMs: 25,
+				temporaryDirectory: temporaryParent,
+				download: () => new Readable({ read() {} }),
+			},
+		);
+		assert.deepEqual(staged.files, []);
+		assert.deepEqual(
+			staged.failures.map((failure) => failure.code),
+			["WA2DC_MEDIA_DOWNLOAD_TIMEOUT"],
 		);
 		assert.equal(staged.stagedBytes, 0);
 		await staged.cleanup();

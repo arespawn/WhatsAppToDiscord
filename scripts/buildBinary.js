@@ -8,7 +8,7 @@ import {
 	run,
 } from "./runtimeSidecar.js";
 
-const PKG_PACKAGE_SPEC = process.env.WA2DC_PKG_PACKAGE || "@yao-pkg/pkg@6.19.0";
+const PKG_PACKAGE_SPEC = process.env.WA2DC_PKG_PACKAGE || "@yao-pkg/pkg@6.23.0";
 
 function platformToPkgOs(platform) {
 	if (platform === "win32") return "win";

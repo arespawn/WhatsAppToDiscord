@@ -18,9 +18,12 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $NodeMajorRequired = 24
-$NodeMinorRequired = 15
+$NodeMinorRequired = 22
+$NodePatchRequired = 1
 $NodeMajorNextSupported = 26
-$NodeRequiredRange = "^24.15.0 || >=26.0.0"
+$NodeMinorNextSupported = 12
+$NodePatchNextSupported = 1
+$NodeRequiredRange = "^24.22.1 || >=26.12.1"
 $RepoHint = "arespawn/WhatsAppToDiscord"
 
 function Write-Log {
@@ -65,7 +68,16 @@ function Test-NodeVersionSupported {
 	$parts = $version.Split(".")
 	$major = [int]$parts[0]
 	$minor = [int]$parts[1]
-	return (($major -eq $NodeMajorRequired -and $minor -ge $NodeMinorRequired) -or $major -ge $NodeMajorNextSupported)
+	$patch = [int]$parts[2]
+	return (
+		($major -eq $NodeMajorRequired -and
+			($minor -gt $NodeMinorRequired -or
+				($minor -eq $NodeMinorRequired -and $patch -ge $NodePatchRequired))) -or
+		$major -gt $NodeMajorNextSupported -or
+		($major -eq $NodeMajorNextSupported -and
+			($minor -gt $NodeMinorNextSupported -or
+				($minor -eq $NodeMinorNextSupported -and $patch -ge $NodePatchNextSupported)))
+	)
 }
 
 function Install-WithWinget {

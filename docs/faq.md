@@ -140,4 +140,4 @@ In-app self-update is supported for Linux x64, Linux ARM64, macOS Intel, and Win
 
 ### How do I build a binary?
 
-Install Node.js 24.15.0–24.x or 26.0.0 and newer, run `npm ci`, then `npm run build:bin`. Output is written to `build/`, including the executable and `runtime/` sidecar. `npm run build:bin:smoke` also runs the packaged smoke test. Full packaging constraints live in [Testing and Release](dev/testing-and-release.md).
+Install Node.js 24.22.1–24.x or 26.12.1 and newer, run `npm ci`, then `npm run build:bin`. Output is written to `build/`, including the executable and `runtime/` sidecar. `npm run build:bin:smoke` also runs the packaged smoke test. Full packaging constraints live in [Testing and Release](dev/testing-and-release.md).

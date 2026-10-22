@@ -14,7 +14,7 @@ WhatsAppToDiscord (WA2DC) is a self-hosted bridge that mirrors WhatsApp chats in
 
 ## Fast start
 
-- Prereq: Node.js `^24.15.0 || >=26.0.0`
+- Prereq: Node.js `^24.22.1 || >=26.12.1`
 - Install: `npm ci`
 - Run bot: `npm start`
 - Run docs: `npm run docs`

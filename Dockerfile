@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:24-bookworm-slim AS deps
+FROM node:24.22.1-bookworm-slim AS deps
 WORKDIR /usr/local/WA2DC
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
@@ -22,7 +22,7 @@ COPY --chown=node:node scripts/patchBaileysAndroidBrowser.js ./scripts/patchBail
 USER node
 RUN npm ci --omit=dev
 
-FROM node:24-bookworm-slim
+FROM node:24.22.1-bookworm-slim
 WORKDIR /usr/local/WA2DC
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \

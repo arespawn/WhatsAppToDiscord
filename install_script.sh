@@ -6,9 +6,12 @@ IFS=$'\n\t'
 REPO_URL="https://github.com/arespawn/WhatsAppToDiscord.git"
 REPO_HINT="arespawn/WhatsAppToDiscord"
 NODE_MAJOR_REQUIRED=24
-NODE_MINOR_REQUIRED=15
+NODE_MINOR_REQUIRED=22
+NODE_PATCH_REQUIRED=1
 NODE_MAJOR_NEXT_SUPPORTED=26
-NODE_REQUIRED_RANGE="^24.15.0 || >=26.0.0"
+NODE_MINOR_NEXT_SUPPORTED=12
+NODE_PATCH_NEXT_SUPPORTED=1
+NODE_REQUIRED_RANGE="^24.22.1 || >=26.12.1"
 INSTALL_DIR="WhatsAppToDiscord"
 REPO_REF=""
 START_AFTER_INSTALL=0
@@ -49,7 +52,7 @@ Options:
   --help            Show this help
 
 This script:
-  1) Ensures Node.js ^24.15.0 or >=26.0.0 is installed
+  1) Ensures Node.js ^24.22.1 or >=26.12.1 is installed
   2) Clones or updates the WA2DC repository
   3) Installs dependencies with npm ci
 
@@ -166,12 +169,17 @@ ensure_git() {
 }
 
 node_version_is_supported() {
-	local version major minor
+	local version major minor patch
 	version="$(node -p "process.versions.node" 2>/dev/null)" || return 1
-	IFS=. read -r major minor _ <<<"${version}"
+	IFS=. read -r major minor patch <<<"${version}"
 	((
-		(major == NODE_MAJOR_REQUIRED && minor >= NODE_MINOR_REQUIRED) ||
-			major >= NODE_MAJOR_NEXT_SUPPORTED
+		(major == NODE_MAJOR_REQUIRED &&
+			(minor > NODE_MINOR_REQUIRED ||
+				(minor == NODE_MINOR_REQUIRED && patch >= NODE_PATCH_REQUIRED))) ||
+			major > NODE_MAJOR_NEXT_SUPPORTED ||
+			(major == NODE_MAJOR_NEXT_SUPPORTED &&
+				(minor > NODE_MINOR_NEXT_SUPPORTED ||
+					(minor == NODE_MINOR_NEXT_SUPPORTED && patch >= NODE_PATCH_NEXT_SUPPORTED)))
 	))
 }
 

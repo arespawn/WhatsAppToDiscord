@@ -26,7 +26,7 @@ Configure GitHub's default merge-commit title and message as the pull-request ti
 
 ## Local validation
 
-Use Node.js 24.15.0–24.x or 26.0.0 and newer, then run:
+Use Node.js 24.22.1–24.x or 26.12.1 and newer, then run:
 
 ```bash
 npm ci

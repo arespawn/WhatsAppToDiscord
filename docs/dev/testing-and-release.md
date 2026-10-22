@@ -17,7 +17,7 @@ Preferred checks before handoff:
 
 The normal smoke mode skips external transports and exits itself, so it does not exercise signal handling. Process-lifecycle changes also require the focused shutdown tests, which inject stuck ingress, saves, reporters, and spawned/cluster workers to verify ordered persistence, validated supervisor IPC, source-aware duplicate coalescing, deliberate second-signal behavior, actual-child exit tracking, and watchdog `SIGKILL` escalation without using live credentials. Run source and packaged signal smoke with `WA2DC_SMOKE_TEST=1 WA2DC_SMOKE_WAIT_FOR_SIGNAL=1`, wait for the ready message, and send Ctrl-C; both watchdog and worker must exit. Crash-report queue tests verify bounded log-tail reads, private atomic writes, identical-content replacement safety, and failed-delivery recovery from claimed spool files.
 
-The `CI` workflow runs for pull requests and pushes to `main` and `next`. It validates Conventional Commit pull-request titles, runs Biome and documentation checks, and runs tests, the ESM bundle smoke test, and packaged smoke tests on Ubuntu, macOS Intel, and Windows. Superseded runs for the same pull request are cancelled. Release builds use Node.js 24 and must remain at or above the supported 24.15.0 floor.
+The `CI` workflow runs for pull requests and pushes to `main` and `next`. It validates Conventional Commit pull-request titles, runs Biome and documentation checks, and runs tests, the ESM bundle smoke test, and packaged smoke tests on Ubuntu, macOS Intel, and Windows. Superseded runs for the same pull request are cancelled. Release builds use Node.js 24 and must remain at or above the supported 24.22.1 floor.
 
 ## Branch and version policy
 

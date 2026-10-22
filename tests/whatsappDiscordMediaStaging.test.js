@@ -216,6 +216,75 @@ test("a retry reuses staged files without downloading WhatsApp media again", asy
 	}
 });
 
+test("text-only sends log retry failures and the fallback but not routine success", async () => {
+	const originalLogger = state.logger;
+	const { logger, entries } = captureLogger();
+	const sentContents = [];
+
+	try {
+		state.logger = logger;
+		const result = await utils.discord.safeWebhookSend(
+			{
+				async send(args) {
+					sentContents.push(args.content);
+					if (sentContents.length <= 3) {
+						const error = new Error(
+							"aborted https://discord.com/api/webhooks/id/private-token",
+						);
+						error.name = "AbortError";
+						throw error;
+					}
+					return { id: "dc-text-fallback" };
+				},
+			},
+			{ content: "private message" },
+			"private-jid@s.whatsapp.net",
+		);
+
+		assert.equal(result.id, "dc-text-fallback");
+		assert.equal(sentContents.length, 4);
+		assert.match(
+			sentContents[3],
+			/Discord failed to upload after 3 attempts\. Please check WhatsApp/u,
+		);
+		assert.deepEqual(
+			entries.map(({ level, metadata, message }) => [
+				level,
+				metadata.outcome,
+				metadata.attachmentCount,
+				message,
+			]),
+			[
+				...[1, 2, 3].map(() => [
+					"warn",
+					"retryable-failure",
+					0,
+					"Discord webhook send attempt completed.",
+				]),
+				["error", "fallback", 0, "Discord webhook send attempt completed."],
+			],
+		);
+		assert.doesNotMatch(
+			JSON.stringify(entries),
+			/private-token|private-jid|private message/iu,
+		);
+
+		entries.length = 0;
+		await utils.discord.safeWebhookSend(
+			{
+				async send() {
+					return { id: "dc-text" };
+				},
+			},
+			{ content: "routine message" },
+			"private-jid@s.whatsapp.net",
+		);
+		assert.deepEqual(entries, []);
+	} finally {
+		state.logger = originalLogger;
+	}
+});
+
 test("partial staging failure uploads remaining files with an explicit notice", async () => {
 	const temporaryParent = await createTemporaryParent();
 	const originalLimit = state.settings.DiscordFileSizeLimit;

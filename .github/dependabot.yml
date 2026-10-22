@@ -21,6 +21,8 @@ updates:
     ignore:
       - dependency-name: "discord.js"
       - dependency-name: "undici"
+        update-types:
+          - "version-update:semver-major"
       - dependency-name: "@discordjs/rest"
     groups:
       npm-minor-patch:

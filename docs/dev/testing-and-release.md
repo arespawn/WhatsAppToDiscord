@@ -112,4 +112,6 @@ Fresh pairing prefers `fetchLatestWaWebVersion()` and falls back to `fetchLatest
 
 When changing dependencies, verify ESM bundle, pkg CJS bundle, native/dynamic assets, and sidecar install/update/rollback paths. Packages with top-level `await`, runtime filesystem lookup, or native addons require explicit packaged verification.
 
+Discord REST intentionally uses Undici 6 through the `undici6` alias and the matching `discord.js` / `@discordjs/rest` overrides. Keep those on the same patched 6.x version while updating the application's Undici 7 independently. The Baileys `music-metadata` override must include malformed-media security fixes while retaining the bundling-compatible `file-type` override. Audit every installed copy, including transitive dependencies and the generated runtime sidecar.
+
 Generated `out.js`, `out.cjs`, and `build/` artifacts must not be edited or committed manually.

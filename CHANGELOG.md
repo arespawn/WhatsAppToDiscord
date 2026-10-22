@@ -1,5 +1,21 @@
 # Changelog
 
+## [2.6.0-beta.2](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.6.0-beta.1...v2.6.0-beta.2) (2026-10-22)
+
+
+### Bug Fixes
+
+* **deps:** bump actions/create-github-app-token ([#335](https://github.com/arespawn/WhatsAppToDiscord/issues/335)) ([1279d91](https://github.com/arespawn/WhatsAppToDiscord/commit/1279d91b60614178fe77b67a86bb6e7a992b95a1))
+* **deps:** bump the npm-minor-patch group with 2 updates ([#334](https://github.com/arespawn/WhatsAppToDiscord/issues/334)) ([ae75ac8](https://github.com/arespawn/WhatsAppToDiscord/commit/ae75ac875a720fc6216f9e122563a959ce4013b5))
+* **deps:** update vulnerable transport and media dependencies ([#341](https://github.com/arespawn/WhatsAppToDiscord/issues/341)) ([5bf4c7e](https://github.com/arespawn/WhatsAppToDiscord/commit/5bf4c7efb5aa61271b7f90ca9d35cd42e5d7694c))
+* distrust compromised eMudhra certificate authorities on startup ([#340](https://github.com/arespawn/WhatsAppToDiscord/issues/340)) ([9d6b775](https://github.com/arespawn/WhatsAppToDiscord/commit/9d6b775ef9b80a67adf0a76815c453690f4309bd))
+* require patched Node releases and update pkg ([#339](https://github.com/arespawn/WhatsAppToDiscord/issues/339)) ([39fb034](https://github.com/arespawn/WhatsAppToDiscord/commit/39fb034ab28799e6989189ea62c0a1464f8d7dbb))
+
+
+### Documentation
+
+* explain runtime security updates for all installation methods ([#336](https://github.com/arespawn/WhatsAppToDiscord/issues/336)) ([af2425c](https://github.com/arespawn/WhatsAppToDiscord/commit/af2425cf2e0eb1b6b0b961976e2ab3191f58f3a2))
+
 ## [2.6.0-beta.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.6...v2.6.0-beta.1) (2026-10-17)
 
 

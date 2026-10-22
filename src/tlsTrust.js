@@ -78,6 +78,13 @@ const applyTlsTrustFilter = ({
 	}
 	// Replace the store without a permissive alternate-CA fallback.
 	setDefaultCACertificates(trusted);
+	const installed = getCACertificates("default");
+	if (
+		installed.length === 0 ||
+		filterTrustedCACertificates(installed).length !== installed.length
+	) {
+		throw new Error("TLS certificate distrust could not be verified.");
+	}
 	return {
 		removed: certificates.length - trusted.length,
 		trusted: trusted.length,

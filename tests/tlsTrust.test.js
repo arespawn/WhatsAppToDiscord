@@ -35,20 +35,34 @@ test("distrusts all published affected roots and both cross-signed forms of eigh
 
 test("replaces the default trust store and preserves unrelated configured CAs", () => {
 	let installed;
+	let current = [allowed, ...compromised.map((entry) => entry.pem)];
 	assert.deepEqual(
 		applyTlsTrustFilter({
 			nodeVersion: "24.20.0",
 			getCACertificates: (type) => {
 				assert.equal(type, "default");
-				return [allowed, ...compromised.map((entry) => entry.pem)];
+				return current;
 			},
 			setDefaultCACertificates: (certificates) => {
 				installed = certificates;
+				current = certificates;
 			},
 		}),
 		{ removed: 20, trusted: 1 },
 	);
 	assert.deepEqual(installed, [allowed]);
+});
+
+test("a runtime that fails to replace its trust store stops startup", () => {
+	assert.throws(
+		() =>
+			applyTlsTrustFilter({
+				nodeVersion: "24.20.0",
+				getCACertificates: () => [allowed, compromised[0].pem],
+				setDefaultCACertificates: () => {},
+			}),
+		/distrust could not be verified/u,
+	);
 });
 
 test("missing APIs, unenumerable trust, and malformed CAs stop initialization", () => {
@@ -158,6 +172,6 @@ test("both executable entry points load trust filtering before runtime dependenc
 			fileURLToPath(new URL(`../src/${entry}`, import.meta.url)),
 			"utf8",
 		);
-		assert.ok(source.startsWith('import "./loadTlsTrust.js";\n'), entry);
+		assert.match(source, /^import "\.\/loadTlsTrust\.js";\r?\n/u, entry);
 	}
 });

@@ -32,11 +32,15 @@ WA2DC processes Discord tokens, WhatsApp authentication material, contact identi
 
 ## Runtime and certificate security
 
-Treat the Node.js runtime and its certificate trust store as part of the deployed application. Host package updates do not replace the Node.js embedded in an existing pkg executable or container image. Check the actual runtime used by the watchdog and worker, rather than only `node --version` in an administrator's shell.
+Treat the Node.js runtime and its certificate trust store as part of each WA2DC distribution:
 
-During the October 2026 eMudhra incident, the published v2.5.6 Linux executable embedded Node.js 24.14.1. Host `NODE_OPTIONS=--use-openssl-ca` did not change that executable's effective certificate trust. A deployment can keep the exact v2.5.6 source and lockfile while switching to the independently verified Node.js 24.22.1 security release; this avoids combining runtime remediation with a beta application upgrade. Follow the [source conversion procedure](../setup.md#nodejs-source), preserve the existing working directory, and take a stopped-service backup of the entire storage directory.
+- Source installations use the Node.js executable that launches the watchdog and worker. Updating another Node.js installation on the host does not update the service's runtime.
+- Packaged executables embed Node.js independently of the build host and operator's installed Node.js. Host certificate-store updates and `NODE_OPTIONS` overrides must not be assumed to change a packaged executable's effective trust.
+- Containers include their own runtime and trust store. Operators must pull or rebuild a patched image and recreate the container.
 
-Validate trust with anonymous HTTPS requests to the incident's diagnostic hosts and a normal HTTPS positive control. Require certificate verification to fail for the affected chains; never disable TLS verification or attach credentials to a diagnostic request. A successful smoke boot alone does not prove certificate rejection or live transport reconnection. Keep real logs, backups, and deployment evidence private.
+For the October 2026 eMudhra certificate compromise, Node.js 24.22.1 includes the upstream certificate-blocking fix. Use a current security release on a supported Node.js line. When patched packaged artifacts are unavailable, operators can retain their stable application tag and lockfile while using a patched source runtime. Follow the [source conversion procedure](../setup.md#move-a-packaged-installation-to-source).
+
+Validate the actual distribution and launch environment with anonymous HTTPS requests to the incident's diagnostic hosts and normal HTTPS positive controls. Require certificate verification to fail for the affected chains across native HTTPS, built-in fetch, Undici, and the Discord REST agent; never disable TLS verification or attach credentials to a diagnostic request. A successful smoke boot alone does not prove certificate rejection or live transport reconnection. Keep operator logs, backups, and deployment evidence private.
 
 References: [incident advisory](https://emudhra.we-have-a-problem.com/) and [Node.js 24.22.1 release](https://github.com/nodejs/node/releases/tag/v24.22.1).
 

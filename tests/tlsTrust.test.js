@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import {
 	applyTlsTrustFilter,
 	filterTrustedCACertificates,
+	hasNativeCertificateBlocklist,
 } from "../src/tlsTrust.js";
 import compromised from "./fixtures/emudhra-trust-certificates.json" with {
 	type: "json",
@@ -36,6 +37,7 @@ test("replaces the default trust store and preserves unrelated configured CAs", 
 	let installed;
 	assert.deepEqual(
 		applyTlsTrustFilter({
+			nodeVersion: "24.20.0",
 			getCACertificates: (type) => {
 				assert.equal(type, "default");
 				return [allowed, ...compromised.map((entry) => entry.pem)];
@@ -55,6 +57,7 @@ test("missing APIs, unenumerable trust, and malformed CAs stop initialization", 
 	assert.throws(
 		() =>
 			applyTlsTrustFilter({
+				nodeVersion: "24.20.0",
 				getCACertificates: null,
 				setDefaultCACertificates,
 			}),
@@ -67,6 +70,7 @@ test("missing APIs, unenumerable trust, and malformed CAs stop initialization", 
 	]) {
 		assert.throws(() =>
 			applyTlsTrustFilter({
+				nodeVersion: "24.20.0",
 				getCACertificates: () => certificates,
 				setDefaultCACertificates,
 			}),
@@ -74,7 +78,38 @@ test("missing APIs, unenumerable trust, and malformed CAs stop initialization", 
 	}
 });
 
-test("startup filters actual NODE_EXTRA_CA_CERTS without discarding a safe additional root", async () => {
+test("patched runtime boundaries preserve native trust configuration", () => {
+	for (const version of [
+		"24.20.0",
+		"24.22.0",
+		"25.9.0",
+		"26.12.0",
+		"24.22.1-rc.1",
+	]) {
+		assert.equal(hasNativeCertificateBlocklist(version), false, version);
+	}
+	for (const version of [
+		"24.22.1",
+		"24.23.0",
+		"26.12.1",
+		"26.13.0",
+		"27.0.0",
+	]) {
+		assert.equal(hasNativeCertificateBlocklist(version), true, version);
+		assert.deepEqual(
+			applyTlsTrustFilter({
+				nodeVersion: version,
+				getCACertificates: () =>
+					assert.fail("native blocklist needs no CA enumeration"),
+				setDefaultCACertificates: () =>
+					assert.fail("preserve native trust options"),
+			}),
+			{ native: true, removed: 0 },
+		);
+	}
+});
+
+test("fallback filters actual NODE_EXTRA_CA_CERTS without discarding a safe additional root", async () => {
 	const temporary = await fs.mkdtemp(
 		path.join(os.tmpdir(), "wa2dc-tls-trust-"),
 	);
@@ -96,8 +131,9 @@ test("startup filters actual NODE_EXTRA_CA_CERTS without discarding a safe addit
 			import { X509Certificate } from 'node:crypto';
 			const before = tls.getCACertificates('default');
 			await import(${JSON.stringify(bootstrap)});
+			const { applyTlsTrustFilter, filterTrustedCACertificates } = await import(${JSON.stringify(new URL("../src/tlsTrust.js", import.meta.url).href)});
+			applyTlsTrustFilter({ nodeVersion: '24.20.0' });
 			const after = tls.getCACertificates('default');
-			const { filterTrustedCACertificates } = await import(${JSON.stringify(new URL("../src/tlsTrust.js", import.meta.url).href)});
 			assert.deepEqual(filterTrustedCACertificates(after), after);
 			assert.ok(after.some(pem => new X509Certificate(pem).fingerprint256 === ${JSON.stringify(allowedFingerprint)}));
 			assert.ok(after.length < before.length);

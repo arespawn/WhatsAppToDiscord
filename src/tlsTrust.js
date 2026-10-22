@@ -41,10 +41,26 @@ const filterTrustedCACertificates = (certificates) =>
 		return !BLOCKED_CA_SPKIS.has(hash);
 	});
 
+const hasNativeCertificateBlocklist = (version) => {
+	if (!/^\d+\.\d+\.\d+$/u.test(version)) return false;
+	const [major, minor, patch] = version.split(".").map(Number);
+	return (
+		(major === 24 && (minor > 22 || (minor === 22 && patch >= 1))) ||
+		(major === 26 && (minor > 12 || (minor === 12 && patch >= 1))) ||
+		major > 26
+	);
+};
+
 const applyTlsTrustFilter = ({
 	getCACertificates = tls.getCACertificates,
 	setDefaultCACertificates = tls.setDefaultCACertificates,
+	nodeVersion = process.versions.node,
 } = {}) => {
+	// Patched Node blocks these keys during chain verification, including when
+	// OpenSSL or a connection-specific CA store is used. Preserve that trust setup.
+	if (hasNativeCertificateBlocklist(nodeVersion)) {
+		return { native: true, removed: 0 };
+	}
 	if (
 		typeof getCACertificates !== "function" ||
 		typeof setDefaultCACertificates !== "function"
@@ -60,8 +76,7 @@ const applyTlsTrustFilter = ({
 			"No usable enumerable TLS CA certificates. Use bundled/system CA mode and NODE_EXTRA_CA_CERTS for additional roots.",
 		);
 	}
-	// Always replace the store, including on already-patched Node releases.
-	// No network, environment, or alternate-CA fallback can re-add blocked keys.
+	// Replace the store without a permissive alternate-CA fallback.
 	setDefaultCACertificates(trusted);
 	return {
 		removed: certificates.length - trusted.length,
@@ -69,4 +84,8 @@ const applyTlsTrustFilter = ({
 	};
 };
 
-export { applyTlsTrustFilter, filterTrustedCACertificates };
+export {
+	applyTlsTrustFilter,
+	filterTrustedCACertificates,
+	hasNativeCertificateBlocklist,
+};

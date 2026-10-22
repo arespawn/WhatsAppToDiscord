@@ -3430,7 +3430,8 @@ const discord = {
 				level,
 				{ attemptNumber, durationMs, outcome, error },
 			) => {
-				if (!initialAttachmentCount) return;
+				// Text-only successes are routine; their failures and fallbacks are not.
+				if (!initialAttachmentCount && outcome === "success") return;
 				const rawErrorCode = String(error?.code || error?.name || "");
 				const errorCode = rawErrorCode
 					.replace(/[^a-zA-Z0-9_-]/gu, "")
@@ -3446,7 +3447,9 @@ const discord = {
 						outcome,
 						...(errorCode ? { errorCode } : {}),
 					},
-					"Discord webhook attachment upload attempt completed.",
+					initialAttachmentCount
+						? "Discord webhook attachment upload attempt completed."
+						: "Discord webhook send attempt completed.",
 				);
 			};
 

@@ -40,6 +40,7 @@ Runtime and configuration:
 - `src/runner.js` / `src/runnerLogic.js`: supervision, restart/backoff, restart flags, and automatic packaged rollback
 - `src/index.js`: worker bootstrap, autosave, crash reports, and platform lifecycle
 - `src/runtimeEnvironment.js`: `.env` path and loading semantics
+- `src/tlsTrust.js` / `src/loadTlsTrust.js`: startup certificate distrust policy; `src/tlsTrustCheck.js` provides the opt-in anonymous TLS diagnostic
 - `src/contracts.js`: settings defaults/normalization, one-way modes, browser-profile values, Discord permissions, and newsletter timing constants
 - `src/state.js`: mutable in-memory runtime state
 

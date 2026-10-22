@@ -77,6 +77,8 @@ Keep the runtime used by your installation on a current security release:
 
 If patched packaged artifacts are unavailable, use the source procedure below with a patched Node.js release. See the [runtime security notes](dev/security-and-privacy.md#runtime-and-certificate-security) for incident references and certificate-validation requirements.
 
+WA2DC also temporarily distrusts the known compromised eMudhra certificate paths at startup. This applies to newly built releases; existing binaries need to be updated. Some sites relying exclusively on the removed roots may stop working for previews or downloads. Keep the runtime patched even when this protection is present.
+
 #### Move a packaged installation to source
 
 To move an existing packaged installation to source while preserving its session:

@@ -21,6 +21,7 @@ WA2DC does not change `.env` permissions. Restrict it to the runtime account, fo
 | `WA2DC_UPDATE_CHANNEL` | Chooses release notifications | `stable`; use `unstable` for prereleases |
 | `WA2DC_KEEP_OLD_BINARY` | Forces retention of the previous packaged executable for rollback | Set to `1`; packaged installs normally retain rollback data through the persisted default |
 | `WA2DC_LOG_LEVEL` | Sets watchdog and worker Pino verbosity | `info`; valid values are `trace`, `debug`, `info`, `warn`, `error`, `fatal`, and `silent` |
+| `WA2DC_TLS_TRUST_CHECK` | Runs anonymous certificate-rejection and HTTPS positive-control checks, then exits before opening storage or starting the bridge | Unset; set to `1` when launching the watchdog entry point or packaged executable. See [TLS validation](dev/security-and-privacy.md#temporary-application-distrust) for the contacted hosts and output |
 | `WA2DC_WHATSAPP_BROWSER` | Advanced WhatsApp browser-profile override | `android`; supported values are `android`, `macos-chrome`, `windows-chrome`, `ubuntu-chrome`, and `baileys` |
 
 `WA2DC_WHATSAPP_BROWSER` is mainly a pairing or startup diagnostic. Changing profiles for an existing registered session can clear WhatsApp authentication and require pairing again.

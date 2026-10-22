@@ -1,3 +1,4 @@
+import "./loadTlsTrust.js";
 import "./loadRuntimeEnvironment.js";
 
 import nodeCrypto from "node:crypto";

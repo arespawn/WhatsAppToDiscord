@@ -1,3 +1,4 @@
+import "./loadTlsTrust.js";
 import "./loadRuntimeEnvironment.js";
 
 import { spawn } from "node:child_process";
@@ -304,6 +305,12 @@ async function runSupervisorWithSpawn() {
 }
 
 async function main() {
+	if (process.env.WA2DC_TLS_TRUST_CHECK === "1") {
+		const { runTlsTrustCheck } = await import("./tlsTrustCheck.js");
+		await runTlsTrustCheck();
+		return;
+	}
+
 	if (process.env[WORKER_ENV_FLAG] === "1") {
 		await runWorker();
 		return;

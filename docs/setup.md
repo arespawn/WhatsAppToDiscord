@@ -67,6 +67,28 @@ npm start
 
 `npm start` uses the watchdog runner. Running `node src/index.js` directly skips watchdog restarts and packaged rollback handling. The [installer scripts](install-scripts.md) can automate the source installation on supported platforms.
 
+### Runtime security updates
+
+Keep the runtime used by your installation on a current security release:
+
+- **Node.js source:** update the Node.js executable used by the service and restart WA2DC.
+- **Packaged binary:** install a release containing a patched embedded runtime. Updating the host's `node` does not update an existing executable.
+- **Docker Compose:** pull or rebuild an image containing a patched runtime and recreate the container using the update commands above.
+
+If patched packaged artifacts are unavailable, use the source procedure below with a patched Node.js release. See the [runtime security notes](dev/security-and-privacy.md#runtime-and-certificate-security) for incident references and certificate-validation requirements.
+
+#### Move a packaged installation to source
+
+To move an existing packaged installation to source while preserving its session:
+
+1. Prepare the same stable release tag in a separate source directory and run `npm ci` with the patched Node.js runtime. Keep the release's lockfile.
+2. From an empty temporary working directory, run `WA2DC_SMOKE_TEST=1 /path/to/node /path/to/source/src/runner.js`. Smoke mode skips both external transports; never start a second normal process against the live session.
+3. Stop the existing service normally and back up the complete original `storage/` directory. Preserve its configuration and any database passphrase securely.
+4. Keep the service's original working directory, runtime account, environment, and restrictive permissions. Change its startup command to `/path/to/node /path/to/source/src/runner.js`, using absolute paths. Source mode reads `.env` and persistent state from the working directory.
+5. Start the service and check that both transports reconnect without fresh pairing, that stored mappings remain present, and that the process stays healthy. Keep the previous executable and matching `runtime/` together for recovery.
+
+Source installations use source updates; packaged `/update` and `/rollback` are no longer available. Return to packaged deployment only with an executable containing a patched embedded runtime.
+
 ## 3. Start WA2DC and invite the bot
 
 1. Provide the Discord token through `WA2DC_TOKEN` in `.env`, or paste it into the first-run terminal prompt.

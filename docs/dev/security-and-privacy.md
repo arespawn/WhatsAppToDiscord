@@ -30,6 +30,20 @@ WA2DC processes Discord tokens, WhatsApp authentication material, contact identi
 - The local download server defaults to loopback. Binding publicly requires explicit operator configuration; path-safe signed URLs do not replace authentication, firewalling, TLS, expiry, or reverse-proxy controls.
 - Do not introduce new outbound services, analytics, or telemetry without explicit documentation and operator control.
 
+## Runtime and certificate security
+
+Treat the Node.js runtime and its certificate trust store as part of each WA2DC distribution:
+
+- Source installations use the Node.js executable that launches the watchdog and worker. Updating another Node.js installation on the host does not update the service's runtime.
+- Packaged executables embed Node.js independently of the build host and operator's installed Node.js. Host certificate-store updates and `NODE_OPTIONS` overrides must not be assumed to change a packaged executable's effective trust.
+- Containers include their own runtime and trust store. Operators must pull or rebuild a patched image and recreate the container.
+
+For the October 2026 eMudhra certificate compromise, Node.js 24.22.1 includes the upstream certificate-blocking fix. Use a current security release on a supported Node.js line. When patched packaged artifacts are unavailable, operators can retain their stable application tag and lockfile while using a patched source runtime. Follow the [source conversion procedure](../setup.md#move-a-packaged-installation-to-source).
+
+Validate the actual distribution and launch environment with anonymous HTTPS requests to the incident's diagnostic hosts and normal HTTPS positive controls. Require certificate verification to fail for the affected chains across native HTTPS, built-in fetch, Undici, and the Discord REST agent; never disable TLS verification or attach credentials to a diagnostic request. A successful smoke boot alone does not prove certificate rejection or live transport reconnection. Keep operator logs, backups, and deployment evidence private.
+
+References: [incident advisory](https://emudhra.we-have-a-problem.com/) and [Node.js 24.22.1 release](https://github.com/nodejs/node/releases/tag/v24.22.1).
+
 ## Authorization
 
 WA2DC intentionally uses Discord's guild, channel, role, and application-command permissions. Keep the control channel private and do not imply per-user authorization exists in WA2DC.

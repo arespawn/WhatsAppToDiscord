@@ -1,5 +1,75 @@
 # Changelog
 
+## [2.6.0](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.6.0...v2.6.0) (2026-10-25)
+
+
+### Features
+
+* automate stable and beta releases ([#270](https://github.com/arespawn/WhatsAppToDiscord/issues/270)) ([662316e](https://github.com/arespawn/WhatsAppToDiscord/commit/662316e6b7edaffebe25589ad04b6e0f4b8cac0f))
+* customize Discord avatars for WhatsApp contacts ([#333](https://github.com/arespawn/WhatsAppToDiscord/issues/333)) ([39b616c](https://github.com/arespawn/WhatsAppToDiscord/commit/39b616c3030295d3a41453fe59e558ecdad47978))
+
+
+### Bug Fixes
+
+* align Node support with jsdom 30 ([b49d0ae](https://github.com/arespawn/WhatsAppToDiscord/commit/b49d0aecfaba09ecbb89df7e336dfc0e4241b5a2))
+* allow validation of draft releases ([#276](https://github.com/arespawn/WhatsAppToDiscord/issues/276)) ([cde2b5e](https://github.com/arespawn/WhatsAppToDiscord/commit/cde2b5e76d493d752414a8d8dd9776b7dfbdd77a))
+* avoid regex injection in release normalization ([#303](https://github.com/arespawn/WhatsAppToDiscord/issues/303)) ([79ec76f](https://github.com/arespawn/WhatsAppToDiscord/commit/79ec76f0a27787c1eafacfbf5f40956dbfad6999))
+* bound graceful shutdown and watchdog exit ([#291](https://github.com/arespawn/WhatsAppToDiscord/issues/291)) ([c3c1d92](https://github.com/arespawn/WhatsAppToDiscord/commit/c3c1d92898cdba1b45cf0e19e8de4d6c9b63f6c0))
+* **deps:** bump @biomejs/biome from 2.5.10 to 2.5.11 in the npm-minor-patch group ([#318](https://github.com/arespawn/WhatsAppToDiscord/issues/318)) ([a018775](https://github.com/arespawn/WhatsAppToDiscord/commit/a018775681741c8fb010621d760d6c86989e58d6))
+* **deps:** bump @biomejs/biome in the npm-minor-patch group ([553d205](https://github.com/arespawn/WhatsAppToDiscord/commit/553d2054044d6c2e82af4b81459f5afdb7fc7376))
+* **deps:** bump actions/create-github-app-token ([#335](https://github.com/arespawn/WhatsAppToDiscord/issues/335)) ([1279d91](https://github.com/arespawn/WhatsAppToDiscord/commit/1279d91b60614178fe77b67a86bb6e7a992b95a1))
+* **deps:** bump actions/download-artifact from 7.0.0 to 8.0.1 ([#275](https://github.com/arespawn/WhatsAppToDiscord/issues/275)) ([6380fbf](https://github.com/arespawn/WhatsAppToDiscord/commit/6380fbf18c5c47459bfb11f3889e1d9f4c4463f0))
+* **deps:** bump actions/upload-artifact from 6.0.0 to 7.0.1 ([#274](https://github.com/arespawn/WhatsAppToDiscord/issues/274)) ([d844144](https://github.com/arespawn/WhatsAppToDiscord/commit/d844144a452086385c66dd138b6964a89df9a476))
+* **deps:** bump the actions-minor-patch group across 1 directory with 5 updates ([#328](https://github.com/arespawn/WhatsAppToDiscord/issues/328)) ([b52812b](https://github.com/arespawn/WhatsAppToDiscord/commit/b52812bc8b531947fe81cd6eea7a1ec9293d5ec7))
+* **deps:** bump the npm-minor-patch group across 1 directory with 5 updates ([#327](https://github.com/arespawn/WhatsAppToDiscord/issues/327)) ([25fe4dd](https://github.com/arespawn/WhatsAppToDiscord/commit/25fe4dd4c2f825a8618b2dd219f325fe47e62bf4))
+* **deps:** bump the npm-minor-patch group with 2 updates ([#334](https://github.com/arespawn/WhatsAppToDiscord/issues/334)) ([ae75ac8](https://github.com/arespawn/WhatsAppToDiscord/commit/ae75ac875a720fc6216f9e122563a959ce4013b5))
+* **deps:** refresh Biome and Sharp packages ([#288](https://github.com/arespawn/WhatsAppToDiscord/issues/288)) ([54d740a](https://github.com/arespawn/WhatsAppToDiscord/commit/54d740a753b8b37ed0acf86cf681433a1c727990))
+* **deps:** target automated updates at next ([#279](https://github.com/arespawn/WhatsAppToDiscord/issues/279)) ([ad15874](https://github.com/arespawn/WhatsAppToDiscord/commit/ad15874d4eeea829c687a46559fb50f18a9f71f7))
+* **deps:** target automated updates at next ([#280](https://github.com/arespawn/WhatsAppToDiscord/issues/280)) ([d2b2786](https://github.com/arespawn/WhatsAppToDiscord/commit/d2b27869471fb3aba459abeb35f579df889f167a))
+* **deps:** update vulnerable transport and media dependencies ([#341](https://github.com/arespawn/WhatsAppToDiscord/issues/341)) ([5bf4c7e](https://github.com/arespawn/WhatsAppToDiscord/commit/5bf4c7efb5aa61271b7f90ca9d35cd42e5d7694c))
+* distrust compromised eMudhra certificate authorities on startup ([#340](https://github.com/arespawn/WhatsAppToDiscord/issues/340)) ([9d6b775](https://github.com/arespawn/WhatsAppToDiscord/commit/9d6b775ef9b80a67adf0a76815c453690f4309bd))
+* download stickers with obsolete WhatsApp hosts ([#330](https://github.com/arespawn/WhatsAppToDiscord/issues/330)) ([f5631d6](https://github.com/arespawn/WhatsAppToDiscord/commit/f5631d6a5a193eeab9c86aec76ef9742b58320ed))
+* harden stable promotion automation ([bead7f8](https://github.com/arespawn/WhatsAppToDiscord/commit/bead7f8baf4197de482edd1e544f6332bd57983e))
+* harden stable promotion automation ([#286](https://github.com/arespawn/WhatsAppToDiscord/issues/286)) ([793db34](https://github.com/arespawn/WhatsAppToDiscord/commit/793db342f0782f184696fdc763d15da10db78818))
+* log failed text-only Discord webhook sends ([#342](https://github.com/arespawn/WhatsAppToDiscord/issues/342)) ([9975939](https://github.com/arespawn/WhatsAppToDiscord/commit/9975939df4ab2bcb684125696a3ea3b2d26883f6))
+* prevent Discord REST stalls from blocking mappings ([#312](https://github.com/arespawn/WhatsAppToDiscord/issues/312)) ([502ccd6](https://github.com/arespawn/WhatsAppToDiscord/commit/502ccd66a0f87d4d43d6aa3d130a9b1f8122a4bd))
+* prevent recent message mapping loss ([#315](https://github.com/arespawn/WhatsAppToDiscord/issues/315)) ([f91cc33](https://github.com/arespawn/WhatsAppToDiscord/commit/f91cc337e937886aaaa08ccc2edd478500571589))
+* publish portable runtime archives and stable notes ([#300](https://github.com/arespawn/WhatsAppToDiscord/issues/300)) ([42b820c](https://github.com/arespawn/WhatsAppToDiscord/commit/42b820ccaf33e9cbc4b8675d3ffb9339da4a33ef))
+* refresh pending WhatsApp QR registrations ([#331](https://github.com/arespawn/WhatsAppToDiscord/issues/331)) ([61df35d](https://github.com/arespawn/WhatsAppToDiscord/commit/61df35ddf7dfbc827863dd70e343cbb7b212458d))
+* require patched Node releases and update pkg ([#339](https://github.com/arespawn/WhatsAppToDiscord/issues/339)) ([39fb034](https://github.com/arespawn/WhatsAppToDiscord/commit/39fb034ab28799e6989189ea62c0a1464f8d7dbb))
+* run recovered release jobs ([#278](https://github.com/arespawn/WhatsAppToDiscord/issues/278)) ([9fbcabf](https://github.com/arespawn/WhatsAppToDiscord/commit/9fbcabf52f368b230a8bc83fff49609db94ca79e))
+* stage WhatsApp media before Discord uploads ([#307](https://github.com/arespawn/WhatsAppToDiscord/issues/307)) ([47c0e9e](https://github.com/arespawn/WhatsAppToDiscord/commit/47c0e9e95cdb1544734e65464259af2797d49722))
+* **storage:** close SQLite handle when init fails ([#329](https://github.com/arespawn/WhatsAppToDiscord/issues/329)) ([5cc91e4](https://github.com/arespawn/WhatsAppToDiscord/commit/5cc91e4e8432025a12907a275612a23fe7866a70))
+* upload newsletter images and videos ([#332](https://github.com/arespawn/WhatsAppToDiscord/issues/332)) ([84d7a6d](https://github.com/arespawn/WhatsAppToDiscord/commit/84d7a6da345e9182d5cc0b8cbe04d8f8916d0b1c))
+* use compatible Discord multipart transport ([#310](https://github.com/arespawn/WhatsAppToDiscord/issues/310)) ([a582058](https://github.com/arespawn/WhatsAppToDiscord/commit/a58205873ac31c06b9779e7ac0952797e38be840))
+
+
+### Performance
+
+* reduce runtime overhead and clean up media handling ([#344](https://github.com/arespawn/WhatsAppToDiscord/issues/344)) ([5f53f6a](https://github.com/arespawn/WhatsAppToDiscord/commit/5f53f6a3b98887f48f682d9f866923b1d6625336))
+
+
+### Dependencies
+
+* bump @biomejs/biome in the npm-minor-patch group ([5913908](https://github.com/arespawn/WhatsAppToDiscord/commit/59139087905183e164f8e45c438d1cd69b52211f))
+* bump jsdom from 29.1.1 to 30.0.1 ([8a5c73c](https://github.com/arespawn/WhatsAppToDiscord/commit/8a5c73c4a908ffd736db76515759e576c0e1ccfd))
+* bump link-preview-js from 3.2.0 to 5.0.0 ([#265](https://github.com/arespawn/WhatsAppToDiscord/issues/265)) ([7ab176e](https://github.com/arespawn/WhatsAppToDiscord/commit/7ab176e8bfdf736129e224b3b17088f954e30ef7))
+* bump the npm-minor-patch group across 1 directory with 2 updates ([244e1dc](https://github.com/arespawn/WhatsAppToDiscord/commit/244e1dcc8321a31b8ea619f5d3fd5bb4e700cb56))
+
+
+### Documentation
+
+* clarify final beta synchronization order ([#283](https://github.com/arespawn/WhatsAppToDiscord/issues/283)) ([210f38e](https://github.com/arespawn/WhatsAppToDiscord/commit/210f38e828f4f95bdd6113be852184994898da59))
+* explain runtime security updates for all installation methods ([#336](https://github.com/arespawn/WhatsAppToDiscord/issues/336)) ([af2425c](https://github.com/arespawn/WhatsAppToDiscord/commit/af2425cf2e0eb1b6b0b961976e2ab3191f58f3a2))
+
+
+### Miscellaneous
+
+* checkpoint v2.5.1-beta.4 for stable promotion ([#294](https://github.com/arespawn/WhatsAppToDiscord/issues/294)) ([c932761](https://github.com/arespawn/WhatsAppToDiscord/commit/c932761b5bfdfb9a9e392b4459215cbe02382237))
+* promote v2.5.1 to stable ([#297](https://github.com/arespawn/WhatsAppToDiscord/issues/297)) ([f6de841](https://github.com/arespawn/WhatsAppToDiscord/commit/f6de8411418e9b01671dd5f8ee97dc3346bd2916))
+* promote v2.5.2 to stable ([#302](https://github.com/arespawn/WhatsAppToDiscord/issues/302)) ([8b53258](https://github.com/arespawn/WhatsAppToDiscord/commit/8b5325885ff82e08e6d9eab767d7261be45007fe))
+* **release:** promote 2.6.0 to stable ([#345](https://github.com/arespawn/WhatsAppToDiscord/issues/345)) ([8dd0c44](https://github.com/arespawn/WhatsAppToDiscord/commit/8dd0c44a670451ec0585378b640bbd1f860d788d))
+
 ## [2.6.0](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.6...v2.6.0) (2026-10-25)
 
 ### Features

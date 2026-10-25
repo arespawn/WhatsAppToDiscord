@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.6.0-beta.3](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.6.0-beta.2...v2.6.0-beta.3) (2026-10-25)
+
+
+### Bug Fixes
+
+* log failed text-only Discord webhook sends ([#342](https://github.com/arespawn/WhatsAppToDiscord/issues/342)) ([9975939](https://github.com/arespawn/WhatsAppToDiscord/commit/9975939df4ab2bcb684125696a3ea3b2d26883f6))
+
+
+### Performance
+
+* reduce runtime overhead and clean up media handling ([#344](https://github.com/arespawn/WhatsAppToDiscord/issues/344)) ([5f53f6a](https://github.com/arespawn/WhatsAppToDiscord/commit/5f53f6a3b98887f48f682d9f866923b1d6625336))
+
 ## [2.6.0-beta.2](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.6.0-beta.1...v2.6.0-beta.2) (2026-10-22)
 
 

@@ -55,10 +55,7 @@ const useSQLiteAuthState = async () => {
 						}
 					}
 
-					await storage.setAuthKeysRaw(toWrite);
-					if (toDelete.length) {
-						await storage.deleteAuthKeysRaw(toDelete);
-					}
+					await storage.updateAuthKeysRaw(toWrite, toDelete);
 				},
 			},
 		},

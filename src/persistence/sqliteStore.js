@@ -54,6 +54,7 @@ const sqliteStore = {
 	_storageDir: "./storage",
 	_dbFileName: "wa2dc.sqlite",
 	_db: null,
+	_statements: new Map(),
 	_encryption: { enabled: false, key: null },
 	_logger: null,
 
@@ -89,6 +90,16 @@ const sqliteStore = {
 		return !!this._db;
 	},
 
+	_prepare(sql) {
+		this._ensureDbReady();
+		let statement = this._statements.get(sql);
+		if (!statement) {
+			statement = this._db.prepare(sql);
+			this._statements.set(sql, statement);
+		}
+		return statement;
+	},
+
 	_decodeStoredValue(value) {
 		if (!this._encryption.enabled) {
 			return value;
@@ -104,22 +115,16 @@ const sqliteStore = {
 	},
 
 	_getMetaValue(key) {
-		this._ensureDbReady();
-		const row = this._db
-			.prepare("SELECT value FROM meta WHERE key = ?")
-			.get(key);
+		const row = this._prepare("SELECT value FROM meta WHERE key = ?").get(key);
 		return row?.value ?? null;
 	},
 
 	_setMetaValue(key, value) {
-		this._ensureDbReady();
-		this._db
-			.prepare(`
+		this._prepare(`
       INSERT INTO meta (key, value)
       VALUES (?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `)
-			.run(key, value);
+    `).run(key, value);
 	},
 
 	_configureEncryption(passphraseRaw) {
@@ -262,6 +267,7 @@ const sqliteStore = {
 			this._db.close();
 			this._db = null;
 		}
+		this._statements.clear();
 		this._encryption = { enabled: false, key: null };
 	},
 
@@ -287,10 +293,9 @@ const sqliteStore = {
 	},
 
 	getAppState(key) {
-		this._ensureDbReady();
-		const row = this._db
-			.prepare("SELECT value FROM app_state WHERE key = ?")
-			.get(key);
+		const row = this._prepare("SELECT value FROM app_state WHERE key = ?").get(
+			key,
+		);
 		if (!row) {
 			return null;
 		}
@@ -298,22 +303,18 @@ const sqliteStore = {
 	},
 
 	setAppState(key, value) {
-		this._ensureDbReady();
 		const now = Date.now();
-		this._db
-			.prepare(`
+		this._prepare(`
       INSERT INTO app_state (key, value, updated_at)
       VALUES (?, ?, ?)
       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `)
-			.run(key, this._encodeStoredValue(value), now);
+    `).run(key, this._encodeStoredValue(value), now);
 	},
 
 	getAuthCreds() {
-		this._ensureDbReady();
-		const row = this._db
-			.prepare("SELECT value FROM auth_creds WHERE id = 1")
-			.get();
+		const row = this._prepare(
+			"SELECT value FROM auth_creds WHERE id = 1",
+		).get();
 		if (!row) {
 			return null;
 		}
@@ -321,21 +322,17 @@ const sqliteStore = {
 	},
 
 	setAuthCreds(value) {
-		this._ensureDbReady();
 		const now = Date.now();
-		this._db
-			.prepare(`
+		this._prepare(`
       INSERT INTO auth_creds (id, value, updated_at)
       VALUES (1, ?, ?)
       ON CONFLICT(id) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `)
-			.run(this._encodeStoredValue(value), now);
+    `).run(this._encodeStoredValue(value), now);
 	},
 
 	getAuthKeys(fileKeys = []) {
-		this._ensureDbReady();
 		const result = {};
-		const stmt = this._db.prepare(
+		const stmt = this._prepare(
 			"SELECT value FROM auth_keys WHERE file_key = ?",
 		);
 		for (const fileKey of fileKeys) {
@@ -348,9 +345,8 @@ const sqliteStore = {
 	},
 
 	setAuthKeys(entries = {}) {
-		this._ensureDbReady();
 		const now = Date.now();
-		const stmt = this._db.prepare(`
+		const stmt = this._prepare(`
       INSERT INTO auth_keys (file_key, value, updated_at)
       VALUES (?, ?, ?)
       ON CONFLICT(file_key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
@@ -362,8 +358,7 @@ const sqliteStore = {
 	},
 
 	deleteAuthKeys(fileKeys = []) {
-		this._ensureDbReady();
-		const stmt = this._db.prepare("DELETE FROM auth_keys WHERE file_key = ?");
+		const stmt = this._prepare("DELETE FROM auth_keys WHERE file_key = ?");
 		for (const fileKey of fileKeys) {
 			stmt.run(fileKey);
 		}
@@ -375,19 +370,16 @@ const sqliteStore = {
 	},
 
 	getMessageStore(cacheKey) {
-		this._ensureDbReady();
-		const row = this._db
-			.prepare(
-				"SELECT value, expires_at AS expiresAt FROM message_store WHERE cache_key = ?",
-			)
-			.get(cacheKey);
+		const row = this._prepare(
+			"SELECT value, expires_at AS expiresAt FROM message_store WHERE cache_key = ?",
+		).get(cacheKey);
 		if (!row) {
 			return null;
 		}
 		if (row.expiresAt <= Date.now()) {
-			this._db
-				.prepare("DELETE FROM message_store WHERE cache_key = ?")
-				.run(cacheKey);
+			this._prepare("DELETE FROM message_store WHERE cache_key = ?").run(
+				cacheKey,
+			);
 			return null;
 		}
 		return {
@@ -397,50 +389,33 @@ const sqliteStore = {
 	},
 
 	setMessageStore(cacheKey, value, expiresAt) {
-		this._ensureDbReady();
 		const now = Date.now();
-		this._db
-			.prepare(`
+		this._prepare(`
       INSERT INTO message_store (cache_key, value, expires_at, updated_at)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(cache_key)
       DO UPDATE SET value = excluded.value, expires_at = excluded.expires_at, updated_at = excluded.updated_at
-    `)
-			.run(cacheKey, this._encodeStoredValue(value), expiresAt, now);
+    `).run(cacheKey, this._encodeStoredValue(value), expiresAt, now);
 	},
 
 	pruneMessageStore(maxEntries) {
-		this._ensureDbReady();
 		const now = Date.now();
-		this._db
-			.prepare("DELETE FROM message_store WHERE expires_at <= ?")
-			.run(now);
+		this._prepare("DELETE FROM message_store WHERE expires_at <= ?").run(now);
 		if (!Number.isFinite(maxEntries) || maxEntries <= 0) {
 			return;
 		}
-		const countRow = this._db
-			.prepare("SELECT COUNT(*) AS count FROM message_store")
-			.get();
-		const count = Number(countRow?.count || 0);
-		if (count <= maxEntries) {
-			return;
-		}
-		const overflow = count - maxEntries;
-		this._db
-			.prepare(`
+		this._prepare(`
       DELETE FROM message_store
       WHERE cache_key IN (
         SELECT cache_key FROM message_store
         ORDER BY updated_at ASC
-        LIMIT ?
+        LIMIT MAX(0, (SELECT COUNT(*) FROM message_store) - ?)
       )
-    `)
-			.run(overflow);
+    `).run(maxEntries);
 	},
 
 	clearMessageStore() {
-		this._ensureDbReady();
-		this._db.prepare("DELETE FROM message_store").run();
+		this._prepare("DELETE FROM message_store").run();
 	},
 };
 

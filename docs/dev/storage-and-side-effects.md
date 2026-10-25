@@ -8,6 +8,10 @@
 
 Persistent app and WhatsApp authentication state lives in `storage/wa2dc.sqlite`, opened through Node's embedded SQLite API in WAL mode. Legacy flat-file storage is not loaded or migrated, and files such as `storage/settings` or `storage/contacts` do not exist in the current contract.
 
+Fixed SQL statements are prepared lazily and reused only for the lifetime of that database connection. Closing the store, including after failed encryption setup, releases the statement cache before another initialization. Statement reuse changes no tables, payload formats, encryption envelopes, or pruning rules.
+
+Each Baileys auth-key batch commits its writes and deletions in one SQLite transaction; failure rolls back the whole batch. Existing raw read/write/delete methods remain available. Message-store capacity pruning calculates overflow inside the deletion statement, preserving oldest-first ordering and exact capacity without materializing a count result in JavaScript.
+
 Table responsibilities:
 
 - `meta`: storage/encryption metadata

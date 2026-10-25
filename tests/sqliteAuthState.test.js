@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import useSQLiteAuthState from "../src/auth/sqliteAuthState.js";
+import sqliteStore from "../src/persistence/sqliteStore.js";
 import storage from "../src/storage.js";
 
 const withTempStorage = async (fn) => {
@@ -72,5 +73,40 @@ test("SQLite auth state persists creds via saveCreds", async () => {
 		const second = await useSQLiteAuthState();
 		assert.equal(second.state.creds.registered, true);
 		assert.equal(second.state.creds.accountSyncCounter, 9);
+	});
+});
+
+test("SQLite auth batches mixed key writes and deletes into one transaction", async (t) => {
+	await withTempStorage(async () => {
+		const { state } = await useSQLiteAuthState();
+		await state.keys.set({ session: { old: Buffer.from("old") } });
+		const transaction = t.mock.method(sqliteStore, "transaction");
+		await state.keys.set({ session: { old: null, new: Buffer.from("new") } });
+		assert.equal(transaction.mock.callCount(), 1);
+		const values = await state.keys.get("session", ["old", "new"]);
+		assert.equal(values.old, null);
+		assert.equal(values.new.toString(), "new");
+	});
+});
+
+test("SQLite auth rolls back writes when deletion fails and accepts the next batch", async (t) => {
+	await withTempStorage(async () => {
+		const { state } = await useSQLiteAuthState();
+		await state.keys.set({ session: { old: Buffer.from("old") } });
+		const deletion = t.mock.method(sqliteStore, "deleteAuthKeys", () => {
+			throw new Error("synthetic deletion failure");
+		});
+		await assert.rejects(
+			state.keys.set({ session: { old: null, new: Buffer.from("new") } }),
+			/synthetic deletion failure/,
+		);
+		let values = await state.keys.get("session", ["old", "new"]);
+		assert.equal(values.old.toString(), "old");
+		assert.equal(values.new, null);
+		deletion.mock.restore();
+		await state.keys.set({ session: { old: null, new: Buffer.from("new") } });
+		values = await state.keys.get("session", ["old", "new"]);
+		assert.equal(values.old, null);
+		assert.equal(values.new.toString(), "new");
 	});
 });

@@ -5,6 +5,7 @@ const BUNDLE_EXTERNALS = ["sharp"];
 await esbuild.build({
 	entryPoints: ["src/runner.js"],
 	bundle: true,
+	minifyWhitespace: true,
 	platform: "node",
 	format: "cjs",
 	external: BUNDLE_EXTERNALS,

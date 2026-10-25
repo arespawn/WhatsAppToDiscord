@@ -12,6 +12,7 @@ const newsletterAckErrors = new Map();
 const newsletterAckWaiters = new Map();
 const newsletterPendingSends = new Map();
 const newsletterMessageDebug = new Map();
+let newsletterPruneTimer = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -221,6 +222,7 @@ const notePendingNewsletterSend = ({
 		queue.shift();
 	}
 	newsletterPendingSends.set(normalizedJid, queue);
+	scheduleNewsletterPrune();
 };
 
 const getPendingNewsletterSend = ({
@@ -503,6 +505,7 @@ const noteNewsletterAckError = ({ messageId, jid, errorCode }) => {
 		timestamp: Date.now(),
 	});
 	resolveNewsletterAckWaiters(normalizedMessageId, normalizedError);
+	scheduleNewsletterPrune();
 };
 
 const waitForNewsletterAckError = async (
@@ -600,6 +603,7 @@ const noteNewsletterMessageDebug = ({
 		queue.shift();
 	}
 	newsletterMessageDebug.set(normalizedDiscordMessageId, queue);
+	scheduleNewsletterPrune();
 };
 
 const getNewsletterMessageDebug = ({
@@ -623,7 +627,27 @@ const getNewsletterMessageDebug = ({
 	return filtered.slice(-boundedLimit);
 };
 
+const scheduleNewsletterPrune = () => {
+	if (newsletterPruneTimer) return;
+	newsletterPruneTimer = setTimeout(() => {
+		newsletterPruneTimer = null;
+		prunePendingNewsletterSends();
+		pruneNewsletterAckErrors();
+		pruneNewsletterMessageDebug();
+		if (
+			newsletterPendingSends.size ||
+			newsletterAckErrors.size ||
+			newsletterMessageDebug.size
+		) {
+			scheduleNewsletterPrune();
+		}
+	}, NEWSLETTER_ACK_ERROR_TTL_MS);
+	newsletterPruneTimer.unref();
+};
+
 const resetNewsletterBridgeState = () => {
+	clearTimeout(newsletterPruneTimer);
+	newsletterPruneTimer = null;
 	newsletterAckErrors.clear();
 	newsletterAckWaiters.clear();
 	newsletterPendingSends.clear();

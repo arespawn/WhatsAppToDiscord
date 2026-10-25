@@ -641,6 +641,32 @@ import { Boom }`,
 		before: toleratePreAuthNotificationAckBefore,
 		after: toleratePreAuthNotificationAckAfter,
 	},
+	{
+		file: "lib/Utils/messages-media.js",
+		before: "import { Readable, Transform } from 'stream';",
+		after: "import { pipeline, Readable, Transform } from 'stream';",
+	},
+	{
+		file: "lib/Utils/messages-media.js",
+		before: `        dispatcher: options.dispatcher,
+        method: 'GET',`,
+		after: `        dispatcher: options.dispatcher,
+        signal: options.signal,
+        method: 'GET',`,
+	},
+	{
+		file: "lib/Utils/messages-media.js",
+		before: `        throw new Boom(\`Failed to fetch stream from \${url}\`, { statusCode: response.status, data: { url } });`,
+		after: `        if (response.body instanceof Readable) response.body.destroy();
+        else await response.body?.cancel().catch(() => {});
+        throw new Boom(\`Failed to fetch stream from \${url}\`, { statusCode: response.status, data: { url } });`,
+	},
+	{
+		file: "lib/Utils/messages-media.js",
+		before: "    return fetched.pipe(output, { end: true });",
+		after: `    pipeline(fetched, output, () => {});
+    return output;`,
+	},
 ];
 
 const replaceOnce = async ({ file, marker, before, after }) => {

@@ -1,4 +1,4 @@
-import childProcess from "node:child_process";
+import { transcodeBufferWithFfmpeg } from "./ffmpeg.js";
 
 const WHATSAPP_GIF_TRANSCODE_TIMEOUT_MS = 20 * 1000;
 
@@ -16,70 +16,27 @@ const replaceFileExtension = (fileName = "", extension = "gif") => {
 	return trimmed.replace(/\.[^.]+$/u, `.${extension}`);
 };
 
-const transcodeVideoBufferToGif = async (inputBuffer) => {
-	if (!inputBuffer?.length) return null;
-	return await new Promise((resolve, reject) => {
-		const ffmpeg = childProcess.spawn(
-			"ffmpeg",
-			[
-				"-hide_banner",
-				"-loglevel",
-				"error",
-				"-i",
-				"pipe:0",
-				"-an",
-				"-vf",
-				"fps=12,split[s0][s1];[s0]palettegen=reserve_transparent=0[p];[s1][p]paletteuse",
-				"-loop",
-				"0",
-				"-f",
-				"gif",
-				"pipe:1",
-			],
-			{ stdio: ["pipe", "pipe", "pipe"] },
-		);
-
-		const stdoutChunks = [];
-		const stderrChunks = [];
-		let completed = false;
-		const finish = (err, output = null) => {
-			if (completed) return;
-			completed = true;
-			clearTimeout(timeout);
-			if (err) {
-				reject(err);
-				return;
-			}
-			resolve(output);
-		};
-		const timeout = setTimeout(() => {
-			ffmpeg.kill("SIGKILL");
-			finish(new Error("ffmpeg_timeout"));
-		}, WHATSAPP_GIF_TRANSCODE_TIMEOUT_MS);
-
-		ffmpeg.stdout.on("data", (chunk) => stdoutChunks.push(chunk));
-		ffmpeg.stderr.on("data", (chunk) => stderrChunks.push(chunk));
-		ffmpeg.on("error", (err) => finish(err));
-		ffmpeg.on("close", (code) => {
-			if (code !== 0) {
-				const stderrText = Buffer.concat(stderrChunks).toString("utf8").trim();
-				finish(
-					new Error(`ffmpeg_exit_${code}${stderrText ? `:${stderrText}` : ""}`),
-				);
-				return;
-			}
-			const output = Buffer.concat(stdoutChunks);
-			if (!output.length) {
-				finish(new Error("ffmpeg_empty_output"));
-				return;
-			}
-			finish(null, output);
-		});
-
-		ffmpeg.stdin.on("error", () => {});
-		ffmpeg.stdin.end(inputBuffer);
-	});
-};
+const transcodeVideoBufferToGif = (inputBuffer, maxBytes) =>
+	transcodeBufferWithFfmpeg(
+		inputBuffer,
+		[
+			"-hide_banner",
+			"-loglevel",
+			"error",
+			"-i",
+			"pipe:0",
+			"-an",
+			"-vf",
+			"fps=12,split[s0][s1];[s0]palettegen=reserve_transparent=0[p];[s1][p]paletteuse",
+			"-loop",
+			"0",
+			"-f",
+			"gif",
+			"pipe:1",
+		],
+		WHATSAPP_GIF_TRANSCODE_TIMEOUT_MS,
+		Number.isFinite(maxBytes) && maxBytes > 0 ? maxBytes : Infinity,
+	);
 
 export const createWhatsAppGifToDiscordFileNormalizer = ({
 	getLogger = null,
@@ -95,6 +52,7 @@ export const createWhatsAppGifToDiscordFileNormalizer = ({
 		mimetype,
 		jid,
 		messageId,
+		maxBytes = 0,
 	} = {}) => {
 		const normalizedMime = normalizeMimeType(mimetype);
 		const normalizedName =
@@ -112,7 +70,17 @@ export const createWhatsAppGifToDiscordFileNormalizer = ({
 
 		const logger = loggerForCall();
 		try {
-			const gifBuffer = await transcodeBufferToGif(attachmentBuffer);
+			const gifBuffer = await (transcodeBufferToGif ===
+			transcodeVideoBufferToGif
+				? transcodeVideoBufferToGif(attachmentBuffer, maxBytes)
+				: transcodeBufferToGif(attachmentBuffer));
+			if (
+				Number.isFinite(maxBytes) &&
+				maxBytes > 0 &&
+				gifBuffer?.length > maxBytes
+			) {
+				throw new Error("ffmpeg_output_limit_exceeded");
+			}
 			if (gifBuffer?.length) {
 				return {
 					attachmentBuffer: gifBuffer,

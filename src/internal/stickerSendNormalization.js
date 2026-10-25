@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { loadAttachmentBuffer } from "./attachmentBuffer.js";
 
 const require = createRequire(path.resolve(process.cwd(), "package.json"));
 
@@ -14,77 +15,11 @@ const DISCORD_STICKER_LOTTIE_FORMAT = 3;
 
 let packagedRuntimeRequire = null;
 let stickerDependencyPromise = null;
-let lottiePlayerSourcePromise = null;
+let lottieBootstrapPromise = null;
 
 const normalizeMimeType = (value = "") => {
 	if (typeof value !== "string") return "";
 	return value.split(";")[0].trim().toLowerCase();
-};
-
-const decodeDataUrlBuffer = (sourceUrl = "") => {
-	const commaIndex = sourceUrl.indexOf(",");
-	if (commaIndex < 0) {
-		return null;
-	}
-	const meta = sourceUrl.slice(0, commaIndex);
-	const payload = sourceUrl.slice(commaIndex + 1);
-	if (!payload) {
-		return null;
-	}
-	const isBase64 = /;base64$/i.test(meta);
-	return isBase64
-		? Buffer.from(payload, "base64")
-		: Buffer.from(decodeURIComponent(payload), "utf8");
-};
-
-const loadAttachmentBufferForWhatsApp = async (
-	attachment = {},
-	{ fetchBuffer = null } = {},
-) => {
-	const sourceUrl =
-		typeof attachment?.url === "string" ? attachment.url.trim() : "";
-	if (!sourceUrl) return null;
-	if (sourceUrl.startsWith("data:")) {
-		const decoded = decodeDataUrlBuffer(sourceUrl);
-		if (!decoded?.length) return null;
-		if (decoded.length > DISCORD_STICKER_FETCH_MAX_BYTES) {
-			throw new Error(`buffer_length_exceeded:${decoded.length}`);
-		}
-		return decoded;
-	}
-	if (!/^https?:\/\//i.test(sourceUrl)) {
-		return null;
-	}
-	if (typeof fetchBuffer === "function") {
-		const response = await fetchBuffer(sourceUrl, {
-			maxBytes: DISCORD_STICKER_FETCH_MAX_BYTES,
-			accept: "image/*,application/json;q=0.9,*/*;q=0.8",
-		});
-		return response?.buffer || null;
-	}
-	const response = await fetch(sourceUrl, {
-		headers: {
-			accept: "image/*,application/json;q=0.9,*/*;q=0.8",
-		},
-	});
-	if (!response.ok) {
-		throw new Error(`HTTP ${response.status}`);
-	}
-	const contentLength = Number.parseInt(
-		response.headers.get("content-length") || "",
-		10,
-	);
-	if (
-		Number.isFinite(contentLength) &&
-		contentLength > DISCORD_STICKER_FETCH_MAX_BYTES
-	) {
-		throw new Error(`content_length_exceeded:${contentLength}`);
-	}
-	const buffer = Buffer.from(await response.arrayBuffer());
-	if (buffer.length > DISCORD_STICKER_FETCH_MAX_BYTES) {
-		throw new Error(`buffer_length_exceeded:${buffer.length}`);
-	}
-	return buffer;
 };
 
 const getStickerRuntimeRequire = () => {
@@ -134,23 +69,14 @@ const loadStickerDependencies = async () => {
 	return stickerDependencyPromise;
 };
 
-const loadLottiePlayerSource = async (lottiePlayerPath) => {
-	if (!lottiePlayerSourcePromise) {
-		lottiePlayerSourcePromise = fs.promises.readFile(lottiePlayerPath, "utf8");
-	}
-	return lottiePlayerSourcePromise;
-};
-
-const buildLottieAnimationRenderer = async (animationData) => {
-	const deps = await loadStickerDependencies();
-	if (!deps) {
-		return null;
-	}
-	const { JSDOM, canvasMod, lottiePlayerPath } = deps;
-	const playerSource = await loadLottiePlayerSource(lottiePlayerPath);
-	const patchedSource = playerSource.replace(
-		"function ImagePreloaderFactory() {",
-		`function createImgData(assetData) {
+const loadLottieBootstrap = (lottiePlayerPath) => {
+	if (!lottieBootstrapPromise) {
+		lottieBootstrapPromise = fs.promises
+			.readFile(lottiePlayerPath, "utf8")
+			.then((playerSource) => {
+				const patchedSource = playerSource.replace(
+					"function ImagePreloaderFactory() {",
+					`function createImgData(assetData) {
   var path = getAssetsPath(assetData, this.assetsPath, this.path);
   var ob = { assetData };
   loadImage(path).then(image => {
@@ -159,7 +85,39 @@ const buildLottieAnimationRenderer = async (animationData) => {
   });
   return ob;
 }; function ImagePreloaderFactory() {`,
-	);
+				);
+				return new Function(
+					"window",
+					"document",
+					"navigator",
+					"Canvas",
+					"loadImage",
+					`const exports = undefined;
+const module = undefined;
+const self = window;
+const global = window;
+const globalThis = window;
+const Image = Canvas.Image;
+const setTimeout = window.setTimeout.bind(window);
+const clearTimeout = window.clearTimeout.bind(window);
+const setInterval = window.setInterval.bind(window);
+const clearInterval = window.clearInterval.bind(window);
+${patchedSource}
+return window.lottie;`,
+				);
+			});
+	}
+	return lottieBootstrapPromise;
+};
+
+const buildLottieAnimationRenderer = async (animationData) => {
+	const deps = await loadStickerDependencies();
+	if (!deps) {
+		return null;
+	}
+	const { JSDOM, canvasMod, lottiePlayerPath } = deps;
+	const bootstrapLottie = await loadLottieBootstrap(lottiePlayerPath);
+
 	const { Canvas, createCanvas, loadImage } = canvasMod;
 	const width = Math.max(
 		1,
@@ -172,45 +130,35 @@ const buildLottieAnimationRenderer = async (animationData) => {
 	const { window } = new JSDOM("<!doctype html><body></body>", {
 		pretendToBeVisual: true,
 	});
-	const { document } = window;
-	const originalCreateElement = document.createElement.bind(document);
-	document.createElement = (localName) =>
-		localName === "canvas" ? new Canvas() : originalCreateElement(localName);
-	const bootstrapLottie = new Function(
-		"window",
-		"document",
-		"navigator",
-		"Canvas",
-		"loadImage",
-		`const exports = undefined;
-const module = undefined;
-const self = window;
-const global = window;
-const globalThis = window;
-const Image = Canvas.Image;
-${patchedSource}
-return window.lottie;`,
-	);
-	bootstrapLottie(window, document, window.navigator, Canvas, loadImage);
-	if (typeof window?.lottie?.loadAnimation !== "function") {
-		window.close?.();
-		throw new Error("lottie_player_unavailable");
+	try {
+		const { document } = window;
+		const originalCreateElement = document.createElement.bind(document);
+		document.createElement = (localName) =>
+			localName === "canvas" ? new Canvas() : originalCreateElement(localName);
+
+		bootstrapLottie(window, document, window.navigator, Canvas, loadImage);
+		if (typeof window?.lottie?.loadAnimation !== "function") {
+			throw new Error("lottie_player_unavailable");
+		}
+		const canvas = createCanvas(width, height);
+		const animation = window.lottie.loadAnimation({
+			animationData,
+			renderer: "canvas",
+			rendererSettings: {
+				context: canvas.getContext("2d"),
+				clearCanvas: true,
+			},
+		});
+		return {
+			window,
+			canvas,
+			animation,
+			loadImage,
+		};
+	} catch (error) {
+		window.close();
+		throw error;
 	}
-	const canvas = createCanvas(width, height);
-	const animation = window.lottie.loadAnimation({
-		animationData,
-		renderer: "canvas",
-		rendererSettings: {
-			context: canvas.getContext("2d"),
-			clearCanvas: true,
-		},
-	});
-	return {
-		window,
-		canvas,
-		animation,
-		loadImage,
-	};
 };
 
 const renderLottieStickerFrameBuffers = async (animationData) => {
@@ -282,15 +230,10 @@ const encodePngSequenceToAnimatedSticker = async ({
 		return null;
 	}
 	const delayMs = Math.max(1, Math.round(1000 / Math.max(1, frameRate)));
-	const animatedSource = await sharp(frameBuffers, {
+	return await sharp(frameBuffers, {
+		animated: true,
 		join: { animated: true },
 	})
-		.webp({
-			loop: 0,
-			delay: new Array(frameBuffers.length).fill(delayMs),
-		})
-		.toBuffer();
-	return await sharp(animatedSource, { animated: true })
 		.resize({
 			width: DISCORD_STICKER_TARGET_SIZE,
 			height: DISCORD_STICKER_TARGET_SIZE,
@@ -360,7 +303,9 @@ export const createStickerSendContentNormalizer = ({
 		const normalizedMime = normalizeMimeType(attachment?.contentType);
 		let sourceBuffer = null;
 		try {
-			sourceBuffer = await loadAttachmentBufferForWhatsApp(attachment, {
+			sourceBuffer = await loadAttachmentBuffer(attachment, {
+				maxBytes: DISCORD_STICKER_FETCH_MAX_BYTES,
+				accept: "image/*,application/json;q=0.9,*/*;q=0.8",
 				fetchBuffer,
 			});
 		} catch (err) {

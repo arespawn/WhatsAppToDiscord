@@ -79,3 +79,21 @@ test("WhatsApp GIF normalizer falls back to video when ffmpeg is unavailable", a
 		"ffmpeg is not installed; WhatsApp GIFs will be mirrored to Discord as videos",
 	]);
 });
+
+test("WhatsApp GIF normalizer preserves injected callback arguments and falls back above the upload limit", async () => {
+	const source = Buffer.from("video");
+	const normalize = createWhatsAppGifToDiscordFileNormalizer({
+		transcodeBufferToGif: async (...args) => {
+			assert.deepEqual(args, [source]);
+			return Buffer.from("large-gif");
+		},
+	});
+	const result = await normalize({
+		attachmentBuffer: source,
+		fileName: "video.mp4",
+		mimetype: "video/mp4",
+		maxBytes: 3,
+	});
+	assert.equal(result.converted, false);
+	assert.equal(result.attachmentBuffer, source);
+});

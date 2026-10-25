@@ -88,6 +88,8 @@ Run `/waaudiomp3 enabled:true` and install `ffmpeg`. If conversion is unavailabl
 
 WhatsApp represents GIF playback as a video payload. WA2DC uses `ffmpeg` to create a real Discord GIF when available and otherwise sends the original video.
 
+If the converted GIF exceeds Discord's upload limit, WA2DC also keeps the original video. Conversion downloads use the same size limit and 60-second deadline as other WhatsApp attachments; oversized input follows your local-download settings.
+
 ### A Discord image arrives as a file
 
 WA2DC uses `sharp` to normalize unsupported static images. If the runtime sidecar is missing or the image cannot be decoded safely, it falls back to a document rather than dropping it.

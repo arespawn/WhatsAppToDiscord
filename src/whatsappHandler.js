@@ -3104,32 +3104,6 @@ const patchSendNodeForNewsletterMessages = (client) => {
 	client.__wa2dcNewsletterNodePatched = true;
 };
 
-const ensureSignalStoreSupport = async (keyStore) => {
-	if (!keyStore?.get || !keyStore?.set) {
-		return;
-	}
-
-	const requiredKeys = [
-		"tctoken",
-		"lid-mapping",
-		"device-list",
-		"device-index",
-	];
-	for (const key of requiredKeys) {
-		try {
-			const existing = await keyStore.get(key, []);
-			if (existing == null) {
-				await keyStore.set({ [key]: {} });
-			}
-		} catch (err) {
-			state.logger?.warn(
-				{ err, key },
-				"Failed to ensure auth store compatibility",
-			);
-		}
-	}
-};
-
 const migrateLegacyChats = async (client) => {
 	const store = client.signalRepository?.lidMapping;
 	if (!store) return;
@@ -3178,7 +3152,13 @@ const connectToWhatsApp = async (retry = 1) => {
 
 	if (!groupCachePruneInterval) {
 		groupCachePruneInterval = setInterval(
-			() => groupMetadataCache.prune(),
+			() => {
+				groupMetadataCache.prune();
+				const cutoff = Date.now() - 30 * 1000;
+				for (const [jid, lastRun] of groupRefreshLastRun) {
+					if (lastRun <= cutoff) groupRefreshLastRun.delete(jid);
+				}
+			},
 			60 * 60 * 1000,
 		);
 		if (typeof groupCachePruneInterval?.unref === "function") {
@@ -5411,7 +5391,6 @@ const actions = {
 				storedProfile: storedBrowserProfile,
 			});
 		}
-		await ensureSignalStoreSupport(baileyState.state?.keys);
 		authState = baileyState.state;
 		saveState = baileyState.saveCreds;
 		state.waClient = await connectToWhatsApp();

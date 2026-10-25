@@ -297,6 +297,16 @@ const storage = {
 		sqliteStore.deleteAuthKeys(fileKeys);
 	},
 
+	async updateAuthKeysRaw(entries, fileKeys) {
+		await this.ensureInitialized();
+		const hasWrites = Object.keys(entries).length > 0;
+		if (!hasWrites && !fileKeys.length) return;
+		sqliteStore.transaction(() => {
+			if (hasWrites) sqliteStore.setAuthKeys(entries);
+			if (fileKeys.length) sqliteStore.deleteAuthKeys(fileKeys);
+		});
+	},
+
 	async clearAuthState() {
 		await this.ensureInitialized();
 		sqliteStore.clearAuthState();

@@ -1,12 +1,10 @@
-node_modules/
-downloads/
-*.exe
-*.oldVersion
-build/
-*.bat
-docs/
-.github/
-.git
-storage/
-logs.txt
-.env
+**
+!package.json
+!package-lock.json
+!LICENSE.txt
+!src/
+!src/**
+!scripts/
+!scripts/docker-entrypoint.sh
+!scripts/patchBaileysAndroidBrowser.js
+**/* 2.js

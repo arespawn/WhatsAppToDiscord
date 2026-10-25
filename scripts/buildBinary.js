@@ -87,8 +87,12 @@ prepareRuntimeSidecar(runtimeSidecarDir, runtimeSidecarPackageSpecs);
 
 if (shouldSmokeTest) {
 	const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "wa2dc-pkg-smoke-"));
-	run(resolvedOutputPath, [], {
-		cwd: tmp,
-		env: { ...process.env, WA2DC_SMOKE_TEST: "1" },
-	});
+	try {
+		run(resolvedOutputPath, [], {
+			cwd: tmp,
+			env: { ...process.env, WA2DC_SMOKE_TEST: "1" },
+		});
+	} finally {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	}
 }

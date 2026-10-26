@@ -325,10 +325,9 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 		path.join(ROOT, ".github/workflows/ci.yml"),
 		"utf8",
 	);
-	const release = await fs.readFile(
-		path.join(ROOT, ".github/workflows/release.yml"),
-		"utf8",
-	);
+	const release = (
+		await fs.readFile(path.join(ROOT, ".github/workflows/release.yml"), "utf8")
+	).replaceAll("\r\n", "\n");
 	const dependabot = await fs.readFile(
 		path.join(ROOT, ".github/dependabot.yml"),
 		"utf8",

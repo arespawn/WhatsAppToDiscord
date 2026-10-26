@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.6.1-beta.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.6.0...v2.6.1-beta.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **deps:** bump docker/login-action from 4.6.0 to 4.7.0 ([#350](https://github.com/arespawn/WhatsAppToDiscord/issues/350)) ([dd5d8c2](https://github.com/arespawn/WhatsAppToDiscord/commit/dd5d8c2565ec602386a6fd9e03ed005ed30959b9))
+* **deps:** update Biome to 2.6.2 and align its configuration schema ([#347](https://github.com/arespawn/WhatsAppToDiscord/issues/347)) ([cba924f](https://github.com/arespawn/WhatsAppToDiscord/commit/cba924fd3394d5d20ff9623ded1e2b2ab144ccd7))
+
 ## [2.6.0](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.5.6...v2.6.0) (2026-10-25)
 
 ### Features

@@ -50,6 +50,8 @@ The pipeline then:
 6. Publishes the GHCR image from the same tag as immutable `vX.Y.Z[-beta.N]` plus `unstable`, or `stable` and `latest`.
 7. Removes draft status only after signing, upload, and container publication succeed.
 
+Before publishing a stable release, `scripts/addReleaseContributors.js` appends a **Contributors** thank-you and, when applicable, a **New Contributors** welcome to the GitHub Release body. It uses GitHub's generated release notes and first-contribution detection, explicitly comparing against the highest earlier published stable version so contributions throughout the beta cycle are included. Credits recognize pull-request authors reported by GitHub, deduplicate handles, and exclude `[bot]` accounts and maintainer `arespawn` (listed in `MAINTAINER_LOGINS`). Each person appears once: first-time contributors appear only in the welcome section, returning contributors in the general thank-you. Empty sections are omitted. Existing normalized release notes are preserved; beta release bodies and the committed changelog are unchanged. Recovery replaces the marked credits block instead of duplicating it. Credit generation errors (including a missing previous stable release) leave the release unpublished for retry.
+
 A failed release remains a draft and cannot become the latest GitHub release. To retry an idempotent failed build, dispatch `Release` with the existing draft tag. Recovery revalidates the tag, package version, channel, branch ancestry, and draft/prerelease flags before rebuilding or replacing assets.
 
 All third-party actions are pinned to full commit SHAs. Dependabot maintains their version comments and proposed updates, which remain review-required.

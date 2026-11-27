@@ -536,6 +536,85 @@ test("transient timeout keeps registered WhatsApp auth", async () => {
 	}
 });
 
+test("disconnect recovery distinguishes missed status acknowledgments from invalid sessions", async (t) => {
+	const { default: actions } = await import("../src/whatsappHandler.js");
+	const previousLogger = state.logger;
+	state.logger = { info() {}, warn() {}, error() {}, debug() {} };
+	t.after(() => {
+		state.logger = previousLogger;
+	});
+	for (const [name, registered, statusCode, data, expectReset] of [
+		[
+			"linked via QR",
+			false,
+			500,
+			{ tag: "ack", attrs: { class: "status", type: "media" } },
+			false,
+		],
+		[
+			"registered",
+			true,
+			500,
+			{ tag: "ack", attrs: { class: "status", type: "media" } },
+			false,
+		],
+		["explicit logout", true, 401, undefined, true],
+		[
+			"unrelated ack",
+			true,
+			500,
+			{ tag: "ack", attrs: { class: "message" } },
+			true,
+		],
+	]) {
+		await t.test(name, async (t) => {
+			const messages = [];
+			const clients = [];
+			const deleteSession = t.mock.method(
+				utils.whatsapp,
+				"deleteSession",
+				async () => {},
+			);
+			t.mock.method(utils.discord, "getControlChannel", async () => ({
+				send: async (message) => messages.push(message),
+			}));
+			setClientFactoryOverrides({
+				createWhatsAppClient: () => {
+					const client = new FakeWhatsAppClient();
+					clients.push(client);
+					return client;
+				},
+				getBaileysVersion: async () => ({ version: [1, 0, 0] }),
+			});
+			t.after(() => resetClientFactoryOverrides());
+			await actions.start();
+			const auth = clients[0].authState;
+			Object.assign(auth.creds, {
+				registered,
+				me: { id: "123@s.whatsapp.net" },
+			});
+			const error = Object.assign(new Error("Stream Errored (ack)"), {
+				output: { statusCode },
+				data,
+			});
+			clients[0].ev.emit("connection.update", {
+				connection: "close",
+				lastDisconnect: { error },
+			});
+			await t.waitFor(() => assert.equal(clients.length, 2));
+			assert.equal(deleteSession.mock.callCount(), expectReset ? 1 : 0);
+			if (expectReset) {
+				assert.match(messages.join("\n"), /rescan the QR code/);
+			} else {
+				assert.equal(clients[1].authState, auth);
+				assert.deepEqual(messages, [
+					"WhatsApp connection failed (missed status acknowledgment). Trying to reconnect! Retry #1",
+				]);
+			}
+		});
+	}
+});
+
 test("connection.update no-ops during shutdown", async () => {
 	const originalLogger = state.logger;
 	const originalShutdownRequested = state.shutdownRequested;

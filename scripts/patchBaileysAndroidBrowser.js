@@ -616,6 +616,35 @@ import { Boom }`,
 		before: ownLidMigrationBefore,
 		after: ownLidMigrationAfter,
 	},
+	// Backport WhiskeySockets/Baileys#2883 for top-level status stanzas.
+	{
+		file: "lib/Socket/messages-recv.js",
+		before:
+			"    const offlineNodeProcessor = makeOfflineNodeProcessor(new Map([",
+		after: `    const handleStatus = async (node) => {
+        try {
+            await sendMessageAck(node);
+        } catch (error) {
+            onUnexpectedError(error, 'acking status stanza');
+        }
+    };
+    const offlineNodeProcessor = makeOfflineNodeProcessor(new Map([`,
+	},
+	{
+		file: "lib/Socket/messages-recv.js",
+		before: "        ['notification', handleNotification]\n    ]),",
+		after:
+			"        ['notification', handleNotification],\n        ['status', handleStatus]\n    ]),",
+	},
+	{
+		file: "lib/Socket/messages-recv.js",
+		before: "    ws.on('CB:ack,class:message', (node) => {",
+		after: `    ws.on('CB:status', async (node) => {
+        await processNode('status', node, 'acking status stanza', handleStatus)
+            .catch(error => onUnexpectedError(error, 'acking status stanza'));
+    });
+    ws.on('CB:ack,class:message', (node) => {`,
+	},
 	{
 		file: "lib/Socket/messages-recv.js",
 		marker: "tctoken prune deferred during startup",

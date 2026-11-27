@@ -3254,7 +3254,13 @@ const connectToWhatsApp = async (retry = 1) => {
 				clearBrowserProfileHealthyTimer();
 				groupRefreshScheduler.clearAll();
 				groupMetadataCache.clear();
-				const statusCode = lastDisconnect?.error?.output?.statusCode;
+				const error = lastDisconnect?.error;
+				const statusCode = error?.output?.statusCode;
+				// Baileys also uses badSession as a fallback for uncoded stream errors.
+				const missedStatusAck =
+					statusCode === DisconnectReason.badSession &&
+					error.data?.tag === "ack" &&
+					error.data.attrs?.class === "status";
 				state.logger.warn(
 					{
 						disconnect: summarizeDisconnectError(lastDisconnect?.error),
@@ -3262,6 +3268,7 @@ const connectToWhatsApp = async (retry = 1) => {
 					"WhatsApp connection closed.",
 				);
 				if (
+					!missedStatusAck &&
 					shouldResetPartialWhatsAppAuth({
 						creds: client.authState?.creds || authState?.creds,
 						error: lastDisconnect?.error,
@@ -3276,7 +3283,7 @@ const connectToWhatsApp = async (retry = 1) => {
 				}
 				if (
 					statusCode === DisconnectReason.loggedOut ||
-					statusCode === DisconnectReason.badSession
+					(statusCode === DisconnectReason.badSession && !missedStatusAck)
 				) {
 					await sendControlMessage(
 						"WhatsApp session invalid. Please rescan the QR code.",
@@ -3301,7 +3308,9 @@ const connectToWhatsApp = async (retry = 1) => {
 					return;
 				}
 				const delayMs = getReconnectDelayMs(retry);
-				const humanReason = formatDisconnectReason(statusCode);
+				const humanReason = missedStatusAck
+					? "missed status acknowledgment"
+					: formatDisconnectReason(statusCode);
 				if (delayMs === 0) {
 					await sendControlMessage(
 						`WhatsApp connection failed (${humanReason}). Trying to reconnect! Retry #${retry}`,

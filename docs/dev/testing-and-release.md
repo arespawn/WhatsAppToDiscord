@@ -111,6 +111,7 @@ The current patch set covers:
 - Android browser-profile support
 - disabled-history startup buffering and receipt behavior while unavailable
 - pre-auth notification acknowledgements, incomplete link-code pairing notices, and companion registration QR refresh
+- live and offline top-level status acknowledgments ([upstream PR #2883](https://github.com/WhiskeySockets/Baileys/pull/2883))
 - LID migration probes
 - bounded tctoken indexing/pruning
 

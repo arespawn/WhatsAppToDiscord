@@ -1,11 +1,15 @@
 # Changelog
 
-## [2.6.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.6.1-beta.1...v2.6.1) (2026-11-27)
+## [2.6.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.6.0...v2.6.1) (2026-11-27)
 
+### Bug Fixes
 
-### Miscellaneous
-
-* promote 2.6.1 ([e77aba5](https://github.com/arespawn/WhatsAppToDiscord/commit/e77aba58e13f5454a10414da2ef0a959cab0faee)), closes [#356](https://github.com/arespawn/WhatsAppToDiscord/issues/356) [#358](https://github.com/arespawn/WhatsAppToDiscord/issues/358)
+* **deps:** bump docker/login-action from 4.6.0 to 4.7.0 ([#350](https://github.com/arespawn/WhatsAppToDiscord/issues/350)) ([dd5d8c2](https://github.com/arespawn/WhatsAppToDiscord/commit/dd5d8c2565ec602386a6fd9e03ed005ed30959b9))
+* **deps:** bump the actions-minor-patch group across 1 directory with 2 updates ([#359](https://github.com/arespawn/WhatsAppToDiscord/issues/359)) ([70de8f3](https://github.com/arespawn/WhatsAppToDiscord/commit/70de8f3a52d131a1f7bad32fe25147d9bb7b9665))
+* **deps:** bump the npm-minor-patch group across 1 directory with 3 updates ([#357](https://github.com/arespawn/WhatsAppToDiscord/issues/357)) ([225189d](https://github.com/arespawn/WhatsAppToDiscord/commit/225189d385fc36772c87b4400b2621c0f5e249b7))
+* **deps:** update Biome to 2.6.2 and align its configuration schema ([#347](https://github.com/arespawn/WhatsAppToDiscord/issues/347)) ([cba924f](https://github.com/arespawn/WhatsAppToDiscord/commit/cba924fd3394d5d20ff9623ded1e2b2ab144ccd7))
+* read newsletter details and send photos back to back ([#361](https://github.com/arespawn/WhatsAppToDiscord/issues/361)) ([ed11dcf](https://github.com/arespawn/WhatsAppToDiscord/commit/ed11dcfec126443efdbe87a909afec4f07047d74))
+* stop repeated WhatsApp QR scans ([#360](https://github.com/arespawn/WhatsAppToDiscord/issues/360)) ([3956384](https://github.com/arespawn/WhatsAppToDiscord/commit/39563843b831a79859eacf5e8942e6991be4bb27))
 
 ## [2.6.1-beta.1](https://github.com/arespawn/WhatsAppToDiscord/compare/v2.6.0...v2.6.1-beta.1) (2026-11-27)
 

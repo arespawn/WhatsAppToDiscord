@@ -13,7 +13,11 @@ import {
 	setImageLibTestOverrides,
 } from "../src/imageLibs.js";
 import messageStore from "../src/messageStore.js";
-import { resetNewsletterBridgeState } from "../src/newsletterBridge.js";
+import {
+	getPendingNewsletterSend,
+	noteNewsletterAckError,
+	resetNewsletterBridgeState,
+} from "../src/newsletterBridge.js";
 import state from "../src/state.js";
 import utils from "../src/utils.js";
 import initIsolatedStorage from "./helpers/initIsolatedStorage.js";
@@ -3019,6 +3023,90 @@ test("Newsletter image attachments upload as media by default", async () => {
 
 		assert.equal(harness.fakeClient.sendCalls.length, 1);
 		assert.ok(harness.fakeClient.sendCalls[0].content.image);
+		assert.equal(notices.length, 0);
+	} finally {
+		harness.cleanup();
+	}
+});
+
+test("Newsletter photos publish in order before the first acknowledgment window ends", async () => {
+	const harness = await setupWhatsAppHarness({ oneWay: "bidirectional" });
+	try {
+		utils.whatsapp.createDocumentContent = (file) =>
+			file.contentType.startsWith("image/")
+				? { image: { url: file.url }, mimetype: file.contentType }
+				: { video: { url: file.url }, mimetype: file.contentType };
+		const pngBase64 =
+			"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAAAAAA6fptVAAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==";
+		const attachmentUrl = `data:image/png;base64,${pngBase64}`;
+
+		const notices = [];
+		harness.fakeClient.ev.emit("discordMessage", {
+			jid: "120363123456789@newsletter",
+			forwardContext: null,
+			message: {
+				id: "dc-newsletter-consecutive",
+				content: "Album",
+				cleanContent: "Album",
+				webhookId: null,
+				author: { username: "BridgeUser" },
+				member: { displayName: "BridgeUser" },
+				channel: {
+					send: async (value) => {
+						notices.push(value);
+					},
+				},
+				attachments: new Map([
+					[
+						"attachment-1",
+						{
+							id: "attachment-1",
+							url: attachmentUrl,
+							name: "photo.png",
+							contentType: "image/png",
+						},
+					],
+					[
+						"attachment-2",
+						{
+							id: "attachment-2",
+							url: attachmentUrl.replace(
+								"image/png;",
+								"image/png;charset=utf-8;",
+							),
+							name: "second.png",
+							contentType: "image/png",
+						},
+					],
+				]),
+				stickers: new Map(),
+				embeds: [],
+				mentions: { users: new Map(), members: new Map(), roles: new Map() },
+			},
+		});
+
+		assert.equal(
+			await waitFor(() => harness.fakeClient.sendCalls.length === 2, {
+				timeoutMs: 1500,
+			}),
+			true,
+		);
+
+		assert.equal(harness.fakeClient.sendCalls.length, 2);
+		assert.match(harness.fakeClient.sendCalls[0].content.caption, /Album/);
+		assert.equal(harness.fakeClient.sendCalls[1].content.caption, undefined);
+		assert.ok(harness.fakeClient.sendCalls[0].content.image);
+		const jid = "120363123456789@newsletter";
+		noteNewsletterAckError({ jid, messageId: "sent-1", errorCode: "400" });
+		assert.ok(
+			await waitFor(
+				() => !getPendingNewsletterSend({ jid, outboundId: "sent-1" }),
+			),
+		);
+		assert.equal(
+			getPendingNewsletterSend({ jid, outboundId: "sent-2" })?.discordMessageId,
+			"dc-newsletter-consecutive",
+		);
 		assert.equal(notices.length, 0);
 	} finally {
 		harness.cleanup();

@@ -3254,7 +3254,13 @@ const connectToWhatsApp = async (retry = 1) => {
 				clearBrowserProfileHealthyTimer();
 				groupRefreshScheduler.clearAll();
 				groupMetadataCache.clear();
-				const statusCode = lastDisconnect?.error?.output?.statusCode;
+				const error = lastDisconnect?.error;
+				const statusCode = error?.output?.statusCode;
+				// Baileys also uses badSession as a fallback for uncoded stream errors.
+				const missedStatusAck =
+					statusCode === DisconnectReason.badSession &&
+					error.data?.tag === "ack" &&
+					error.data.attrs?.class === "status";
 				state.logger.warn(
 					{
 						disconnect: summarizeDisconnectError(lastDisconnect?.error),
@@ -3262,6 +3268,7 @@ const connectToWhatsApp = async (retry = 1) => {
 					"WhatsApp connection closed.",
 				);
 				if (
+					!missedStatusAck &&
 					shouldResetPartialWhatsAppAuth({
 						creds: client.authState?.creds || authState?.creds,
 						error: lastDisconnect?.error,
@@ -3276,7 +3283,7 @@ const connectToWhatsApp = async (retry = 1) => {
 				}
 				if (
 					statusCode === DisconnectReason.loggedOut ||
-					statusCode === DisconnectReason.badSession
+					(statusCode === DisconnectReason.badSession && !missedStatusAck)
 				) {
 					await sendControlMessage(
 						"WhatsApp session invalid. Please rescan the QR code.",
@@ -3301,7 +3308,9 @@ const connectToWhatsApp = async (retry = 1) => {
 					return;
 				}
 				const delayMs = getReconnectDelayMs(retry);
-				const humanReason = formatDisconnectReason(statusCode);
+				const humanReason = missedStatusAck
+					? "missed status acknowledgment"
+					: formatDisconnectReason(statusCode);
 				if (delayMs === 0) {
 					await sendControlMessage(
 						`WhatsApp connection failed (${humanReason}). Trying to reconnect! Retry #${retry}`,
@@ -4262,6 +4271,7 @@ const connectToWhatsApp = async (retry = 1) => {
 				ackContext = "Newsletter send",
 				notifyAckFailure = false,
 				forceNewsletterAck = false,
+				deferAck = false,
 				watchNewsletterAck = false,
 			} = {},
 		) => {
@@ -4383,30 +4393,35 @@ const connectToWhatsApp = async (retry = 1) => {
 				return { sentMessage, ackErrorCode: null };
 			}
 
-			const ackWaitMs = newsletterAckWaitMsForSentMessage(sentMessage);
-			const ackErrorCode = await waitForNewsletterAckError(
-				sentMessage?.key?.id,
-				ackWaitMs,
-			);
-			if (!ackErrorCode) {
-				noteNewsletterMessageDebug({
-					discordMessageId: message.id,
-					jid: targetJid,
-					operation: ackContext,
-					phase: "ack_ok",
-					details: {
-						outboundId: normalizeBridgeMessageId(sentMessage?.key?.id),
-						serverId: normalizeBridgeMessageId(
-							getNewsletterServerIdFromMessage(sentMessage),
-						),
-						ackWaitMs,
-					},
-				});
-				return { sentMessage, ackErrorCode: null };
-			}
+			const checkAck = async () => {
+				const ackWaitMs = newsletterAckWaitMsForSentMessage(sentMessage);
+				const ackErrorCode = await waitForNewsletterAckError(
+					sentMessage?.key?.id,
+					ackWaitMs,
+				);
+				if (!ackErrorCode) {
+					noteNewsletterMessageDebug({
+						discordMessageId: message.id,
+						jid: targetJid,
+						operation: ackContext,
+						phase: "ack_ok",
+						details: {
+							outboundId: normalizeBridgeMessageId(sentMessage?.key?.id),
+							serverId: normalizeBridgeMessageId(
+								getNewsletterServerIdFromMessage(sentMessage),
+							),
+							ackWaitMs,
+						},
+					});
+					return null;
+				}
 
-			await notifyNewsletterAckFailure(ackErrorCode);
-			return { sentMessage, ackErrorCode };
+				await notifyNewsletterAckFailure(ackErrorCode);
+				return ackErrorCode;
+			};
+			const acknowledgment = checkAck();
+			if (deferAck) return { sentMessage, acknowledgment };
+			return { sentMessage, ackErrorCode: await acknowledgment };
 		};
 
 		if (state.settings.UploadAttachments && attachmentsToSend.length > 0) {
@@ -4549,6 +4564,12 @@ const connectToWhatsApp = async (retry = 1) => {
 			let first = true;
 			let sentAnyAttachment = false;
 			let attemptedAttachmentSends = 0;
+			const groupNewsletterMedia =
+				newsletterChat &&
+				!hasViewOnceAttachment &&
+				preparedAttachments.length > 1 &&
+				albumEligibleAttachments.length === preparedAttachments.length;
+			const pendingAcks = [];
 			for (const {
 				attachment: preparedFile,
 				content: doc,
@@ -4573,15 +4594,18 @@ const connectToWhatsApp = async (retry = 1) => {
 					}
 				}
 				try {
-					const { ackErrorCode } = await sendTrackedMessage(
+					const { acknowledgment, ackErrorCode } = await sendTrackedMessage(
 						doc,
 						first && !sentStandaloneStickerText ? options : undefined,
 						{
 							ackContext: "Newsletter attachment send",
 							forceNewsletterAck: newsletterChat,
+							deferAck: groupNewsletterMedia,
 						},
 					);
-					if (!ackErrorCode) {
+					if (acknowledgment) {
+						pendingAcks.push(acknowledgment);
+					} else if (!ackErrorCode) {
 						sentAnyAttachment = true;
 					}
 				} catch (err) {
@@ -4607,7 +4631,10 @@ const connectToWhatsApp = async (retry = 1) => {
 					first = false;
 				}
 			}
-			if (sentAnyAttachment) {
+			if (
+				sentAnyAttachment ||
+				(await Promise.all(pendingAcks)).some((code) => !code)
+			) {
 				return;
 			}
 			if (attemptedAttachmentSends > 0) {

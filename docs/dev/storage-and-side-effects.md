@@ -12,6 +12,8 @@ Fixed SQL statements are prepared lazily and reused only for the lifetime of tha
 
 Each Baileys auth-key batch commits its writes and deletions in one SQLite transaction; failure rolls back the whole batch. Existing raw read/write/delete methods remain available. Message-store capacity pruning calculates overflow inside the deletion statement, preserving oldest-first ordering and exact capacity without materializing a count result in JavaScript.
 
+A stream error carrying an `ack` with `class="status"` can receive Baileys' fallback code 500. WA2DC retries this disconnect with the existing SQLite credentials and keys. An actual logout still clears the session for pairing.
+
 Table responsibilities:
 
 - `meta`: storage/encryption metadata

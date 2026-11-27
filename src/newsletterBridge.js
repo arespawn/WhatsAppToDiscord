@@ -317,16 +317,12 @@ const clearPendingNewsletterSends = ({
 		}
 		const next = queue.filter((entry) => {
 			if (!entry || typeof entry !== "object") return false;
-			if (
-				normalizedDiscordMessageId &&
-				entry.discordMessageId === normalizedDiscordMessageId
-			) {
-				return false;
-			}
-			if (normalizedOutboundId && entry.outboundId === normalizedOutboundId) {
-				return false;
-			}
-			return true;
+			if (normalizedOutboundId)
+				return entry.outboundId !== normalizedOutboundId;
+			return (
+				!normalizedDiscordMessageId ||
+				entry.discordMessageId !== normalizedDiscordMessageId
+			);
 		});
 		if (next.length) {
 			newsletterPendingSends.set(key, next);

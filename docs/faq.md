@@ -28,6 +28,8 @@ Packaged updates are validated for 120 seconds. Two nonzero exits in that window
 
 ### WhatsApp repeatedly disconnects
 
+If the log shows `Stream Errored (ack)` with `class="status"`, update to 2.6.1 or later. WA2DC acknowledges WhatsApp status updates and reuses the saved session if this disconnect recurs. If an older version already cleared your session, pair once using the new QR or `/pairwithcode`.
+
 Transient connection loss is retried with backoff. If the session never recovers, restart once and pair again only after ordinary network, DNS, clock, and firewall problems have been ruled out.
 
 ## Discord setup and routing
@@ -105,6 +107,10 @@ Older releases can fail on stickers sent from WhatsApp Web/Desktop because their
 ### View-once media behavior
 
 WA2DC mirrors supported WhatsApp view-once media to Discord as spoiler attachments. Availability depends on the active WhatsApp browser profile and upstream protocol behavior.
+
+### How are multiple Discord photos posted to a WhatsApp channel?
+
+WA2DC publishes the photos in order, with the caption on the first item. It checks acknowledgments for the batch together so each photo can follow the previous upload immediately. WhatsApp controls whether followers see those posts grouped as an album.
 
 ### A WhatsApp media album does not reach Discord
 

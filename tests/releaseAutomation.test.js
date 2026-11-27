@@ -325,10 +325,9 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 		path.join(ROOT, ".github/workflows/ci.yml"),
 		"utf8",
 	);
-	const release = await fs.readFile(
-		path.join(ROOT, ".github/workflows/release.yml"),
-		"utf8",
-	);
+	const release = (
+		await fs.readFile(path.join(ROOT, ".github/workflows/release.yml"), "utf8")
+	).replaceAll("\r\n", "\n");
 	const dependabot = await fs.readFile(
 		path.join(ROOT, ".github/dependabot.yml"),
 		"utf8",
@@ -345,6 +344,10 @@ test("workflow configuration covers CI, draft recovery, native targets, and immu
 	assert.match(release, /scripts\/normalizeStableChangelog\.js/u);
 	assert.match(release, /--pull-request-body/u);
 	assert.match(release, /gh pr edit "\$pr_number" --body-file/u);
+	assert.match(
+		release,
+		/Thank stable release contributors\n\s+if: needs\.resolve\.outputs\.channel == 'stable'[\s\S]*?run: node scripts\/addReleaseContributors\.js\n\s+- name: Publish completed release/u,
+	);
 	assert.equal(
 		[
 			...release.matchAll(

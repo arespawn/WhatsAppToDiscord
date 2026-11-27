@@ -101,14 +101,15 @@ export const addReleaseContributors = async ({
 		);
 	}
 	const base = `repos/${repository}/releases`;
-	const release = await api(`${base}/tags/${tag}`);
-	if (!release.draft || release.prerelease) {
+	const pages = await api(`${base}?per_page=100`, { paginate: true });
+	const releases = pages.flat();
+	const release = releases.find((item) => item.tag_name === tag);
+	if (!release?.draft || release.prerelease) {
 		throw new Error(
 			"Contributor acknowledgments require a draft stable release.",
 		);
 	}
-	const pages = await api(`${base}?per_page=100`, { paginate: true });
-	const previousTag = findPreviousStableRelease(pages.flat(), tag);
+	const previousTag = findPreviousStableRelease(releases, tag);
 	if (!previousTag) {
 		throw new Error("No previous published stable release found for credits.");
 	}

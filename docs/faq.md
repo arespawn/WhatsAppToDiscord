@@ -28,6 +28,8 @@ Packaged updates are validated for 120 seconds. Two nonzero exits in that window
 
 ### WhatsApp repeatedly disconnects
 
+If the log shows `Stream Errored (ack)` with `class="status"`, update to 2.6.1 or later. WA2DC acknowledges WhatsApp status updates and reuses the saved session if this disconnect recurs. If an older version already cleared your session, pair once using the new QR or `/pairwithcode`.
+
 Transient connection loss is retried with backoff. If the session never recovers, restart once and pair again only after ordinary network, DNS, clock, and firewall problems have been ruled out.
 
 ## Discord setup and routing

@@ -4271,6 +4271,7 @@ const connectToWhatsApp = async (retry = 1) => {
 				ackContext = "Newsletter send",
 				notifyAckFailure = false,
 				forceNewsletterAck = false,
+				deferAck = false,
 				watchNewsletterAck = false,
 			} = {},
 		) => {
@@ -4392,30 +4393,35 @@ const connectToWhatsApp = async (retry = 1) => {
 				return { sentMessage, ackErrorCode: null };
 			}
 
-			const ackWaitMs = newsletterAckWaitMsForSentMessage(sentMessage);
-			const ackErrorCode = await waitForNewsletterAckError(
-				sentMessage?.key?.id,
-				ackWaitMs,
-			);
-			if (!ackErrorCode) {
-				noteNewsletterMessageDebug({
-					discordMessageId: message.id,
-					jid: targetJid,
-					operation: ackContext,
-					phase: "ack_ok",
-					details: {
-						outboundId: normalizeBridgeMessageId(sentMessage?.key?.id),
-						serverId: normalizeBridgeMessageId(
-							getNewsletterServerIdFromMessage(sentMessage),
-						),
-						ackWaitMs,
-					},
-				});
-				return { sentMessage, ackErrorCode: null };
-			}
+			const checkAck = async () => {
+				const ackWaitMs = newsletterAckWaitMsForSentMessage(sentMessage);
+				const ackErrorCode = await waitForNewsletterAckError(
+					sentMessage?.key?.id,
+					ackWaitMs,
+				);
+				if (!ackErrorCode) {
+					noteNewsletterMessageDebug({
+						discordMessageId: message.id,
+						jid: targetJid,
+						operation: ackContext,
+						phase: "ack_ok",
+						details: {
+							outboundId: normalizeBridgeMessageId(sentMessage?.key?.id),
+							serverId: normalizeBridgeMessageId(
+								getNewsletterServerIdFromMessage(sentMessage),
+							),
+							ackWaitMs,
+						},
+					});
+					return null;
+				}
 
-			await notifyNewsletterAckFailure(ackErrorCode);
-			return { sentMessage, ackErrorCode };
+				await notifyNewsletterAckFailure(ackErrorCode);
+				return ackErrorCode;
+			};
+			const acknowledgment = checkAck();
+			if (deferAck) return { sentMessage, acknowledgment };
+			return { sentMessage, ackErrorCode: await acknowledgment };
 		};
 
 		if (state.settings.UploadAttachments && attachmentsToSend.length > 0) {
@@ -4558,6 +4564,12 @@ const connectToWhatsApp = async (retry = 1) => {
 			let first = true;
 			let sentAnyAttachment = false;
 			let attemptedAttachmentSends = 0;
+			const groupNewsletterMedia =
+				newsletterChat &&
+				!hasViewOnceAttachment &&
+				preparedAttachments.length > 1 &&
+				albumEligibleAttachments.length === preparedAttachments.length;
+			const pendingAcks = [];
 			for (const {
 				attachment: preparedFile,
 				content: doc,
@@ -4582,15 +4594,18 @@ const connectToWhatsApp = async (retry = 1) => {
 					}
 				}
 				try {
-					const { ackErrorCode } = await sendTrackedMessage(
+					const { acknowledgment, ackErrorCode } = await sendTrackedMessage(
 						doc,
 						first && !sentStandaloneStickerText ? options : undefined,
 						{
 							ackContext: "Newsletter attachment send",
 							forceNewsletterAck: newsletterChat,
+							deferAck: groupNewsletterMedia,
 						},
 					);
-					if (!ackErrorCode) {
+					if (acknowledgment) {
+						pendingAcks.push(acknowledgment);
+					} else if (!ackErrorCode) {
 						sentAnyAttachment = true;
 					}
 				} catch (err) {
@@ -4616,7 +4631,10 @@ const connectToWhatsApp = async (retry = 1) => {
 					first = false;
 				}
 			}
-			if (sentAnyAttachment) {
+			if (
+				sentAnyAttachment ||
+				(await Promise.all(pendingAcks)).some((code) => !code)
+			) {
 				return;
 			}
 			if (attemptedAttachmentSends > 0) {

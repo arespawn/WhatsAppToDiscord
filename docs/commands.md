@@ -102,7 +102,7 @@ Usage: `/newsletteradmincount jid:[...@newsletter]`
 
 ### `/newslettersubscribers`
 
-Fetch the current newsletter subscriber count.
+Fetch the current newsletter subscriber count. If WhatsApp returns binary channel data, WA2DC reads the total from the channel metadata.
 
 Usage: `/newslettersubscribers jid:[...@newsletter]`
 

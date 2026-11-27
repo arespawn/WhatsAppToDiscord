@@ -22,6 +22,10 @@ import {
 	oneWayAllowsWhatsAppToDiscord,
 } from "./contracts.js";
 import { ExpiringCache } from "./internal/expiringCache.js";
+import {
+	decodeNewsletterMetadata,
+	NEWSLETTER_METADATA_QUERY_ID,
+} from "./internal/newsletterMetadata.js";
 import messageStore from "./messageStore.js";
 import {
 	getNewsletterAckError,
@@ -1875,9 +1879,7 @@ const executeWMexQueryCompat = async (
 				: null;
 	const rawPayload = child?.content;
 	if (typeof rawPayload === "undefined") {
-		throw new Error(
-			"Failed to run newsletter create query: missing result payload.",
-		);
+		throw new Error("Failed to run newsletter query: missing result payload.");
 	}
 	const payloadBuffer = Buffer.isBuffer(rawPayload)
 		? rawPayload
@@ -1886,9 +1888,13 @@ const executeWMexQueryCompat = async (
 			: Buffer.from(String(rawPayload), "utf-8");
 	let payload;
 	try {
-		payload = JSON.parse(payloadBuffer.toString());
+		payload =
+			child?.attrs?.format === "argo" &&
+			queryId === NEWSLETTER_METADATA_QUERY_ID
+				? decodeNewsletterMetadata(payloadBuffer)
+				: JSON.parse(payloadBuffer.toString());
 	} catch (err) {
-		throw new Error("Failed to parse newsletter create query payload.", {
+		throw new Error("Failed to parse newsletter query payload.", {
 			cause: err,
 		});
 	}
@@ -1906,7 +1912,7 @@ const executeWMexQueryCompat = async (
 	const response = dataPath ? payload?.data?.[dataPath] : payload?.data;
 	if (typeof response === "undefined") {
 		throw new Error(
-			"Failed to run newsletter create query: unexpected response structure.",
+			"Failed to run newsletter query: unexpected response structure.",
 		);
 	}
 	return response;
@@ -2162,6 +2168,38 @@ const resolveUserJidOption = async (
 	return jid;
 };
 
+const fetchTypedNewsletterMetadata = async (client, type, key) => {
+	const metadata = await executeWMexQueryCompat(
+		client,
+		{
+			fetch_creation_time: true,
+			fetch_full_image: true,
+			fetch_viewer_metadata: true,
+			input: { type: type.toUpperCase(), key },
+		},
+		NEWSLETTER_METADATA_QUERY_ID,
+		"xwa2_newsletter",
+	);
+	if (
+		!isNewsletterJid(metadata?.id) ||
+		(type === "jid" && metadata.id !== key)
+	) {
+		throw new Error("WhatsApp returned no matching newsletter metadata.");
+	}
+	return metadata;
+};
+
+const subscriberCount = (result) => {
+	const value = result?.subscribers ?? result?.count ?? result;
+	if (
+		typeof value !== "number" &&
+		!(typeof value === "string" && /^\d+$/.test(value))
+	)
+		return null;
+	const count = Number(value);
+	return Number.isSafeInteger(count) && count >= 0 ? count : null;
+};
+
 const requireNewsletterMethod = async (ctx, methodName) => {
 	const method = state.waClient?.[methodName];
 	if (typeof method !== "function") {
@@ -2170,7 +2208,18 @@ const requireNewsletterMethod = async (ctx, methodName) => {
 		);
 		return null;
 	}
-	return method.bind(state.waClient);
+	const client = state.waClient;
+	if (methodName === "newsletterMetadata") {
+		return async (type, key) => {
+			try {
+				return await method.call(client, type, key);
+			} catch (err) {
+				if (!(err instanceof SyntaxError)) throw err;
+				return fetchTypedNewsletterMetadata(client, type, key);
+			}
+		};
+	}
+	return method.bind(client);
 };
 
 const normalizePairingPhoneNumber = (value) => {
@@ -2882,9 +2931,26 @@ const commandHandlers = {
 				return;
 			}
 
-			let result;
+			let count;
 			try {
-				result = await getSubscribers(jid);
+				let result;
+				try {
+					result = await getSubscribers(jid);
+				} catch (err) {
+					if (!(err instanceof SyntaxError)) throw err;
+				}
+				count = subscriberCount(result);
+				if (count === null) {
+					const metadata = await fetchTypedNewsletterMetadata(
+						state.waClient,
+						"jid",
+						jid,
+					);
+					count = subscriberCount(
+						metadata.thread_metadata?.subscribers_count ??
+							metadata.thread_metadata?.followers_count,
+					);
+				}
 			} catch (err) {
 				state.logger?.error(
 					{ err, jid },
@@ -2895,16 +2961,10 @@ const commandHandlers = {
 				);
 				return;
 			}
-
-			const count = Number(result?.subscribers ?? result?.count ?? result);
-			if (Number.isFinite(count)) {
-				await ctx.reply(
-					`Subscribers for \`${formatNewsletterJidForReply(jid)}\`: ${count}`,
-				);
-				return;
-			}
-			await ctx.replyPartitioned(
-				`Subscriber response for \`${formatNewsletterJidForReply(jid)}\`:\n\`\`\`json\n${formatJsonForReply(result)}\n\`\`\``,
+			await ctx.reply(
+				count === null
+					? "WhatsApp did not return a subscriber count."
+					: `Subscribers for \`${formatNewsletterJidForReply(jid)}\`: ${count}`,
 			);
 		},
 	},

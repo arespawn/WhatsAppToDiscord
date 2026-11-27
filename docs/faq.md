@@ -108,6 +108,10 @@ Older releases can fail on stickers sent from WhatsApp Web/Desktop because their
 
 WA2DC mirrors supported WhatsApp view-once media to Discord as spoiler attachments. Availability depends on the active WhatsApp browser profile and upstream protocol behavior.
 
+### How are multiple Discord photos posted to a WhatsApp channel?
+
+WA2DC publishes the photos in order, with the caption on the first item. It checks acknowledgments for the batch together so each photo can follow the previous upload immediately. WhatsApp controls whether followers see those posts grouped as an album.
+
 ### A WhatsApp media album does not reach Discord
 
 WA2DC downloads album attachments sequentially into private temporary files and retries Discord from those files. If one download fails, the remaining attachments are sent with a notice; if all fail, the original text is preserved with a prompt to check WhatsApp. Check the privacy-safe staging/upload outcomes in `logs.txt`. On unusually slow links, lower `/setwamediaburstsize count:<1-10>` so each Discord request contains fewer files.

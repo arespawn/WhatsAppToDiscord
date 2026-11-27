@@ -59,7 +59,7 @@ Custom Discord avatars resolve from the sender JID, including group participants
 - Keep `@discordjs/rest` on its native request/response strategy and give both the main client and standalone stored-webhook clients a shared, explicit Undici 6 agent. The process also loads newer Undici majors through link preview handling; allowing those packages to replace the global dispatcher underneath Discord REST can leave multipart bodies unsent. Record WhatsApp↔Discord mappings before attempting announcement-channel crossposts, and run crossposts as error-contained follow-up work so publication delays cannot suppress mappings or block later bridge messages.
 - Retry transient Discord upload failures from Undici and Node HTTP/2 streams, then emit a fallback notice instead of silently dropping media. Upload diagnostics may include counts, byte totals, durations, attempts, outcomes, and bounded error/cause codes, but never message content, sender IDs, or webhook tokens. Log retries and fallbacks for text-only sends too; only their routine successes are omitted.
 - Normalize unsupported static Discord images when possible, fall back to WhatsApp document delivery on failure, and precompute outbound JPEG thumbnails when tooling is available.
-- Send album-eligible image/video sets to ordinary WhatsApp chats as media albums; keep mixed or unsupported sets on the sequential fallback path.
+- Send album-eligible image/video sets to ordinary WhatsApp chats as media albums; keep mixed or unsupported sets on the sequential fallback path. For newsletters, publish consecutive media in Discord order and collect their acknowledgments together. Track each upload by its outbound ID so a late acknowledgment affects only that attachment.
 - Mirror WhatsApp view-once media as Discord spoiler attachments.
 - Deduplicate Discord animated uploads/provider embeds and prefer the true animated candidate over static previews.
 - Convert WhatsApp `gifPlayback` video to a Discord GIF when `ffmpeg` is available; preserve the original video on failure.
@@ -80,3 +80,5 @@ Treat newsletters as standard `sendMessage(...)` destinations where supported, w
 - Incoming reactions may arrive through `newsletter.reaction`, raw `live_updates`, or both; correlate by `server_id` and deduplicate.
 
 Keep newsletter ack, pending-send, and debug state bounded by TTL and per-message/per-JID limits.
+
+Newsletter metadata reads support JSON and the typed desktop MEX document `9779843322044422` for Argo replies. Keep its ordered wire fields paired with that document ID. The subscriber command can read the aggregate count from the same document.

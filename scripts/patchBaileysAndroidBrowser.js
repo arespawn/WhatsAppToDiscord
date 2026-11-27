@@ -616,6 +616,16 @@ import { Boom }`,
 		before: ownLidMigrationBefore,
 		after: ownLidMigrationAfter,
 	},
+	// WA2DC handles live_updates on the socket, including newsletter server IDs.
+	{
+		file: "lib/Socket/messages-recv.js",
+		before: `                default:
+                    logger.warn({ node, child }, 'Unknown newsletter notification child');`,
+		after: `                case 'live_updates':
+                    break;
+                default:
+                    logger.warn({ node, child }, 'Unknown newsletter notification child');`,
+	},
 	// Backport WhiskeySockets/Baileys#2883 for top-level status stanzas.
 	{
 		file: "lib/Socket/messages-recv.js",

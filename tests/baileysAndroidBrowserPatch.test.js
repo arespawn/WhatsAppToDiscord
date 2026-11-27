@@ -279,6 +279,17 @@ test("Baileys rc14 notification ack tolerates pre-auth pairing notifications", (
 	);
 });
 
+test("Baileys leaves newsletter live updates to the bridge socket listener", () => {
+	const source = fs.readFileSync(
+		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",
+		"utf8",
+	);
+	assert.match(
+		source,
+		/case 'live_updates':\s*break;\s*default:\s*logger.warn\(\{ node, child \}, 'Unknown newsletter notification child'/u,
+	);
+});
+
 test("Baileys rc14 skips incomplete link code pairing notifications safely", () => {
 	const messagesRecvSource = fs.readFileSync(
 		"node_modules/@whiskeysockets/baileys/lib/Socket/messages-recv.js",

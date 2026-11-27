@@ -574,6 +574,100 @@ test("/newsletterinviteinfo returns invite link/code from metadata", async () =>
 	}
 });
 
+test("newsletter commands recover names and subscriber counts from binary metadata", async () => {
+	const originalDiscordUtils = {
+		getGuild: utils.discord.getGuild,
+		getControlChannel: utils.discord.getControlChannel,
+	};
+	const originalSettings = {
+		Token: state.settings.Token,
+		GuildID: state.settings.GuildID,
+		ControlChannelID: state.settings.ControlChannelID,
+	};
+	const originalDcClient = state.dcClient;
+	const originalWaClient = state.waClient;
+
+	try {
+		state.settings.Token = "TEST_TOKEN";
+		state.settings.GuildID = "guild";
+		state.settings.ControlChannelID = "control";
+
+		utils.discord.getGuild = async () => ({
+			commands: { set: async () => {} },
+		});
+		utils.discord.getControlChannel = async () => ({ send: async () => {} });
+
+		let countLookup = false;
+		const nativeRead = async () => {
+			throw new SyntaxError("Expected JSON");
+		};
+		state.waClient = {
+			newsletterSubscribers: nativeRead,
+			newsletterMetadata: nativeRead,
+			generateMessageTag: () => "tag",
+			async query(node) {
+				const q = node.content[0];
+				assert.equal(q.attrs.query_id, "9779843322044422");
+				assert.deepEqual(JSON.parse(q.content).variables.input, {
+					type: "JID",
+					key: "123@newsletter",
+				});
+				// Synthetic typed document, encoded independently with the WhatsApp header.
+				const fixture = countLookup
+					? "BDgxMjNAbmV3c2xldHRlcm5hbWUtaWRkZXNjLWlkGlRlc3QgQ2hhbm5lbDAGT0ZGCk9XTkVSPAAAHAMAAwAOGAEDAwAOBwEDAwIDAwMDAwAGCgEDAw=="
+					: "BDgxMjNAbmV3c2xldHRlcm5hbWUtaWRkZXNjLWlkHFRlc3QgQ2hhbm5lbDQyBk9GRgpPV05FUjwAABwDAAMADhgBAwMADgcBAwMEAwMDAwMABgoBAwM=";
+				return {
+					content: [
+						{
+							tag: "result",
+							attrs: { format: "argo" },
+							content: Buffer.from(fixture, "base64"),
+						},
+					],
+				};
+			},
+		};
+
+		const fakeClient = new FakeDiscordClient();
+		setClientFactoryOverrides({ createDiscordClient: () => fakeClient });
+		const discordHandler = await importDiscordHandler(
+			"newsletter-binary-reads",
+		);
+		state.dcClient = await discordHandler.start();
+		await delay(0);
+
+		for (const commandName of ["newslettermetadata", "newslettersubscribers"]) {
+			countLookup = commandName === "newslettersubscribers";
+			const interaction = createInteraction({
+				channelId: "control",
+				commandName,
+				stringOptions: { jid: "123@newsletter" },
+			});
+			fakeClient.emit("interactionCreate", interaction);
+			assert.ok(
+				await waitFor(() => interaction.records.editReply.length === 1),
+			);
+			const reply = interaction.records.editReply[0].content;
+			if (countLookup) assert.match(reply, /Subscribers for .*: 0$/);
+			else {
+				assert.match(reply, /Test Channel/);
+				assert.match(reply, /OWNER/);
+			}
+		}
+	} finally {
+		utils.discord.getGuild = originalDiscordUtils.getGuild;
+		utils.discord.getControlChannel = originalDiscordUtils.getControlChannel;
+
+		state.settings.Token = originalSettings.Token;
+		state.settings.GuildID = originalSettings.GuildID;
+		state.settings.ControlChannelID = originalSettings.ControlChannelID;
+
+		state.dcClient = originalDcClient;
+		state.waClient = originalWaClient;
+		resetClientFactoryOverrides();
+	}
+});
+
 test("/newsletterfollow resolves newsletter JID from invite link when jid is omitted", async () => {
 	const originalDiscordUtils = {
 		getGuild: utils.discord.getGuild,

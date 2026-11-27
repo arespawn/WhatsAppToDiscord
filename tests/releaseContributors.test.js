@@ -100,14 +100,14 @@ test("draft enrichment paginates releases and explicitly spans the stable cycle"
 	const requests = [];
 	const api = async (endpoint, options = {}) => {
 		requests.push({ endpoint, ...options });
-		if (endpoint.endsWith("/tags/v2.6.0")) {
-			return { id: 42, draft: true, prerelease: false, body };
-		}
 		if (endpoint.endsWith("?per_page=100")) {
 			assert.equal(options.paginate, true);
 			return [
 				[{ tag_name: "v2.6.0-beta.3", prerelease: true }],
-				[{ tag_name: "v2.5.6", draft: false, prerelease: false }],
+				[
+					{ tag_name: "v2.6.0", id: 42, draft: true, prerelease: false, body },
+					{ tag_name: "v2.5.6", draft: false, prerelease: false },
+				],
 			];
 		}
 		if (endpoint.endsWith("/generate-notes")) {
@@ -133,8 +133,9 @@ test("draft enrichment paginates releases and explicitly spans the stable cycle"
 
 test("credits reject beta or published releases before modifying anything", async () => {
 	for (const release of [
-		{ draft: false, prerelease: false },
-		{ draft: true, prerelease: true },
+		{ tag_name: "v2.6.0", draft: false, prerelease: false },
+		{ tag_name: "v2.6.0", draft: true, prerelease: true },
+		{ tag_name: "v2.6.1", draft: true, prerelease: false },
 	]) {
 		let requests = 0;
 		await assert.rejects(
@@ -143,7 +144,7 @@ test("credits reject beta or published releases before modifying anything", asyn
 				tag: "v2.6.0",
 				api: async () => {
 					requests += 1;
-					return release;
+					return [[release]];
 				},
 			}),
 			/draft stable release/u,
@@ -168,13 +169,11 @@ test("credit generation fails without changing the draft if GitHub fails", async
 				tag: "v2.6.0",
 				api: async (endpoint, options = {}) => {
 					methods.push(options.method);
-					if (endpoint.includes("/tags/")) {
-						return { id: 42, draft: true, prerelease: false, body: "Notes" };
-					}
 					if (endpoint.includes("?per_page=")) {
+						const draft = { tag_name: "v2.6.0", draft: true };
 						return failure === "missing-baseline"
-							? [[]]
-							: [[{ tag_name: "v2.5.6" }]];
+							? [[draft]]
+							: [[draft, { tag_name: "v2.5.6" }]];
 					}
 					throw new Error("GitHub request failed");
 				},
